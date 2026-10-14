@@ -85,7 +85,7 @@ export default function Home({
 				>
 					github
 				</a>
-				{' проекта | Версия 1.3'}
+				{' проекта | Версия 1.4'}
 			</footer>
 		</main>
 	)
