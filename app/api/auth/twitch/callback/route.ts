@@ -74,7 +74,12 @@ export async function GET(req: Request) {
   }
 
   const res = seeOther(next);
-  res.headers.append("Set-Cookie", `sc_session=${signSession(session)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}`);
+  // Secure только на https: иначе на локальном http браузер отбросил бы cookie
+  const secure = getOrigin(req).startsWith("https:") ? "; Secure" : "";
+  res.headers.append(
+    "Set-Cookie",
+    `sc_session=${signSession(session)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}${secure}`,
+  );
   res.headers.append("Set-Cookie", "sc_oauth_state=; Path=/; Max-Age=0");
   res.headers.append("Set-Cookie", "sc_next=; Path=/; Max-Age=0");
   return res;

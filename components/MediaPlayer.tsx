@@ -7,11 +7,15 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { StreamElement } from '@/lib/types'
-import { parseMediaUrl, loadTwitchSdk } from '@/lib/media'
+import { loadTwitchSdk, mediaKeyFor, parseMediaUrl } from '@/lib/media'
+
+// kind: откуда элемент берёт управление — YouTube/Twitch через postMessage/SDK,
+// либо обычный <video> (файл с ПК или прямая ссылка), которым рулим DOM-плеером
+export type MediaKind = 'youtube' | 'twitch' | 'video'
 
 export type MediaSt = {
-	vid: string // ключ источника (youtube id / twitch ключ) — для сброса состояния при смене ссылки
-	kind: 'youtube' | 'twitch'
+	vid: string // ключ источника (mediaKeyFor) — состояние сбрасывается при смене ссылки
+	kind: MediaKind
 	st: number // 1 играет, 2 пауза, 0 закончилось, -1 не запущено
 	t: number
 	dur: number
@@ -34,6 +38,7 @@ function fmtTime(seconds: number): string {
 
 export function MediaChrome({
 	el,
+	kind,
 	st,
 	register,
 	toggle,
@@ -41,6 +46,7 @@ export function MediaChrome({
 	command,
 }: {
 	el: StreamElement
+	kind: MediaKind
 	st?: MediaSt
 	register: (id: string, ctl: ChromeCtl | null) => void
 	toggle: (id: string) => void
@@ -99,16 +105,17 @@ export function MediaChrome({
 		if (stNum !== undefined) note()
 	}, [stNum, note])
 
-	const info = parseMediaUrl(el.src || '')
-	const kind = info && info.kind !== 'youtube' ? 'twitch' : 'youtube'
 	const isYoutube = kind === 'youtube'
-	const vidKey = st?.vid ?? ''
-	const known = !!st && st.vid === vidKey && vidKey !== ''
+	// состояние относится именно к текущей ссылке (после смены src старое состояние
+	// показывать нельзя): сравнение с ключом источника, а не с самим st.vid
+	const vidKey = mediaKeyFor(el)
+	const known = !!st && vidKey !== '' && st.vid === vidKey
 	// превью-заставка YouTube: плеер не запускался (нативный постер YouTube с кнопками прятать)
 	const poster =
 		isYoutube &&
 		(!known || (st!.st === -1 || st!.st === 5 || (st!.st === 2 && st!.t < 1 && !everPlayedRef.current)))
-	const ytId = info && info.kind === 'youtube' ? info.id : ''
+	const ytInfo = isYoutube ? parseMediaUrl(el.src || '') : null
+	const ytId = ytInfo?.kind === 'youtube' ? ytInfo.id : ''
 	const live = kind === 'twitch' && (st?.dur ?? 0) <= 0 && known
 	const hasSeek = (st?.dur ?? 0) > 0
 	const u = Math.max(0.8, Math.min(2.2, el.height / 315))
@@ -293,6 +300,9 @@ export function MediaChrome({
 // iframe SDK-плеера прозрачен для курсора)
 export function TwitchFrame({ el, onPlayer }: { el: StreamElement; onPlayer: (id: string, p: any | null) => void }) {
 	const ref = useRef<HTMLDivElement | null>(null)
+	// если SDK не загрузился (блокировщик рекламы, недоступный twitch.tv) — говорим
+	// об этом прямо, иначе остаётся непонятный чёрный прямоугольник
+	const [failed, setFailed] = useState(false)
 	useEffect(() => {
 		let cancelled = false
 		const divId = 'twitch-' + el.id
@@ -303,13 +313,15 @@ export function TwitchFrame({ el, onPlayer }: { el: StreamElement; onPlayer: (id
 				const info = parseMediaUrl(el.src || '')
 				if (!info || info.kind === 'youtube') return
 				ref.current.id = divId
-				const opts: any = { parent: location.hostname, width: '100%', height: '100%', autoplay: false, muted: true }
+				const opts: any = { parent: location.hostname, width: '100%', height: '100%', autoplay: !!el.autoplay, muted: true }
 				if (info.kind === 'twitch-channel') opts.channel = info.channel
 				else if (info.kind === 'twitch-vod') opts.video = info.id
 				else if (info.kind === 'twitch-clip') opts.clip = info.slug
 				const p = new Tw.Player(divId, opts)
 				onPlayer(el.id, p)
-			} catch {}
+			} catch {
+				if (!cancelled) setFailed(true)
+			}
 		})()
 		return () => {
 			cancelled = true
@@ -317,5 +329,32 @@ export function TwitchFrame({ el, onPlayer }: { el: StreamElement; onPlayer: (id
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [el.id, el.src])
-	return <div ref={ref} data-id={el.id} style={{ width: '100%', height: '100%', pointerEvents: 'none' }} />
+	return (
+		<div ref={ref} data-id={el.id} style={{ width: '100%', height: '100%', pointerEvents: 'none' }}>
+			{failed && (
+				<div
+					style={{
+						position: 'absolute',
+						inset: 0,
+						display: 'flex',
+						flexDirection: 'column',
+						alignItems: 'center',
+						justifyContent: 'center',
+						gap: 4,
+						background: 'rgba(0,0,0,.82)',
+						color: '#fbbf24',
+						fontSize: 12,
+						textAlign: 'center',
+						padding: 8,
+					}}
+				>
+					<span>Плеер Twitch не загрузился</span>
+					<span style={{ color: '#9ca3af', fontSize: 10 }}>
+						Частые причины: блокировщик рекламы, VPN/блокировка twitch.tv, ссылка не на
+						канал/видео/клип
+					</span>
+				</div>
+			)}
+		</div>
+	)
 }

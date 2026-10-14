@@ -5,12 +5,15 @@ import { invalidLinkScreen, isValidRoomToken } from "@/lib/links";
 export const dynamic = "force-dynamic";
 
 export default function Overlay({ searchParams }: { searchParams?: { room?: string } }) {
-  if (!isValidRoomToken(searchParams?.room)) {
-    return invalidLinkScreen();
-  }
-  return (
-    <ErrorBoundary>
-      <OverlayClient room={searchParams?.room} />
-    </ErrorBoundary>
-  );
+	const room = searchParams?.room
+	// оверлей тоже открывается только по ссылке с токеном комнаты: без него
+	// работала бы «общая» комната-фантом, куда никто не пишет
+	if (!room || !isValidRoomToken(room)) {
+		return invalidLinkScreen()
+	}
+	return (
+		<ErrorBoundary>
+			<OverlayClient room={room} />
+		</ErrorBoundary>
+	)
 }

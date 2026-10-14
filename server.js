@@ -4,13 +4,105 @@ const { Server } = require('socket.io')
 const crypto = require('crypto')
 const fs = require('fs')
 const path = require('path')
+const roomStore = require('./lib/roomStore')
 
-const dev = process.env.NODE_ENV !== 'production'
+// режим запуска: npm run dev (--dev) / npm start (--prod).
+// Флаги вместо NODE_ENV=... в скрипте: одна и та же команда работает и на Windows
+const dev = process.argv.includes('--dev')
+	? true
+	: process.argv.includes('--prod')
+		? false
+		: process.env.NODE_ENV !== 'production'
+
 const app = next({ dev })
 const handle = app.getRequestHandler()
 
 const CANVAS_W = 1920
 const CANVAS_H = 1080
+
+// каталог данных (links.json / invites.json / owner.json / rooms/). На хостинге с
+// эфемерной ФС монтируйте том и укажите DATA_DIR — иначе ссылки, инвайты, токены
+// смайликов и элементы оверлея теряются при каждом рестарте/деплое.
+// Читаем лениво: значения из .env.local попадают в process.env только после
+// app.prepare() (Next загружает их сам), а модуль server.js исполняется раньше
+function dataDir() {
+	return process.env.DATA_DIR
+		? path.resolve(process.env.DATA_DIR)
+		: path.join(__dirname, 'data')
+}
+
+function roomsDir() {
+	return path.join(dataDir(), 'rooms')
+}
+
+// секрет подписи cookie-сессии — тот же порядок, что в lib/session.ts.
+// Тоже лениво: иначе секрет из .env.local не успел бы примениться
+function sessionSecret() {
+	return (
+		process.env.SESSION_SECRET || process.env.TWITCH_CLIENT_SECRET || 'ovrly-dev-secret'
+	)
+}
+
+// гостям (оверлей в OBS — без cookie-сессии) доступно только чтение: из событий
+// разрешены лишь служебные, состояние оверлея меняют только авторизованные панели
+const READ_ONLY_EVENTS = new Set(['cursor:move', 'overlay:hello'])
+
+// предел числа комнат: имя комнаты приходит из query и может быть любым, без лимита
+// карта rooms росла бы бесконечно (каждая комната держит элементы своего стейта).
+// При вытеснении комната сначала сохраняется на диск — вернётся, когда в неё зайдут снова
+const MAX_ROOMS = 200
+
+// предохранитель по памяти: медиа «с ПК» лежат в памяти как base64, одна комната
+// не должна занять всю RAM сервера
+const MAX_ROOM_BYTES = 150 * 1024 * 1024
+
+// события, меняющие состояние комнаты: по ним помечаем комнату «грязной» и раз в
+// несколько секунд пишем её на диск (перетаскивание не пишет файл на каждое движение)
+const MUTATING_EVENTS = new Set([
+	'element:add',
+	'element:update',
+	'element:move',
+	'element:resize',
+	'element:delete',
+	'element:reorder',
+	'element:toggle-visible',
+	'timer:start',
+	'timer:pause',
+	'timer:reset',
+	'elements:clear',
+])
+
+// как часто сбрасывать изменения комнат на диск
+const ROOM_FLUSH_MS = 5000
+
+// проверка cookie-сессии (payload.sig, как в lib/session.ts). Логин из query больше
+// не считается доказательством: иначе отозванный модератор мог переподключиться
+// без ?login= и остаться «гостем» с правом менять оверлей
+function sessionFromCookie(cookieHeader) {
+	const m = /(?:^|;\s*)sc_session=([^;]+)/.exec(cookieHeader || '')
+	if (!m) return null
+	let raw = m[1]
+	try {
+		raw = decodeURIComponent(raw)
+	} catch {}
+	const dot = raw.lastIndexOf('.')
+	if (dot <= 0) return null
+	const payload = raw.slice(0, dot)
+	const sig = raw.slice(dot + 1)
+	const expected = crypto
+		.createHmac('sha256', sessionSecret())
+		.update(payload)
+		.digest('base64url')
+	const a = Buffer.from(sig)
+	const b = Buffer.from(expected)
+	if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null
+	try {
+		const data = JSON.parse(Buffer.from(payload, 'base64url').toString())
+		return data && typeof data.login === 'string' && data.login ? data : null
+	} catch {
+		return null
+	}
+}
 
 app.prepare().then(() => {
 	const server = createServer((req, res) => {
@@ -18,60 +110,132 @@ app.prepare().then(() => {
 	})
 
 	const io = new Server(server, {
-		cors: { origin: '*', methods: ['GET', 'POST'] },
 		maxHttpBufferSize: 50 * 1024 * 1024,
+		// Пускаем только соединения со своего origin: чужой сайт не должен открывать
+		// сокет к панели (гостям и так доступно только чтение, но зачем лишний канал).
+		// Свой origin всегда совпадает с Host, поэтому панель/оверлей/OBS проходят.
+		// Если за прокси Host подменяется — можно отключить проверку: TRUST_ANY_ORIGIN=1
+		allowRequest: (req, cb) => {
+			if (process.env.TRUST_ANY_ORIGIN === '1') return cb(null, true)
+			const origin = req.headers.origin
+			if (!origin) return cb(null, true) // не браузер: тесты, нативные клиенты
+			try {
+				const ok = new URL(origin).host === req.headers.host
+				if (!ok)
+					console.log('[io] отклоняю соединение с чужого origin:', origin, 'host:', req.headers.host)
+				return cb(null, ok)
+			} catch {
+				return cb(null, false)
+			}
+		},
+		cors: { origin: '*', methods: ['GET', 'POST'] },
 	})
 
 	// комнаты: у каждой ссылки (?room=токен) своё независимое состояние;
 	// прямой доступ без ?room= попадает в общую комнату "default"
-	const rooms = new Map() // key -> { state: {elements, canvasW, canvasH}, lastActivity: number }
+	const rooms = new Map() // key -> { key, state, lastActivity, locks, dirty }
+
+	const liveSockets = key => io.sockets.adapter.rooms.get(key)?.size ?? 0
+
+	// записать комнату на диск, если есть несохранённые изменения
+	function persist(r) {
+		if (!r || !r.dirty) return
+		if (roomStore.saveRoom(roomsDir(), r.key, r.state)) r.dirty = false
+	}
+
+	// пустые комнаты (без подключений и без элементов) можно удалять сразу —
+	// терять нечего, файл на диске тоже убираем
+	function dropEmptyRooms() {
+		for (const [key, r] of rooms) {
+			if (liveSockets(key) === 0 && r.state.elements.length === 0) {
+				rooms.delete(key)
+				roomStore.deleteRoom(roomsDir(), key)
+			}
+		}
+	}
+
+	// вытеснение при достижении лимита: сначала пустые, затем самые давние без
+	// подключений — их состояние сначала сохраняем, чтобы не потерять элементы
+	function evictRooms() {
+		dropEmptyRooms()
+		if (rooms.size < MAX_ROOMS) return
+		const stale = [...rooms.entries()]
+			.filter(([key]) => liveSockets(key) === 0)
+			.sort((a, b) => a[1].lastActivity - b[1].lastActivity)
+		for (const [key, r] of stale) {
+			if (rooms.size < MAX_ROOMS) break
+			persist(r)
+			rooms.delete(key)
+			console.log('[ovrly] комната вытеснена из памяти (лимит комнат):', key.slice(0, 12))
+		}
+	}
 
 	function getRoom(key) {
 		let r = rooms.get(key)
-		if (!r) {
-			r = {
-				state: { elements: [], canvasW: CANVAS_W, canvasH: CANVAS_H },
-				lastActivity: Date.now(),
-			}
-			rooms.set(key, r)
+		if (r) return r
+		if (rooms.size >= MAX_ROOMS) evictRooms()
+		// состояние поднимаем с диска: элементы переживают рестарт сервера
+		const saved = roomStore.loadRoom(roomsDir(), key)
+		r = {
+			key,
+			state: saved ?? { elements: [], canvasW: CANVAS_W, canvasH: CANVAS_H },
+			lastActivity: Date.now(),
+			locks: new Map(), // id элемента -> { socketId, login, until }
+			dirty: false,
+		}
+		rooms.set(key, r)
+		if (saved) {
+			console.log(
+				'[ovrly] комната восстановлена с диска:',
+				key.slice(0, 12),
+				'элементов:',
+				saved.elements.length,
+			)
 		}
 		return r
 	}
 
-	// автоочистка: 3 часа без изменений — элементы стираются (даже если вкладки открыты);
-	// комната совсем без подключений удаляется через 12 часов
-	const IDLE_CLEAR_MS = 3 * 60 * 60 * 1000
-	const ROOM_DELETE_MS = 12 * 60 * 60 * 1000
+	// периодика: чистим просроченные локи и пустые комнаты. Элементы больше НЕ стираются
+	// по времени — они хранятся, пока их не удалят (или пока комнату не вытеснит лимит)
 	setInterval(() => {
 		const now = Date.now()
 		for (const [key, r] of rooms) {
-			if (r.state.elements.length > 0 && now - r.lastActivity > IDLE_CLEAR_MS) {
-				r.state.elements = []
-				io.to(key).emit('elements:cleared')
-				console.log(
-					'[ovrly] элементы очищены: 3 часа без изменений —',
-					key.slice(0, 12),
-				)
-			}
-			const sockets = io.sockets.adapter.rooms.get(key)
-			if (
-				(!sockets || sockets.size === 0) &&
-				now - r.lastActivity > ROOM_DELETE_MS
-			) {
+			for (const [id, lock] of r.locks) if (lock.until < now) r.locks.delete(id)
+			if (liveSockets(key) === 0 && r.state.elements.length === 0) {
 				rooms.delete(key)
-				console.log(
-					'[ovrly] комната удалена: 12 часов без подключений —',
-					key.slice(0, 12),
-				)
+				roomStore.deleteRoom(roomsDir(), key)
 			}
 		}
 	}, 60 * 1000)
 
-	// владелец комнаты (стример) по токену ссылки: data/links.json — login -> { token }
+	// сброс изменений комнат на диск (не чаще раза в ROOM_FLUSH_MS на комнату)
+	setInterval(() => {
+		for (const r of rooms.values()) persist(r)
+	}, ROOM_FLUSH_MS)
+
+	// аккуратное завершение: дописываем комнаты, чтобы Ctrl+C не терял последние правки
+	let shuttingDown = false
+	const shutdown = signal => {
+		if (shuttingDown) return
+		shuttingDown = true
+		let n = 0
+		for (const r of rooms.values()) {
+			if (r.dirty) {
+				persist(r)
+				n++
+			}
+		}
+		console.log(`[ovrly] выключение (${signal}): сохранено комнат — ${n}`)
+		process.exit(0)
+	}
+	process.on('SIGINT', () => shutdown('SIGINT'))
+	process.on('SIGTERM', () => shutdown('SIGTERM'))
+
+	// владелец комнаты (стример) по токену ссылки: links.json — login -> { token }
 	let linksCache = { mtime: 0, map: new Map() }
 	function roomOwner(token) {
 		try {
-			const file = path.join(__dirname, 'data', 'links.json')
+			const file = path.join(dataDir(), 'links.json')
 			const mtime = fs.statSync(file).mtimeMs
 			if (linksCache.mtime !== mtime) {
 				const map = new Map()
@@ -92,7 +256,7 @@ app.prepare().then(() => {
 	let invitesCache = { mtime: 0, data: {} }
 	function invitesData() {
 		try {
-			const file = path.join(__dirname, 'data', 'invites.json')
+			const file = path.join(dataDir(), 'invites.json')
 			const mtime = fs.statSync(file).mtimeMs
 			if (invitesCache.mtime !== mtime) {
 				invitesCache = { mtime, data: JSON.parse(fs.readFileSync(file, 'utf8')) }
@@ -119,38 +283,57 @@ app.prepare().then(() => {
 
 		socket.emit('state:init', state)
 
-		// живые курсоры: ретрансляция позиции мыши другим участникам комнаты.
-		// Логин берём из handshake (?login=) — данные косметические, авторизация не нужна
-		const userLogin = ((socket.handshake.query.login || 'гость') + '').slice(
-			0,
-			40,
-		)
-		roomRec.locks = roomRec.locks ?? new Map() // id элемента -> { socketId, login, until }
+		// личность берём из подписанной cookie: панель всегда её отправляет (same-origin),
+		// у оверлея в OBS cookie нет — он гость и работает только на чтение
+		const session = sessionFromCookie(socket.handshake.headers.cookie)
+		const userLogin = session ? session.login : 'гость'
+		const isGuest = !session
+		const ownerByRoom = roomOwner(room)
 		// стример (владелец комнаты) может перехватывать элементы у модераторов всегда
 		const isStreamer =
-			!!roomOwner(room) && userLogin.toLowerCase() === roomOwner(room).toLowerCase()
+			!isGuest && !!ownerByRoom && userLogin.toLowerCase() === ownerByRoom.toLowerCase()
+		const hasAccess = !isGuest && hasPanelAccess(room, userLogin)
 
-		// мгновенная проверка доступа: у отозванного модератора соединение закрывается
-		// и панель показывает «доступ отозван» (гость = оверлей, он только слушает)
-		const isGuest = userLogin === 'гость' || userLogin === 'гость'.toLowerCase()
-		if (!isGuest && !hasPanelAccess(room, userLogin)) {
+		// сообщаем роль клиенту: панель без валидной сессии предупредит, что правки
+		// не сохраняются (иначе действия молча отклонялись бы)
+		socket.emit('access:role', { readOnly: !hasAccess, guest: isGuest })
+
+		if (!isGuest && !hasAccess) {
 			console.log('[io] доступ отозван, отключаю:', userLogin, 'room:', room.slice(0, 12))
 			socket.emit('access:revoked')
 			socket.disconnect(true)
 			return
 		}
-		console.log('[io] connect:', socket.id, 'room:', room, 'login:', userLogin)
+		console.log(
+			'[io] connect:',
+			socket.id,
+			'room:',
+			room.slice(0, 12),
+			'login:',
+			userLogin,
+			isGuest ? '(гость, только чтение)' : '',
+		)
 
-		// любое событие от клиента считается активностью и отодвигает автоочистку;
-		// здесь же проверяем доступ: отзыв у модератора действует мгновенно
-		socket.use((event, next) => {
+		// любое событие от клиента считается активностью; здесь же проверяем доступ
+		// (отзыв у модератора действует мгновенно) и помечаем комнату на сохранение
+		socket.use((packet, next) => {
+			const event = packet && packet[0]
 			roomRec.lastActivity = Date.now()
-			if (!isGuest && !isStreamer && !hasPanelAccess(room, userLogin)) {
+			if (isGuest) {
+				if (READ_ONLY_EVENTS.has(event)) return next()
+				console.log('[io] гостю доступно только чтение, отклоняю:', event)
+				return next(new Error('read-only'))
+			}
+			// курсоры — косметика: не гоняем проверку доступа на каждое движение мыши,
+			// отзыв всё равно сработает на первом же действии
+			if (event === 'cursor:move') return next()
+			if (!isStreamer && !hasPanelAccess(room, userLogin)) {
 				console.log('[io] доступ отозван на событии:', event, userLogin)
 				socket.emit('access:revoked')
 				socket.disconnect(true)
 				return next(new Error('access revoked'))
 			}
+			if (MUTATING_EVENTS.has(event)) roomRec.dirty = true
 			next()
 		})
 
@@ -211,13 +394,19 @@ app.prepare().then(() => {
 			}
 		})
 
-		socket.on('canvas:resize', dims => {
-			state.canvasW = dims.w
-			state.canvasH = dims.h
-			io.to(room).emit('canvas:resize', dims)
-		})
-
 		socket.on('element:add', el => {
+			// предохранитель по памяти: комната с тяжёлыми base64-файлами не должна
+			// разрастись до OOM (это убило бы и её саму, и соседние комнаты)
+			if (roomStore.roomBytes(state) > MAX_ROOM_BYTES) {
+				console.log(
+					'[io] комната переполнена, элемент не добавлен:',
+					room.slice(0, 12),
+					'~',
+					Math.round(roomStore.roomBytes(state) / 1024 / 1024),
+					'МБ',
+				)
+				return
+			}
 			el.id = el.id || Date.now() + '-' + Math.random().toString(36).slice(2, 9)
 			el.zIndex = el.zIndex ?? state.elements.length
 			el.visible = el.visible ?? true
@@ -291,6 +480,7 @@ app.prepare().then(() => {
 
 		socket.on('element:delete', id => {
 			state.elements = state.elements.filter(e => e.id !== id)
+			roomRec.locks.delete(id)
 			io.to(room).emit('element:deleted', id)
 		})
 
@@ -387,6 +577,7 @@ app.prepare().then(() => {
 
 		socket.on('elements:clear', () => {
 			state.elements = []
+			roomRec.locks.clear()
 			io.to(room).emit('elements:cleared')
 		})
 	})
@@ -395,6 +586,8 @@ app.prepare().then(() => {
 	server.listen(port, () => {
 		console.log('  ➜  Main:   http://localhost:' + port)
 		console.log('  ➜  Panel:   http://localhost:' + port + '/panel')
-		console.log('  ➜  Overlay: http://localhost:' + port + '/overlay\n')
+		console.log('  ➜  Overlay: http://localhost:' + port + '/overlay')
+		console.log('  ➜  Data:    ' + dataDir())
+		console.log('  ➜  Rooms:   ' + roomsDir() + ' (элементы хранятся на диске)\n')
 	})
 })

@@ -13,8 +13,25 @@ export default function Home({
 	if (session) redirect('/cabinet')
 	const error = searchParams?.error
 
+	// структурированные данные для поиска: что это за приложение
+	const jsonLd = {
+		'@context': 'https://schema.org',
+		'@type': 'SoftwareApplication',
+		name: 'Ovrly',
+		applicationCategory: 'MultimediaApplication',
+		operatingSystem: 'Windows, macOS, Linux (OBS Studio)',
+		inLanguage: 'ru',
+		description:
+			'Панель управления оверлеем OBS: картинки, видео, сайты, YouTube и Twitch, текст и таймеры с перетаскиванием в реальном времени и доступами для модераторов.',
+		offers: { '@type': 'Offer', price: '0', priceCurrency: 'RUB' },
+	}
+
 	return (
 		<main className='min-h-screen bg-bg flex flex-col items-center justify-center px-4 relative'>
+			<script
+				type='application/ld+json'
+				dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+			/>
 			<div className='flex items-center gap-3 mb-3'>
 				<LogoMark size={44} />
 				<h1 className='text-2xl font-semibold text-white'>Ovrly</h1>

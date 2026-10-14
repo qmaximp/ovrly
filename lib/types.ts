@@ -13,6 +13,20 @@ export interface StreamElement {
   color?: string;
   fontWeight?: string;
   bgColor?: string;
+  // --- оформление текста (всё необязательное: без значений — как было раньше) ---
+  fontFamily?: string; // готовая CSS-строка стека шрифтов
+  italic?: boolean;
+  underline?: boolean;
+  textAlign?: 'left' | 'center' | 'right';
+  verticalAlign?: 'top' | 'middle' | 'bottom';
+  lineHeight?: number; // множитель, по умолчанию 1.2
+  letterSpacing?: number; // px, может быть отрицательным
+  strokeWidth?: number; // обводка букв (px), 0 = выключена
+  strokeColor?: string;
+  shadow?: boolean;
+  shadowColor?: string;
+  padding?: number; // внутренний отступ до фона (px)
+  radius?: number; // скругление фона (px)
   opacity?: number;
   rotation?: number;
   flipH?: boolean;

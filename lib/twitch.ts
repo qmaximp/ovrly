@@ -36,17 +36,30 @@ export async function helix(path: string): Promise<any | null> {
   return res.json();
 }
 
-// логин -> id канала (Helix, при отсутствии ключей — публичный ivr.fi)
+// логин -> id канала (Helix, при отсутствии ключей — публичный ivr.fi).
+// Промахи тоже кэшируем: без этого несуществующий/непривязанный канал заново
+// дёргал Helix и ivr.fi на каждый запрос смайликов
 const userIdCache = new Map<string, string>();
+const userIdMiss = new Map<string, number>();
+const MISS_TTL_MS = 5 * 60 * 1000;
+
 export async function twitchUserId(login: string): Promise<string | null> {
   const key = login.toLowerCase();
-  if (userIdCache.has(key)) return userIdCache.get(key)!;
+  const hit = userIdCache.get(key);
+  if (hit) return hit;
+  const missAt = userIdMiss.get(key);
+  if (missAt && Date.now() - missAt < MISS_TTL_MS) return null;
   const helixData = await helix(`users?login=${encodeURIComponent(key)}`);
   const id = helixData?.data?.[0]?.id ?? null;
-  if (id) { userIdCache.set(key, id); return id; }
+  if (id) { userIdCache.set(key, id); userIdMiss.delete(key); return id; }
   const ivr = await safe(() =>
     fetch(`https://api.ivr.fi/v2/twitch/user?login=${encodeURIComponent(key)}`).then((r) => r.json())
   );
-  if (Array.isArray(ivr) && ivr[0]?.id) { userIdCache.set(key, ivr[0].id); return ivr[0].id; }
+  if (Array.isArray(ivr) && ivr[0]?.id) {
+    userIdCache.set(key, ivr[0].id);
+    userIdMiss.delete(key);
+    return ivr[0].id;
+  }
+  userIdMiss.set(key, Date.now());
   return null;
 }

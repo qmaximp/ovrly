@@ -1,9 +1,28 @@
 import fs from "fs";
 import path from "path";
 
-const DATA_DIR = path.join(process.cwd(), "data");
+// каталог данных можно вынести на смонтированный том (DATA_DIR) — иначе на хостинге
+// с эфемерной ФС ссылки и токены теряются при каждом рестарте
+const DATA_DIR = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
+  : path.join(process.cwd(), "data");
 const LINKS_FILE = path.join(DATA_DIR, "links.json");
 const OWNER_FILE = path.join(DATA_DIR, "owner.json");
+
+// атомарная запись: пишем в временный файл и переименовываем — читатель
+// (сервер сокетов, соседний запрос) никогда не увидит обрезанный JSON
+function writeJsonAtomic(file: string, data: unknown) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  const text = JSON.stringify(data, null, 2);
+  const tmp = `${file}.${process.pid}.tmp`;
+  try {
+    fs.writeFileSync(tmp, text);
+    fs.renameSync(tmp, file);
+  } catch {
+    fs.writeFileSync(file, text);
+    try { fs.unlinkSync(tmp); } catch {}
+  }
+}
 
 export type LinksData = Record<string, {
   token: string;
@@ -23,8 +42,7 @@ export function readLinks(): LinksData {
 }
 
 export function writeLinks(data: LinksData) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(LINKS_FILE, JSON.stringify(data, null, 2));
+  writeJsonAtomic(LINKS_FILE, data);
 }
 
 // токен валиден, только если совпадает с последним сгенерированным;
@@ -41,8 +59,7 @@ export function readOwner(): string | null {
 }
 
 export function writeOwner(login: string) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(OWNER_FILE, JSON.stringify({ login, setAt: new Date().toISOString() }, null, 2));
+  writeJsonAtomic(OWNER_FILE, { login, setAt: new Date().toISOString() });
 }
 
 // экран «нет регистрации»: доступ только после входа через Twitch.

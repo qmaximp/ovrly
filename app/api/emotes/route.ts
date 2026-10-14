@@ -144,7 +144,13 @@ async function ffz(broadcasterId: string | null): Promise<Emote[]> {
 }
 
 export async function GET(req: Request) {
-  const channel = (new URL(req.url).searchParams.get("channel") || "").trim().toLowerCase().replace(/^@/, "");
+	// смайлики запрашивает только панель: без сессии ручка не нужна (и не должна
+	// работать как открытый прокси к Twitch/7TV от имени владельца канала)
+	const m = (req.headers.get("cookie") || "").match(/(?:^|;\s*)sc_session=([^;]+)/);
+	const session = m ? verifySession(decodeURIComponent(m[1])) : null;
+	if (!session) return json({ error: "unauthorized" }, 401);
+
+	const channel = (new URL(req.url).searchParams.get("channel") || "").trim().toLowerCase().replace(/^@/, "");
   // без кэша: каждый запрос — живые данные всех платформ
 
   let broadcasterId: string | null = null;

@@ -1,11 +1,12 @@
 'use client'
 
 import type { StreamElement, SyncState } from '@/lib/types'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { toEmbedUrl } from '@/lib/embed'
 import { parseMediaUrl, youtubeEmbedUrl, loadTwitchSdk } from '@/lib/media'
 import { playFinishSound } from '@/lib/sound'
 import { noteServerClock, serverClockLag } from '@/lib/clock'
+import { textBoxStyle, ensureFontLoaded } from '@/lib/textStyle'
 import { io as ioInit } from 'socket.io-client'
 
 // медиа-плееры оверлея: YouTube — iframe + postMessage, Twitch — SDK-плеер.
@@ -18,7 +19,30 @@ const playerTimes = new Map<string, { t: number; st: number }>()
 // по СВЕЖЕЙ цели (панель шлёт её 1/с для играющих элементов). Устаревшая цель
 // (панель закрыта / видео остановлено в панели) отматывала бы плеер по кругу
 const seekTargets = new Map<string, { t: number; at: number }>()
+// элементы, у которых пользователь ОСОЗНАННО включил субтитры кнопкой в панели:
+// для остальных YouTube-роликов субтитры принудительно выгружаются (см. ниже)
+const ytCcOn = new Set<string>()
 const FRESH_MS = 5000
+
+// забываем всё, что оверлей держал про элемент: без этого карты плееров и позиций
+// растут всю сессию и держат ссылки на удалённые элементы (особенно с base64-видео)
+function forgetElement(id: string) {
+	ytFrames.delete(id)
+	twitchPlayers.delete(id)
+	twitchSt.delete(id)
+	playerTimes.delete(id)
+	seekTargets.delete(id)
+	ytCcOn.delete(id)
+}
+
+function forgetAllElements() {
+	ytFrames.clear()
+	twitchPlayers.clear()
+	twitchSt.clear()
+	playerTimes.clear()
+	seekTargets.clear()
+	ytCcOn.clear()
+}
 
 export default function OverlayClient({ room }: { room?: string | null }) {
 	const [state, setState] = useState<SyncState>({
@@ -70,16 +94,27 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 					),
 				})),
 		)
-		socket.on('element:deleted', (id: string) =>
-			setState(p => ({ ...p, elements: p.elements.filter(e => e.id !== id) })),
-		)
+		socket.on('element:deleted', (id: string) => {
+			forgetElement(id)
+			setYtStarted(prev => {
+				if (!prev.has(id)) return prev
+				const s = new Set(prev)
+				s.delete(id)
+				return s
+			})
+			setState(p => ({ ...p, elements: p.elements.filter(e => e.id !== id) }))
+		})
 		socket.on('element:zorder', (ids: string[]) =>
 			setState(p => {
 				const z = new Map(ids.map((id, i) => [id, i]))
 				return { ...p, elements: p.elements.map(e => ({ ...e, zIndex: z.get(e.id) ?? e.zIndex })) }
 			}),
 		)
-		socket.on('elements:cleared', () => setState(p => ({ ...p, elements: [] })))
+		socket.on('elements:cleared', () => {
+			forgetAllElements()
+			setYtStarted(new Set())
+			setState(p => ({ ...p, elements: [] }))
+		})
 		// команды медиа-плееру из панели: YouTube — postMessage, Twitch — SDK
 		socket.on('element:command', ({ id, cmd, value }: { id: string; cmd: string; value?: number }) => {
 			const yf = ytFrames.get(id)
@@ -93,7 +128,11 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 				else if (cmd === 'volume') post('setVolume', [value ?? 100])
 				else if (cmd === 'mute') post('mute')
 				else if (cmd === 'unmute') post('unMute')
-				else if (cmd === 'cc') post(value ? 'loadModule' : 'unloadModule', ['captions'])
+				else if (cmd === 'cc') {
+					if (value) ytCcOn.add(id)
+					else ytCcOn.delete(id)
+					post(value ? 'loadModule' : 'unloadModule', ['captions'])
+				}
 				else if (cmd === 'seek') {
 					// целевая позиция из превью: подтягиваемся при расхождении > 2с —
 					// даже на паузе; незапущенный плеер не трогаем (seek до старта его клинит)
@@ -105,6 +144,10 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 						playerTimes.set(id, { t: value ?? 0, st: cur.st })
 					}
 				}
+				// YouTube включает субтитры сам (по настройке зрителя или у видео с
+				// принудительными субтитрами) — гасим после того, что это провоцирует
+				if ((cmd === 'play' || cmd === 'pause' || cmd === 'seek') && !ytCcOn.has(id))
+					post('unloadModule', ['captions'])
 			}
 			const tp = twitchPlayers.get(id)
 			if (tp) {
@@ -122,10 +165,28 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 					}
 				} catch {}
 			}
+			// обычное видео (файл/прямая ссылка): управляем самим DOM-плеером оверлея.
+			// Позицию панель для таких элементов не ретранслирует (seek слышен как
+			// рывки) — сюда приходят только явные действия пользователя
+			const v = document.querySelector(
+				`video[data-id="${id}"]`,
+			) as HTMLVideoElement | null
+			if (v) {
+				try {
+					if (cmd === 'play') void v.play().catch(() => {})
+					else if (cmd === 'pause') v.pause()
+					else if (cmd === 'seek') v.currentTime = value ?? 0
+					else if (cmd === 'volume') {
+						v.volume = Math.max(0, Math.min(1, (value ?? 100) / 100))
+						if (v.volume > 0) v.muted = false
+					} else if (cmd === 'mute') v.muted = true
+					else if (cmd === 'unmute') {
+						v.muted = false
+						if (v.volume === 0) v.volume = 1
+					}
+				} catch {}
+			}
 		})
-		socket.on('canvas:resize', (dims: { w: number; h: number }) =>
-			setState(p => ({ ...p, canvasW: dims.w, canvasH: dims.h })),
-		)
 		// панель с выбранным играющим элементом отдаст play/seek/субтитры
 		socket.on('connect', () => socket.emit('overlay:hello'))
 		return () => {
@@ -157,10 +218,21 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 			} catch {}
 		}
 		window.addEventListener('message', onMsg)
-		// handshake: без него YouTube не присылает infoDelivery
+		// handshake: без него YouTube не присылает infoDelivery.
+		// Заодно держим субтитры выключенными (кроме элементов, где их включили кнопкой):
+		// YouTube включает их сам, а в кадре они не нужны
 		const hs = setInterval(() => {
-			for (const f of ytFrames.values()) {
-				f.contentWindow?.postMessage(JSON.stringify({ event: 'listening', id: 1, channel: 'widget' }), '*')
+			for (const [id, f] of ytFrames) {
+				if (!f.contentWindow) continue
+				f.contentWindow.postMessage(
+					JSON.stringify({ event: 'listening', id: 1, channel: 'widget' }),
+					'*',
+				)
+				if (!ytCcOn.has(id))
+					f.contentWindow.postMessage(
+						JSON.stringify({ event: 'command', func: 'unloadModule', args: ['captions'] }),
+						'*',
+					)
 			}
 		}, 5000)
 		return () => { window.removeEventListener('message', onMsg); clearInterval(hs) }
@@ -243,6 +315,21 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 function OverlayElement({ el, ytStarted }: { el: StreamElement; ytStarted: boolean }) {
 	const [, force] = useState(0)
 	const playedRef = useRef(false)
+	// стабильный ref-колбэк: инлайн-колбэк менял бы идентичность на каждый рендер
+	// и React снимал/ставил бы ref заново (лишняя работа на каждом кадре таймера)
+	const setYtFrame = useCallback(
+		(f: HTMLIFrameElement | null) => {
+			if (f) ytFrames.set(el.id, f)
+			else ytFrames.delete(el.id)
+		},
+		[el.id],
+	)
+
+	// веб-шрифт текста (Google) грузим по требованию: в OBS интернет нужен,
+	// только если выбран не системный шрифт
+	useEffect(() => {
+		if (el.type === 'text') ensureFontLoaded(el.fontFamily)
+	}, [el.type, el.fontFamily])
 
 	useEffect(() => {
 		if (el.type !== 'timer' || !el.isRunning) return
@@ -278,6 +365,7 @@ function OverlayElement({ el, ytStarted }: { el: StreamElement; ytStarted: boole
 		return (
 			<div style={style}>
 				<video
+					data-id={el.id}
 					src={el.src}
 					style={{ width: '100%', height: '100%', objectFit: 'fill' }}
 					autoPlay
@@ -293,12 +381,9 @@ function OverlayElement({ el, ytStarted }: { el: StreamElement; ytStarted: boole
 			return (
 				<div style={style}>
 					<iframe
-						src={youtubeEmbedUrl(info.id, window.location.origin)}
+						src={youtubeEmbedUrl(info.id, window.location.origin, true, !!el.autoplay)}
 						title='media'
-						ref={f => {
-							if (f) ytFrames.set(el.id, f)
-							else ytFrames.delete(el.id)
-						}}
+						ref={setYtFrame}
 						style={{ width: '100%', height: '100%', border: 'none' }}
 						allow='autoplay; encrypted-media; picture-in-picture'
 					/>
@@ -340,21 +425,7 @@ function OverlayElement({ el, ytStarted }: { el: StreamElement; ytStarted: boole
 	}
 	if (el.type === 'text')
 		return (
-			<div
-				style={{
-					...style,
-					display: 'flex',
-					alignItems: 'center',
-					justifyContent: 'center',
-					fontSize: el.fontSize,
-					color: el.color,
-					fontWeight: el.fontWeight,
-					background: el.bgColor === 'transparent' ? 'none' : el.bgColor,
-					textAlign: 'center',
-					overflow: 'hidden',
-					wordBreak: 'break-word',
-				}}
-			>
+			<div style={{ ...style, ...textBoxStyle(el) }}>
 				{el.text}
 			</div>
 		)
@@ -438,7 +509,7 @@ function TwitchOverlayFrame({ el }: { el: StreamElement }) {
 				const info = parseMediaUrl(el.src || '')
 				if (!info || info.kind === 'youtube') return
 				ref.current.id = divId
-				const opts: any = { parent: location.hostname, width: '100%', height: '100%', autoplay: false, muted: true }
+				const opts: any = { parent: location.hostname, width: '100%', height: '100%', autoplay: !!el.autoplay, muted: true }
 				if (info.kind === 'twitch-channel') opts.channel = info.channel
 				else if (info.kind === 'twitch-vod') opts.video = info.id
 				else if (info.kind === 'twitch-clip') opts.clip = info.slug

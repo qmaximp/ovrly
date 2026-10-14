@@ -4,13 +4,30 @@ import { readLinks } from "@/lib/links";
 
 // Инвайты на доступ к панели: у каждой комнаты (владелец = логин в links.json)
 // свой список модераторов со статусами.
-//   pending  — приглашён (по нику или через визит по ссылке), но ещё не принял
+//   pending  — приглашён стримером по нику, но ещё не принял (ссылка сама по себе
+//              доступа не даёт: открыв её, модератор видит экран «нет приглашения»)
 //   accepted — доступ открыт; suspended=true — временно отключён стримером
 // Токен в записи модератора НЕ хранится: ссылка всегда строится из АКТУАЛЬНОГО
 // токена владельца, поэтому после «Сгенерировать заново» ссылка у модератора меняется сама.
 
-const DATA_DIR = path.join(process.cwd(), "data");
+const DATA_DIR = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
+  : path.join(process.cwd(), "data");
 const INVITES_FILE = path.join(DATA_DIR, "invites.json");
+
+// атомарная запись (см. lib/links.tsx): никаких обрезанных JSON у читателей
+function writeJsonAtomic(file: string, data: unknown) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  const text = JSON.stringify(data, null, 2);
+  const tmp = `${file}.${process.pid}.tmp`;
+  try {
+    fs.writeFileSync(tmp, text);
+    fs.renameSync(tmp, file);
+  } catch {
+    fs.writeFileSync(file, text);
+    try { fs.unlinkSync(tmp); } catch {}
+  }
+}
 
 export type InviteStatus = "pending" | "accepted";
 
@@ -33,8 +50,7 @@ export function readInvites(): InvitesData {
 }
 
 export function writeInvites(data: InvitesData) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(INVITES_FILE, JSON.stringify(data, null, 2));
+  writeJsonAtomic(INVITES_FILE, data);
 }
 
 // владелец комнаты по токену ссылки
@@ -48,8 +64,8 @@ export function getInviteStatus(owner: string, login: string): ModeratorEntry | 
   return readInvites()[owner]?.moderators?.[login] ?? null;
 }
 
-// приглашение в статусе pending: создаётся при визите модератора по ссылке
-// или при приглашении по нику из кабинета. Принятый доступ не сбрасываем.
+// приглашение в статусе pending: создаётся стримером по нику в кабинете.
+// Уже принятый доступ не сбрасываем (повторное приглашение ничего не ломает)
 export function ensurePendingInvite(owner: string, login: string): ModeratorEntry {
   const data = readInvites();
   data[owner] = data[owner] ?? { moderators: {} };

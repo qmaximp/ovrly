@@ -8,15 +8,21 @@ import {
 	type MediaSt,
 } from '@/components/MediaPlayer'
 import ObsPanel from '@/components/ObsPanel'
+import TextStyleControls from '@/components/TextStyleControls'
+import { NumberField } from '@/components/fields'
 import { noteServerClock, serverClockLag } from '@/lib/clock'
 import { toEmbedUrl } from '@/lib/embed'
 import {
+	cannotBeFramed,
+	isLiveLink,
 	isMediaUrl,
 	loadTwitchSdk,
+	mediaKeyFor,
 	parseMediaUrl,
 	youtubeEmbedUrl,
 } from '@/lib/media'
 import { playFinishSound } from '@/lib/sound'
+import { ensureFontLoaded, textBoxStyle } from '@/lib/textStyle'
 import type { StreamElement, SyncState } from '@/lib/types'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { io as ioInit, Socket } from 'socket.io-client'
@@ -43,6 +49,8 @@ export default function PanelClient({
 	const [connected, setConnected] = useState(false)
 	// стример отозвал доступ — сервер закрыл соединение; блокируем панель целиком
 	const [accessRevoked, setAccessRevoked] = useState(false)
+	// сервер не увидел валидную сессию: панель открыта, но правки не сохраняются
+	const [readOnly, setReadOnly] = useState(false)
 	const [tab, setTab] = useState<'elements' | 'obs'>('elements')
 	const [theme, setTheme] = useState<'dark' | 'light'>('dark')
 	const [previewOn, setPreviewOn] = useState(false)
@@ -91,7 +99,28 @@ export default function PanelClient({
 	const chromeCtlRefs = useRef<Map<string, ChromeCtl>>(new Map())
 	const lastYtCmdRef = useRef<Map<string, 'play' | 'pause'>>(new Map())
 	const ccStatesRef = useRef<Map<string, number>>(new Map())
+	// когда элементу последний раз ретранслировали позицию (seek раз в секунду)
+	const lastTimeRelayPerElRef = useRef<Map<string, number>>(new Map())
+	// последняя известная позиция плеера и время отчёта: по ним панель догоняет
+	// оверлей, когда возвращаешься на вкладку (в фоне браузер ставит превью на паузу)
+	const lastPosRef = useRef<Map<string, { t: number; at: number }>>(new Map())
 	const [addSheet, setAddSheet] = useState<null | 'image' | 'video'>(null)
+	// левую панель можно скрыть целиком (кнопка в её шапке) — канвас занимает всё место
+	const [sidebarOpen, setSidebarOpen] = useState(true)
+	useEffect(() => {
+		try {
+			if (localStorage.getItem('panel:sidebar') === '0') setSidebarOpen(false)
+		} catch {}
+	}, [])
+	const toggleSidebar = useCallback(() => {
+		setSidebarOpen(v => {
+			const next = !v
+			try {
+				localStorage.setItem('panel:sidebar', next ? '1' : '0')
+			} catch {}
+			return next
+		})
+	}, [])
 	const [addSheetClosing, setAddSheetClosing] = useState(false)
 	const addSheetTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 	const closeAddSheet = () => {
@@ -189,6 +218,72 @@ export default function PanelClient({
 	const isMobileRef = useRef(false)
 	isMobileRef.current = isMobile
 
+	// вернуть элементы к снимку начала операции (лок перехватила другая панель)
+	const restoreElements = useCallback(
+		(
+			patches: {
+				id: string
+				x: number
+				y: number
+				width?: number
+				height?: number
+				rotation?: number
+			}[],
+		) => {
+			setState(p => ({
+				...p,
+				elements: p.elements.map(el => {
+					const patch = patches.find(x => x.id === el.id)
+					return patch ? { ...el, ...patch } : el
+				}),
+			}))
+		},
+		[], // eslint-disable-line react-hooks/exhaustive-deps
+	)
+
+	// забываем всё, что панель держала про удалённый элемент (состояния плееров, локи
+	// и пр.): без этого карты растут всю сессию, а с base64-видео держат и сами данные
+	const forgetElement = useCallback((id: string) => {
+		if (mediaStatesRef.current.has(id)) {
+			const m = new Map(mediaStatesRef.current)
+			m.delete(id)
+			mediaStatesRef.current = m
+			setMediaStates(m)
+		}
+		twitchPlayers.current.delete(id)
+		twitchStRef.current.delete(id)
+		chromeCtlRefs.current.delete(id)
+		lastYtCmdRef.current.delete(id)
+		ccStatesRef.current.delete(id)
+		lastTimeRelayPerElRef.current.delete(id)
+		setElementLocks(prev => {
+			if (!(id in prev)) return prev
+			const next = { ...prev }
+			delete next[id]
+			return next
+		})
+		setSelectedId(s => (s === id ? null : s))
+		setSelectedIds(prev => {
+			if (!prev.has(id)) return prev
+			const n = new Set(prev)
+			n.delete(id)
+			return n
+		})
+	}, [])
+
+	const forgetAllElements = useCallback(() => {
+		mediaStatesRef.current = new Map()
+		setMediaStates(new Map())
+		twitchPlayers.current.clear()
+		twitchStRef.current.clear()
+		chromeCtlRefs.current.clear()
+		lastYtCmdRef.current.clear()
+		ccStatesRef.current.clear()
+		lastTimeRelayPerElRef.current.clear()
+		setElementLocks({})
+		setSelectedIds(new Set())
+	}, [])
+
 	useEffect(() => {
 		const pq = window.matchMedia(
 			'(orientation: portrait) and (max-width: 820px) and (pointer: coarse)',
@@ -217,7 +312,6 @@ export default function PanelClient({
 			query: { room: room || 'default', login: userLogin || '' },
 		})
 		socketRef.current = socket
-		;(window as any).__ovrlySocket = socket // TODO: убрать после отладки
 
 		// живые курсоры других пользователей этой комнаты
 		socket.on(
@@ -290,6 +384,48 @@ export default function PanelClient({
 							}))
 						}
 					}
+					// перехватили элемент в составе группы — откатываем группу целиком
+					// по снимкам, снятым в начале операции
+					const gd = groupDragRef.current
+					if (gd && gd.items.some(it => it.id === id)) {
+						groupDragRef.current = null
+						document.body.classList.remove('dragging')
+						restoreElements(gd.items.map(it => ({ id: it.id, x: it.x, y: it.y })))
+					}
+					const gsc = groupScaleRef.current
+					if (gsc && gsc.items.some(it => it.id === id)) {
+						groupScaleRef.current = null
+						document.body.classList.remove('dragging')
+						restoreElements(
+							gsc.items.map(it => ({
+								id: it.id,
+								x: it.x,
+								y: it.y,
+								width: it.w,
+								height: it.h,
+							})),
+						)
+					}
+					const grt = groupRotateRef.current
+					if (grt && grt.items.some(it => it.id === id)) {
+						groupRotateRef.current = null
+						document.body.classList.remove('dragging')
+						// снимок вращения хранит центр и угол: размеры за время поворота
+						// не меняются, берём их из текущего состояния
+						restoreElements(
+							grt.items.map(it => {
+								const el = stateRef.current.elements.find(x => x.id === it.id)
+								const w = el?.width ?? 0
+								const h = el?.height ?? 0
+								return {
+									id: it.id,
+									x: Math.round(it.cx - w / 2),
+									y: Math.round(it.cy - h / 2),
+									rotation: it.rotation,
+								}
+							}),
+						)
+					}
 				}
 			},
 		)
@@ -309,6 +445,11 @@ export default function PanelClient({
 			socket.disconnect()
 			setAccessRevoked(true)
 		})
+		// роль от сервера: без валидной сессии панель работает только на чтение —
+		// показываем предупреждение, иначе правки пропадали бы молча
+		socket.on('access:role', (r: { readOnly?: boolean }) =>
+			setReadOnly(!!r?.readOnly),
+		)
 		// оверлей (пере)подключился — отдаём ему текущее состояние играющего выбранного элемента
 		socket.on('overlay:hello', () => {
 			const sel = selectedIdRef.current
@@ -317,6 +458,13 @@ export default function PanelClient({
 			if (st?.st === 1) {
 				socket.emit('element:command', { id: sel, cmd: 'play' })
 				socket.emit('element:command', { id: sel, cmd: 'seek', value: st.t })
+				// звук и субтитры тоже восстанавливаем: оверлей мог перезагрузиться
+				// (OBS refresh) и потерять их
+				socket.emit('element:command', {
+					id: sel,
+					cmd: st.muted ? 'mute' : 'unmute',
+				})
+				socket.emit('element:command', { id: sel, cmd: 'volume', value: st.vol })
 				if (st.kind === 'youtube')
 					socket.emit('element:command', {
 						id: sel,
@@ -368,9 +516,10 @@ export default function PanelClient({
 					),
 				})),
 		)
-		socket.on('element:deleted', (id: string) =>
-			setState(p => ({ ...p, elements: p.elements.filter(e => e.id !== id) })),
-		)
+		socket.on('element:deleted', (id: string) => {
+			forgetElement(id)
+			setState(p => ({ ...p, elements: p.elements.filter(e => e.id !== id) }))
+		})
 		socket.on('element:zorder', (ids: string[]) =>
 			setState(p => {
 				const z = new Map(ids.map((id, i) => [id, i]))
@@ -383,7 +532,10 @@ export default function PanelClient({
 				}
 			}),
 		)
-		socket.on('elements:cleared', () => setState(p => ({ ...p, elements: [] })))
+		socket.on('elements:cleared', () => {
+			forgetAllElements()
+			setState(p => ({ ...p, elements: [] }))
+		})
 
 		return () => {
 			socket.disconnect()
@@ -450,6 +602,13 @@ export default function PanelClient({
 		)
 	}, [])
 
+	// заголовок вкладки: у модератора может быть открыто несколько панелей разных
+	// стримеров — по названию вкладки сразу видно, какая чья
+	useEffect(() => {
+		if (!channel) return
+		document.title = `Ovrly · ${channel}`
+	}, [channel])
+
 	const applyTheme = useCallback((next: 'dark' | 'light') => {
 		const root = document.documentElement
 		const isLight = root.classList.contains('light')
@@ -471,8 +630,37 @@ export default function PanelClient({
 		>
 	>(new Map())
 
+	// при размонтировании панели гасим отложенные правки: иначе их таймеры
+	// доживали бы до срабатывания и держали замыкания на уже удалённые элементы
+	useEffect(() => {
+		const pending = pendingUpdatesRef.current
+		return () => {
+			for (const { timer } of pending.values()) clearTimeout(timer)
+			pending.clear()
+		}
+	}, [])
+
+	// ===== история правок (Ctrl+Z / Ctrl+Y) =====
+	// Снимки набора элементов: перед каждым действием пользователя. Копим не чаще
+	// раза в 700мс, чтобы перетаскивание и вращение не забивали стек
+	const historyRef = useRef<{ past: StreamElement[][]; future: StreamElement[][] }>({
+		past: [],
+		future: [],
+	})
+	const lastHistRef = useRef(0)
+	const remember = useCallback(() => {
+		const now = Date.now()
+		if (now - lastHistRef.current < 700) return
+		lastHistRef.current = now
+		const h = historyRef.current
+		h.past.push(stateRef.current.elements.map(e => ({ ...e })))
+		if (h.past.length > 40) h.past.shift()
+		h.future.length = 0
+	}, [])
+
 	const updateElement = useCallback(
 		(id: string, partial: Partial<StreamElement>) => {
+			remember()
 			setState(p => ({
 				...p,
 				elements: p.elements.map(e => (e.id === id ? { ...e, ...partial } : e)),
@@ -489,16 +677,78 @@ export default function PanelClient({
 		[emit],
 	)
 
-	// ===== медиа-плееры (YouTube / Twitch) =====
+	// Применение снимка истории: локально сразу, а на сервер уходит разница
+	// (добавить/удалить/обновить) — так отмена работает и для остальных клиентов
+	const applySnapshot = useCallback(
+		(target: StreamElement[]) => {
+			const cur = stateRef.current.elements
+			const byId = new Map(target.map(e => [e.id, e]))
+			for (const el of cur) if (!byId.has(el.id)) emit('element:delete', el.id)
+			for (const el of target) {
+				const prev = cur.find(c => c.id === el.id)
+				if (!prev) {
+					emit('element:add', el)
+					continue
+				}
+				const patch: Record<string, unknown> = { id: el.id }
+				let changed = false
+				for (const k of Object.keys(el) as (keyof StreamElement)[]) {
+					if (JSON.stringify(prev[k]) !== JSON.stringify(el[k])) {
+						patch[k as string] = el[k]
+						changed = true
+					}
+				}
+				if (changed) emit('element:update', patch)
+			}
+			setState(p => ({ ...p, elements: target.map(e => ({ ...e })) }))
+		},
+		[emit],
+	)
+
+	const undo = useCallback(() => {
+		const h = historyRef.current
+		const prev = h.past.pop()
+		if (!prev) return
+		h.future.push(stateRef.current.elements.map(e => ({ ...e })))
+		applySnapshot(prev)
+	}, [applySnapshot])
+
+	const redo = useCallback(() => {
+		const h = historyRef.current
+		const next = h.future.pop()
+		if (!next) return
+		h.past.push(stateRef.current.elements.map(e => ({ ...e })))
+		applySnapshot(next)
+	}, [applySnapshot])
+
+	// немедленная отправка правки без дебаунса — для финального кадра операции:
+	// отложенный таймер той же правки гасим, иначе он перезапишет финал устаревшим
+	const flushUpdate = useCallback(
+		(id: string, partial: Partial<StreamElement>) => {
+			const pending = pendingUpdatesRef.current.get(id)
+			if (pending) {
+				clearTimeout(pending.timer)
+				pendingUpdatesRef.current.delete(id)
+			}
+			emit('element:update', { id, ...partial })
+		},
+		[emit],
+	)
+	// ===== медиа-плееры (YouTube / Twitch / видео) =====
 	// Ретрансляция в оверлей. Позиция (seek 1/с) — для ВСЕХ играющих элементов:
 	// если держать позицию только выбранного, у остальных на оверлее цель устаревает
-	// и дрейф-коррекция мотает их назад по кругу. Плей/пауза/звук — на смене состояния,
-	// а такие смены происходят при взаимодействии, которое всегда выбирает элемент.
-	const lastTimeRelayPerElRef = useRef<Map<string, number>>(new Map())
+	// и дрейф-коррекция мотает их назад по кругу. Звук — по смене состояния.
+	//
+	// Плей/пауза в оверлей отсюда НЕ ретранслируются: раньше они выводились из смены
+	// состояния плеера, и когда браузер сам ставил беззвучное превью на паузу (фоновая
+	// вкладка), пауза уезжала на стрим. Теперь play/pause отправляет только mediaToggle —
+	// то есть явное действие пользователя.
+	// Исключение по позиции — обычные видео: seek по кругу слышно как рывки
 	const relayMedia = useCallback(
 		(id: string, next: MediaSt, cur?: MediaSt) => {
 			const now = performance.now()
 			if (
+				next.kind !== 'video' &&
 				next.st === 1 &&
 				now - (lastTimeRelayPerElRef.current.get(id) ?? 0) >= 1000
 			) {
@@ -506,11 +756,6 @@ export default function PanelClient({
 				emit('element:command', { id, cmd: 'seek', value: next.t })
 			}
 			if (id !== selectedIdRef.current) return
-			if (next.st !== (cur?.st ?? -1)) {
-				if (next.st === 1) emit('element:command', { id, cmd: 'play' })
-				else if (next.st === 2 || next.st === 0)
-					emit('element:command', { id, cmd: 'pause' })
-			}
 			if (cur && next.muted !== cur.muted)
 				emit('element:command', { id, cmd: next.muted ? 'mute' : 'unmute' })
 			if (cur && next.vol !== cur.vol)
@@ -536,8 +781,10 @@ export default function PanelClient({
 			const clean: Partial<MediaSt> = {}
 			for (const [k, v] of Object.entries(patch))
 				if (v !== undefined) (clean as any)[k] = v
-			const next: MediaSt = { ...base, ...clean }
-			if (
+		const next: MediaSt = { ...base, ...clean }
+		// позиция + время отчёта: по ним панель догоняет оверлей после возврата на вкладку
+		if (next.st === 1) lastPosRef.current.set(id, { t: next.t, at: Date.now() })
+		if (
 				cur &&
 				cur.vid === next.vid &&
 				cur.st === next.st &&
@@ -556,7 +803,8 @@ export default function PanelClient({
 		[relayMedia],
 	)
 
-	// команда локальному плееру элемента (YT — postMessage, Twitch — SDK)
+	// команда локальному плееру элемента (YT — postMessage, Twitch — SDK,
+	// обычное видео — сам DOM-плеер панели)
 	const localMediaCommand = useCallback(
 		(id: string, cmd: string, value?: number) => {
 			const el = stateRef.current.elements.find(x => x.id === id)
@@ -587,6 +835,37 @@ export default function PanelClient({
 						JSON.stringify({ event: 'command', func, args }),
 						'*',
 					)
+				// YouTube включает субтитры сам (по настройке зрителя или у видео с
+				// принудительными субтитрами) — гасим сразу после старта/перемотки,
+				// если пользователь не включал их нашей кнопкой
+				if (
+					(cmd === 'play' || cmd === 'pause' || cmd === 'seek') &&
+					ccStatesRef.current.get(id) !== 1
+				)
+					f.contentWindow.postMessage(
+						JSON.stringify({ event: 'command', func: 'unloadModule', args: ['captions'] }),
+						'*',
+					)
+				return
+			}
+			// обычное видео (файл с ПК / прямая ссылка): управляем самим <video>
+			const v = document.querySelector(
+				`video[data-id="${id}"]`,
+			) as HTMLVideoElement | null
+			if (v) {
+				try {
+					if (cmd === 'play') void v.play().catch(() => {})
+					else if (cmd === 'pause') v.pause()
+					else if (cmd === 'seek') v.currentTime = value ?? 0
+					else if (cmd === 'volume') {
+						v.volume = Math.max(0, Math.min(1, (value ?? 100) / 100))
+						if (v.volume > 0) v.muted = false
+					} else if (cmd === 'mute') v.muted = true
+					else if (cmd === 'unmute') {
+						v.muted = false
+						if (v.volume === 0) v.volume = 1
+					}
+				} catch {}
 				return
 			}
 			const p = twitchPlayers.current.get(id)
@@ -613,18 +892,21 @@ export default function PanelClient({
 		[emit, localMediaCommand],
 	)
 
-	// плей/пауза (клик по видео и кнопка на плашке); при буферизации (st=3) повторный
-	// клик означает паузу, а не ещё один play
+	// плей/пауза (клик по видео и кнопка на плашке): команда уходит сразу и локальному
+	// плееру, и в оверлей — намерение пользователя не должно теряться. При буферизации
+	// (st=3) повторный клик означает паузу, а не ещё один play
 	const mediaToggle = useCallback(
 		(id: string) => {
 			const stNow = mediaStatesRef.current.get(id)?.st
 			const playing =
 				stNow === 1 || (stNow === 3 && lastYtCmdRef.current.get(id) === 'play')
-			localMediaCommand(id, playing ? 'pause' : 'play')
-			lastYtCmdRef.current.set(id, playing ? 'pause' : 'play')
+			const next: 'play' | 'pause' = playing ? 'pause' : 'play'
+			lastYtCmdRef.current.set(id, next)
+			localMediaCommand(id, next)
+			emit('element:command', { id, cmd: next })
 			chromeCtlRefs.current.get(id)?.note()
 		},
-		[localMediaCommand],
+		[emit, localMediaCommand],
 	)
 
 	const registerChromeCtl = useCallback((id: string, ctl: ChromeCtl | null) => {
@@ -667,18 +949,7 @@ export default function PanelClient({
 							: (mediaStatesRef.current.get(id)?.muted ?? true)
 					const st = twitchStRef.current.get(id) ?? -1
 					const el = stateRef.current.elements.find(x => x.id === id)
-					const info = el ? parseMediaUrl(el.src || '') : null
-					const vid = info
-						? info.kind +
-							':' +
-							('channel' in info
-								? info.channel
-								: 'id' in info
-									? info.id
-									: 'slug' in info
-										? info.slug
-										: '')
-						: ''
+					const vid = el ? mediaKeyFor(el) : ''
 					applyMediaState(id, { vid, kind: 'twitch', st, t, dur, muted, vol })
 				} catch {}
 			}
@@ -710,11 +981,11 @@ export default function PanelClient({
 					return
 				const info = d.info
 				const el = stateRef.current.elements.find(x => x.id === elId)
-				const parsed = el ? parseMediaUrl(el.src || '') : null
-				const vid = parsed?.kind === 'youtube' ? 'youtube:' + parsed.id : ''
-				if (!vid) return
+				if (!el) return
+				// отчёты приходят только от YouTube-плееров элементов-медиа
+				if (parseMediaUrl(el.src || '')?.kind !== 'youtube') return
 				applyMediaState(elId, {
-					vid,
+					vid: mediaKeyFor(el),
 					kind: 'youtube',
 					st: info.playerState,
 					t: info.currentTime,
@@ -733,21 +1004,50 @@ export default function PanelClient({
 	useEffect(() => {
 		const t = setInterval(() => {
 			const sel = selectedIdRef.current
+			// Субтитры: YouTube включает их сам — глушим у ВСЕХ роликов, чьи субтитры
+			// не включал пользователь нашей кнопкой (единственный источник «включено»).
+			// Подтверждаем только выключение: если навязывать состояние, субтитры
+			// «включаются постоянно» и их нельзя выключить
+			for (const [id, mst] of mediaStatesRef.current) {
+				if (mst.kind !== 'youtube' || ccStatesRef.current.get(id) === 1) continue
+				localMediaCommand(id, 'cc', 0)
+			}
 			if (!sel) return
 			const st = mediaStatesRef.current.get(sel)
 			if (st?.st === 1) {
 				emit('element:command', { id: sel, cmd: 'play' })
 				emit('element:command', { id: sel, cmd: 'seek', value: st.t })
-				if (st.kind === 'youtube')
-					emit('element:command', {
-						id: sel,
-						cmd: 'cc',
-						value: ccStatesRef.current.get(sel) ?? 0,
-					})
+				emit('element:command', { id: sel, cmd: st.muted ? 'mute' : 'unmute' })
+				emit('element:command', { id: sel, cmd: 'volume', value: st.vol })
+				if (st.kind === 'youtube' && ccStatesRef.current.get(sel) !== 1)
+					emit('element:command', { id: sel, cmd: 'cc', value: 0 })
 			}
 		}, 5000)
 		return () => clearInterval(t)
-	}, [emit])
+	}, [emit, localMediaCommand])
+
+	// Возврат на вкладку: браузер ставит беззвучное превью на паузу, пока страница
+	// скрыта, а оверлей в OBS всё это время продолжает играть. Поэтому мало «снова play»:
+	// сначала догоняем позицию (последняя известная + сколько прошло), иначе панель
+	// начала бы ретранслировать отставшую позицию и утащила бы стрим назад
+	useEffect(() => {
+		const onVisible = () => {
+			if (document.hidden) return
+			for (const [id, st] of mediaStatesRef.current) {
+				if (st.st !== 2 && st.st !== 3) continue
+				const intent = lastYtCmdRef.current.get(id)
+				const wantPlaying = intent ? intent === 'play' : st.t > 0.5
+				if (!wantPlaying) continue
+				const last = lastPosRef.current.get(id)
+				const target = last ? last.t + (Date.now() - last.at) / 1000 : st.t
+				if (last && Math.abs(target - st.t) > 1.5)
+					localMediaCommand(id, 'seek', target)
+				localMediaCommand(id, 'play')
+			}
+		}
+		document.addEventListener('visibilitychange', onVisible)
+		return () => document.removeEventListener('visibilitychange', onVisible)
+	}, [localMediaCommand])
 
 	// интерактив iframe действует только пока выбран именно он
 	useEffect(() => {
@@ -856,9 +1156,10 @@ export default function PanelClient({
 
 	const addElement = useCallback(
 		(el: Omit<StreamElement, 'id' | 'zIndex' | 'visible'>) => {
+			remember()
 			emit('element:add', { ...el, visible: true })
 		},
-		[emit],
+		[emit, remember],
 	)
 
 	const fileToDataUrl = (file: File): Promise<string> =>
@@ -895,6 +1196,7 @@ export default function PanelClient({
 			e.preventDefault()
 			e.stopPropagation()
 			emit('element:grab', { id: el.id })
+			remember()
 			if (!viewportRef.current) return
 			const rect = viewportRef.current.getBoundingClientRect()
 			const { x: vx, y: vy, s } = viewRef.current
@@ -920,9 +1222,15 @@ export default function PanelClient({
 			const cur =
 				(Math.atan2(e.clientY - r.cy, e.clientX - r.cx) * 180) / Math.PI
 			let rot = r.startRotation + (cur - r.startAngle)
-			if (e.shiftKey)
+			if (e.shiftKey) {
 				rot = Math.round(rot / 15) * 15 // шаг 15° с зажатым Shift
-			else rot = Math.round(rot)
+			} else {
+				rot = Math.round(rot)
+				// «магнит» к 0/90/180/270: почти ровный поворот становится ровно ровным
+				const near = Math.round(rot / 90) * 90
+				if (Math.abs(rot - near) <= 3) rot = near
+			}
+			rot = ((rot % 360) + 360) % 360
 			updateElement(r.el.id, { rotation: rot })
 		},
 		[updateElement, isLockedByOther, emit],
@@ -1002,19 +1310,49 @@ export default function PanelClient({
 		[addElement],
 	)
 
-	// обработчики добавления — общие для сайдбара и мобильного тулбара
-	// добавление с устройства: input добавляем в DOM — на iOS detached-инпут может не открыть выбор файла
-	const addImagePC = useCallback(() => {
-		const input = document.createElement('input')
-		input.type = 'file'
-		input.accept = 'image/*'
-		input.style.display = 'none'
-		input.onchange = async () => {
-			const f = input.files?.[0]
-			if (!f) {
+	// обработчики добавления — общие для сайдбара и мобильного тулбара.
+	// Выбор файла с устройства: input добавляем в DOM (на iOS detached-инпут может
+	// не открыть выбор), но обязательно убираем — в том числе при отмене диалога,
+	// иначе каждый закрытый «Отмена» оставлял бы узел висеть в body
+	const pickFile = useCallback(
+		(accept: string, onPick: (f: File) => Promise<void>) => {
+			const input = document.createElement('input')
+			input.type = 'file'
+			input.accept = accept
+			input.style.display = 'none'
+			let dropped = false
+			const drop = () => {
+				if (dropped) return
+				dropped = true
 				input.remove()
-				return
 			}
+			input.addEventListener('cancel', drop)
+			input.addEventListener('change', () => {
+				const f = input.files?.[0]
+				if (!f) {
+					drop()
+					return
+				}
+				void onPick(f).finally(drop)
+			})
+			document.body.appendChild(input)
+			input.click()
+			// страховка для браузеров без события cancel: окно закрыто, фокус вернулся,
+			// файл не выбран — инпут больше не нужен
+			window.addEventListener(
+				'focus',
+				() =>
+					setTimeout(() => {
+						if (!input.files?.length) drop()
+					}, 500),
+				{ once: true },
+			)
+		},
+		[],
+	)
+
+	const addImagePC = useCallback(() => {
+		void pickFile('image/*', async f => {
 			const dataUrl = await fileToDataUrl(f)
 			const size = await getImageSize(dataUrl)
 			const k = Math.min(1, 1280 / Math.max(size.w, size.h))
@@ -1029,26 +1367,13 @@ export default function PanelClient({
 				height: h,
 				text: '',
 			})
-			input.remove()
-		}
-		document.body.appendChild(input)
-		input.click()
-	}, [addElement])
+		})
+	}, [addElement, pickFile])
 
 	const addVideoPC = useCallback(() => {
-		const input = document.createElement('input')
-		input.type = 'file'
-		input.accept = 'video/*'
-		input.style.display = 'none'
-		input.onchange = async () => {
-			const f = input.files?.[0]
-			if (!f) {
-				input.remove()
-				return
-			}
+		void pickFile('video/*', async f => {
 			if (f.size > 40 * 1024 * 1024) {
 				alert('Файл больше 40 МБ. Лучше использовать ссылку.')
-				input.remove()
 				return
 			}
 			const dataUrl = await fileToDataUrl(f)
@@ -1061,11 +1386,8 @@ export default function PanelClient({
 				height: 270,
 				text: '',
 			})
-			input.remove()
-		}
-		document.body.appendChild(input)
-		input.click()
-	}, [addElement])
+		})
+	}, [addElement, pickFile])
 
 	// добавление по ссылке — общее для сайдбара на ПК и мобильного шита
 	const addImageUrl = useCallback(async () => {
@@ -1159,8 +1481,9 @@ export default function PanelClient({
 		const url = prompt(
 			'Ссылка на сайт, YouTube или Twitch (например, https://youtube.com/watch?v=...):',
 		)
-		// без autoplay: новое видео стоит на превью-заставке (как на референсе) —
-		// играет в панели и на оверлее только после нажатия play
+		// обычные видео стоят на превью-заставке (как на референсе) и играют после play,
+		// а живые трансляции (канал Twitch, youtube /live/) запускаем сразу — иначе кажется,
+		// что «стрим не запускается»
 		if (url)
 			addElement({
 				type: 'iframe',
@@ -1169,6 +1492,7 @@ export default function PanelClient({
 				width: 560,
 				height: 315,
 				text: '',
+				autoplay: isLiveLink(url),
 			})
 	}, [addElement])
 
@@ -1211,6 +1535,7 @@ export default function PanelClient({
 					width: 560,
 					height: 315,
 					text: '',
+					autoplay: isLiveLink(text),
 				})
 				return
 			}
@@ -1291,7 +1616,25 @@ export default function PanelClient({
 	const resizeSnapRef = useRef<{ id: string; el: StreamElement } | null>(null)
 
 	const handleDragStart = (e: React.PointerEvent, el: StreamElement) => {
-		if (el.locked) return
+		// замок запрещает тащить, но выделять элемент по-прежнему нужно: на телефоне
+		// списка элементов нет, и без выделения заблокированный элемент нельзя
+		// ни разблокировать, ни удалить
+		if (el.locked) {
+			if (e.button !== 0) return
+			if (e.shiftKey || e.ctrlKey || e.metaKey) {
+				setSelectedIds(prev => {
+					const n = new Set(prev)
+					if (n.has(el.id)) n.delete(el.id)
+					else n.add(el.id)
+					return n
+				})
+				setSelectedId(null)
+				return
+			}
+			if (selectedIdsRef.current.size) setSelectedIds(new Set())
+			setSelectedId(el.id)
+			return
+		}
 		if (e.button !== 0) return
 		if (isLockedByOther(el.id)) return // объект тащит другой модератор
 		// ctrl/shift+клик — добавить/убрать элемент из выделения (без драга)
@@ -1323,6 +1666,7 @@ export default function PanelClient({
 				setSelectedIds(new Set())
 				return
 			}
+			remember()
 			groupDragRef.current = {
 				sx: e.clientX,
 				sy: e.clientY,
@@ -1338,6 +1682,7 @@ export default function PanelClient({
 		if (selectedIdsRef.current.size) setSelectedIds(new Set())
 		e.preventDefault()
 		e.stopPropagation()
+		remember()
 		emit('element:grab', { id: el.id })
 		const { x: vx, y: vy, s } = viewRef.current
 		const rect = viewportRef.current!.getBoundingClientRect()
@@ -1577,7 +1922,15 @@ export default function PanelClient({
 			document.body.classList.remove('dragging')
 			return
 		}
-		if (groupRotateRef.current) {
+		const grt = groupRotateRef.current
+		if (grt) {
+			// финальный кадр поворота уходит сразу: с дебаунсом последние ~100мс
+			// движения могли не доехать до сервера и оверлей показывал бы другой угол
+			grt.items.forEach(it => {
+				const el = stateRef.current.elements.find(x => x.id === it.id)
+				if (el)
+					flushUpdate(it.id, { x: el.x, y: el.y, rotation: el.rotation })
+			})
 			groupRotateRef.current = null
 			document.body.classList.remove('dragging')
 			return
@@ -1595,14 +1948,19 @@ export default function PanelClient({
 			return
 		}
 		const dr = dragRef.current
-		if (dr?.type === 'iframe' && !dr.moved) {
-			const el = stateRef.current.elements.find(x => x.id === dr.id)
-			if (el && isMediaUrl(el.src || '')) {
-				// клик по медиа (YouTube/Twitch) — плей/пауза (iframe всегда прозрачен для курсора)
+		if (dr && !dr.moved) {
+			if (dr.type === 'video') {
+				// клик по видео без перетаскивания — плей/пауза (плеер прозрачен для курсора)
 				mediaToggle(dr.id)
-			} else {
-				// клик по сайту без перетаскивания = активируем интерактив (управление сайтом внутри)
-				setInteractiveIframeId(dr.id)
+			} else if (dr.type === 'iframe') {
+				const el = stateRef.current.elements.find(x => x.id === dr.id)
+				if (el && isMediaUrl(el.src || '')) {
+					// клик по медиа (YouTube/Twitch) — плей/пауза (iframe всегда прозрачен для курсора)
+					mediaToggle(dr.id)
+				} else {
+					// клик по сайту без перетаскивания = активируем интерактив (управление сайтом внутри)
+					setInteractiveIframeId(dr.id)
+				}
 			}
 		}
 		dragRef.current = null
@@ -1614,15 +1972,35 @@ export default function PanelClient({
 		}
 	}, [emit, mediaToggle])
 
-	// групповой бокс выделения: общие границы выбранных элементов
+	// групповой бокс: общие границы выбранных элементов. Углы считаем с учётом
+	// поворота — рамка облегает повёрнутый контент, а не «пустой» прямоугольник
 	const groupBox = useMemo(() => {
 		if (selectedIds.size < 2) return null
 		const items = stateRef.current.elements.filter(e => selectedIds.has(e.id))
 		if (items.length < 2) return null
-		const x1 = Math.min(...items.map(e => e.x))
-		const y1 = Math.min(...items.map(e => e.y))
-		const x2 = Math.max(...items.map(e => e.x + e.width))
-		const y2 = Math.max(...items.map(e => e.y + e.height))
+		let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity
+		for (const e of items) {
+			const cx = e.x + e.width / 2,
+				cy = e.y + e.height / 2
+			const th = ((e.rotation ?? 0) * Math.PI) / 180
+			const c = Math.cos(th),
+				sn = Math.sin(th)
+			const hw = e.width / 2,
+				hh = e.height / 2
+			for (const [dx, dy] of [
+				[-hw, -hh],
+				[hw, -hh],
+				[hw, hh],
+				[-hw, hh],
+			]) {
+				const px = cx + dx * c - dy * sn
+				const py = cy + dx * sn + dy * c
+				if (px < x1) x1 = px
+				if (px > x2) x2 = px
+				if (py < y1) y1 = py
+				if (py > y2) y2 = py
+			}
+		}
 		return { x: x1, y: y1, w: x2 - x1, h: y2 - y1 }
 	}, [state, selectedIds])
 
@@ -1641,6 +2019,7 @@ export default function PanelClient({
 				}
 			}
 			if (items.length < 2) return
+			remember()
 			groupDragRef.current = {
 				sx: e.clientX,
 				sy: e.clientY,
@@ -1684,6 +2063,7 @@ export default function PanelClient({
 			}
 			if (items.length < 2) return
 			items.forEach(it => emit('element:grab', { id: it.id }))
+			remember()
 			groupRotateRef.current = {
 				cx,
 				cy,
@@ -1716,6 +2096,7 @@ export default function PanelClient({
 			}
 			if (items.length < 2) return
 			items.forEach(it => emit('element:grab', { id: it.id }))
+			remember()
 			groupScaleRef.current = {
 				sx: e.clientX,
 				sy: e.clientY,
@@ -1745,12 +2126,10 @@ export default function PanelClient({
 		}
 	}, [handleMouseMove, handleMouseUp])
 
+	// горячие клавиши: Delete/Backspace — удалить, стрелки — точный сдвиг (Shift — 10px),
+	// Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y — отмена и повтор
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
-			if (e.key !== 'Delete') return
-			const ids = new Set(selectedIdsRef.current)
-			if (selectedId) ids.add(selectedId)
-			if (!ids.size) return
 			const t = e.target as HTMLElement | null
 			if (
 				t &&
@@ -1760,13 +2139,67 @@ export default function PanelClient({
 					t.isContentEditable)
 			)
 				return
-			ids.forEach(id => emit('element:delete', id))
-			setSelectedId(null)
-			setSelectedIds(new Set())
+
+			const mod = e.ctrlKey || e.metaKey
+			if (mod && e.code === 'KeyZ') {
+				e.preventDefault()
+				if (e.shiftKey) redo()
+				else undo()
+				return
+			}
+			if (mod && e.code === 'KeyY') {
+				e.preventDefault()
+				redo()
+				return
+			}
+
+			const ids = new Set(selectedIdsRef.current)
+			if (selectedId) ids.add(selectedId)
+			if (!ids.size) return
+
+			if (e.key === 'Delete' || e.key === 'Backspace') {
+				e.preventDefault()
+				remember()
+				ids.forEach(id => emit('element:delete', id))
+				setSelectedId(null)
+				setSelectedIds(new Set())
+				return
+			}
+
+			const dirs: Record<string, [number, number]> = {
+				ArrowLeft: [-1, 0],
+				ArrowRight: [1, 0],
+				ArrowUp: [0, -1],
+				ArrowDown: [0, 1],
+			}
+			const dir = dirs[e.key]
+			if (!dir) return
+			// стрелки — точный сдвиг: мышью попасть в пиксель почти невозможно.
+			// Заблокированные и занятые другим модератором элементы пропускаем
+			const movable = stateRef.current.elements.filter(
+				el => ids.has(el.id) && !el.locked && !isLockedByOther(el.id),
+			)
+			if (!movable.length) return
+			e.preventDefault()
+			const step = e.shiftKey ? 10 : 1
+			const moves = movable.map(el => ({
+				id: el.id,
+				x: el.x + dir[0] * step,
+				y: el.y + dir[1] * step,
+			}))
+			remember()
+			setState(p => ({
+				...p,
+				elements: p.elements.map(el => {
+					const m = moves.find(x => x.id === el.id)
+					return m ? { ...el, x: m.x, y: m.y } : el
+				}),
+			}))
+			moves.forEach(m => emit('element:move', m))
 		}
 		window.addEventListener('keydown', onKey)
 		return () => window.removeEventListener('keydown', onKey)
-	}, [selectedId, emit])
+	}, [selectedId, emit, undo, redo, remember, isLockedByOther])
 
 	const resizeRef = useRef<{
 		id: string
@@ -1794,6 +2227,7 @@ export default function PanelClient({
 		e.stopPropagation()
 		emit('element:grab', { id: el.id })
 		document.body.classList.add('dragging')
+		remember()
 		resizeRef.current = {
 			id: el.id,
 			dir,
@@ -2224,6 +2658,13 @@ export default function PanelClient({
 					</a>
 				</div>
 			)}
+			{/* сервер не подтвердил сессию: правки не сохраняются — говорим об этом явно */}
+			{readOnly && !accessRevoked && (
+				<div className='px-5 py-2 text-xs text-amber-300 bg-amber-950/40 border-b border-amber-900/40'>
+					Сессия Twitch не подтверждена — изменения не сохраняются. Обновите страницу
+					и войдите заново.
+				</div>
+			)}
 			<header
 				className={`flex items-center gap-3 bg-panel border-b border-border ${isMobile ? 'px-3 py-2' : 'px-5 py-3'}`}
 			>
@@ -2258,10 +2699,34 @@ export default function PanelClient({
 						</p>
 					</div>
 				</a>
+				{/* Чей это оверлей: модератор может вести несколько панелей у разных
+				    стримеров — канал видно сразу, а места плашка почти не занимает */}
+				{channel && (
+					<span
+						title={`Оверлей канала ${channel}${
+							userLogin ? ` · вы вошли как ${userLogin}` : ''
+						}`}
+						className={`flex items-center gap-1.5 rounded-full border border-border bg-bg text-gray-300 shrink-0 max-w-[30vw] ${
+							isMobile ? 'px-2 py-0.5 text-[10px]' : 'px-2.5 py-1 text-xs'
+						}`}
+					>
+						<svg
+							viewBox='0 0 24 24'
+							fill='#9146FF'
+							width={isMobile ? 11 : 13}
+							height={isMobile ? 11 : 13}
+							aria-hidden='true'
+							className='shrink-0'
+						>
+							<path d='M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714H20.57z' />
+						</svg>
+						<span className='truncate font-medium'>{channel}</span>
+					</span>
+				)}
 				<div className='flex-1' />
 				{isMobile && (
 					<span className='text-right text-[10px] text-gray-500 leading-tight max-w-[40vw]'>
-						Элементы удаляются через 3 часа без изменений
+						Элементы сохраняются на сервере
 					</span>
 				)}
 				<div className={`flex items-center gap-3 ${isMobile ? 'hidden' : ''}`}>
@@ -2316,94 +2781,153 @@ export default function PanelClient({
 			<div
 				className={`flex-1 flex overflow-hidden ${tab === 'elements' ? '' : 'hidden'}`}
 			>
-				{!isMobile && (
+				{!isMobile && sidebarOpen && (
 					<aside className='w-72 shrink-0 bg-panel border-r border-border p-4 overflow-y-auto'>
-						<h2 className='text-sm font-semibold mb-3 text-gray-400 uppercase tracking-wide'>
-							Добавить элемент
-						</h2>
-						<div className='space-y-2'>
-							<div className='flex gap-2'>
-								<button
-									onClick={addImagePC}
-									className='flex-1 px-3 py-2 bg-accent hover:bg-violet-700 text-white text-sm rounded-lg transition-colors'
-								>
-									🖼 С ПК
-								</button>
-								<button
-									onClick={addImageUrl}
-									className='flex-1 px-3 py-2 bg-border hover:bg-gray-600 text-white text-sm rounded-lg transition-colors'
-								>
-									🔗 URL
-								</button>
-							</div>
-							<div className='flex gap-2'>
-								<button
-									onClick={addVideoPC}
-									className='flex-1 px-3 py-2 bg-accent hover:bg-violet-700 text-white text-sm rounded-lg transition-colors'
-								>
-									🎬 С ПК
-								</button>
-								<button
-									onClick={addVideoUrl}
-									className='flex-1 px-3 py-2 bg-border hover:bg-gray-600 text-white text-sm rounded-lg transition-colors'
-								>
-									🔗 URL
-								</button>
-							</div>
+						<div className='flex items-center justify-between mb-3'>
+							<h2 className='text-sm font-semibold text-gray-400 uppercase tracking-wide'>
+								Добавить элемент
+							</h2>
+							{/* скрывает ВСЮ левую панель: канвас получает всё место */}
 							<button
-								onClick={openEmotePicker}
-								className='w-full px-3 py-2 bg-accent hover:bg-violet-700 text-white text-sm rounded-lg transition-colors'
+								onClick={toggleSidebar}
+								title='Скрыть панель — освободить место'
+								className='w-6 h-6 shrink-0 rounded-md bg-border hover:bg-gray-600 text-gray-300 flex items-center justify-center text-[11px] transition-colors'
 							>
-								😀 Добавить смайлик
-							</button>
-							<button
-								onClick={addIframeEl}
-								className='w-full px-3 py-2 bg-accent hover:bg-violet-700 text-white text-sm rounded-lg transition-colors'
-							>
-								🌐 Сайт
-							</button>
-							<button
-								onClick={addTextEl}
-								className='w-full px-3 py-2 bg-accent hover:bg-violet-700 text-white text-sm rounded-lg transition-colors'
-							>
-								✏️ Текст
-							</button>
-							<button
-								onClick={addTimerEl}
-								className='w-full px-3 py-2 bg-accent hover:bg-violet-700 text-white text-sm rounded-lg transition-colors'
-							>
-								⏱ Таймер
+								‹
 							</button>
 						</div>
+						{
+							<div className='space-y-2'>
+								<div className='flex gap-2'>
+									<button
+										onClick={addImagePC}
+										className='flex-1 px-3 py-2 bg-accent hover:bg-violet-700 text-white text-sm rounded-lg transition-colors'
+									>
+										🖼 С ПК
+									</button>
+									<button
+										onClick={addImageUrl}
+										className='flex-1 px-3 py-2 bg-border hover:bg-gray-600 text-white text-sm rounded-lg transition-colors'
+									>
+										🔗 URL
+									</button>
+								</div>
+								<div className='flex gap-2'>
+									<button
+										onClick={addVideoPC}
+										className='flex-1 px-3 py-2 bg-accent hover:bg-violet-700 text-white text-sm rounded-lg transition-colors'
+									>
+										🎬 С ПК
+									</button>
+									<button
+										onClick={addVideoUrl}
+										className='flex-1 px-3 py-2 bg-border hover:bg-gray-600 text-white text-sm rounded-lg transition-colors'
+									>
+										🔗 URL
+									</button>
+								</div>
+								<button
+									onClick={openEmotePicker}
+									className='w-full px-3 py-2 bg-accent hover:bg-violet-700 text-white text-sm rounded-lg transition-colors'
+								>
+									😀 Добавить смайлик
+								</button>
+								<button
+									onClick={addIframeEl}
+									className='w-full px-3 py-2 bg-accent hover:bg-violet-700 text-white text-sm rounded-lg transition-colors'
+								>
+									🌐 Сайт
+								</button>
+								<button
+									onClick={addTextEl}
+									className='w-full px-3 py-2 bg-accent hover:bg-violet-700 text-white text-sm rounded-lg transition-colors'
+								>
+									✏️ Текст
+								</button>
+								<button
+									onClick={addTimerEl}
+									className='w-full px-3 py-2 bg-accent hover:bg-violet-700 text-white text-sm rounded-lg transition-colors'
+								>
+									⏱ Таймер
+								</button>
+							</div>
+						}
 
-						<h2 className='text-sm font-semibold mt-6 mb-2 text-gray-400 uppercase tracking-wide'>
-							Элементы ({state.elements.length})
-						</h2>
-						<div className='space-y-1'>
+						{/* «Очистить всё» — в шапке списка, а не под ним: при большом
+						    количестве элементов кнопку не приходится искать прокруткой */}
+						<div className='flex items-center justify-between mt-6 mb-2 gap-2'>
+							<h2 className='text-sm font-semibold text-gray-400 uppercase tracking-wide'>
+								Элементы ({state.elements.length})
+							</h2>
+							{state.elements.length > 0 && (
+								<button
+									onClick={() => {
+										if (confirm('Очистить все элементы?')) {
+											remember()
+											emit('elements:clear')
+										}
+									}}
+									title='Очистить все элементы'
+									className='px-2 py-1 text-[10px] rounded-md border border-red-900/50 text-red-400 hover:bg-red-950/40 transition-colors shrink-0'
+								>
+									Очистить
+								</button>
+							)}
+						</div>
+						{/* Сетка в 2 столбца: у картинок и видео видно само превью,
+						    а не «data:image/png;base64...» в подписи */}
+						<div className='grid grid-cols-2 gap-2'>
 							{state.elements.map(el => (
 								<div
 									key={el.id}
 									onClick={() => setSelectedId(el.id)}
-									className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-sm transition-colors ${selectedId === el.id ? 'bg-accent text-white' : 'hover:bg-border text-gray-300'}`}
+									className={`group relative rounded-lg border overflow-hidden cursor-pointer transition-colors ${
+										selectedId === el.id
+											? 'border-accent2'
+											: selectedIds.has(el.id)
+												? 'border-accent2/60'
+												: 'border-border hover:border-gray-500'
+									}`}
 								>
-									<button
-										onClick={e => {
-											e.stopPropagation()
-											setState(p => ({
-												...p,
-												elements: p.elements.map(x =>
-													x.id === el.id ? { ...x, visible: !x.visible } : x,
-												),
-											}))
-											emit('element:toggle-visible', el.id)
-										}}
-										className='shrink-0'
-									>
-										{el.visible ? '👁' : '🚫'}
-									</button>
+									<div className='h-16 bg-bg flex items-center justify-center overflow-hidden'>
+										<ElementThumb el={el} />
+									</div>
+									<div className='flex items-center gap-0.5 px-1 py-0.5 bg-panel'>
+										<span className='flex-1 truncate text-[10px] text-gray-400'>
+											{elementLabel(el)}
+										</span>
+										<button
+											onClick={e => {
+												e.stopPropagation()
+												setState(p => ({
+													...p,
+													elements: p.elements.map(x =>
+														x.id === el.id ? { ...x, visible: !x.visible } : x,
+													),
+												}))
+												emit('element:toggle-visible', el.id)
+											}}
+											title={el.visible ? 'Скрыть' : 'Показать'}
+											className='shrink-0 text-[11px] leading-none px-0.5 hover:opacity-80'
+										>
+											{el.visible ? '👁' : '🚫'}
+										</button>
+										<button
+											onClick={e => {
+												e.stopPropagation()
+												remember()
+												emit('element:delete', el.id)
+												if (selectedId === el.id) setSelectedId(null)
+											}}
+											title='Удалить'
+											className='shrink-0 text-[11px] leading-none px-0.5 text-red-400 hover:text-red-300'
+										>
+											✕
+										</button>
+									</div>
 									{el.alwaysLoaded && (
 										<span
-											className='shrink-0 text-[10px] opacity-70'
+											className='absolute top-0.5 right-0.5 text-[9px] opacity-80'
 											title='Всегда загружен'
 										>
 											📦
@@ -2411,50 +2935,20 @@ export default function PanelClient({
 									)}
 									{el.locked && (
 										<span
-											className='shrink-0 text-[10px] opacity-70'
+											className='absolute top-0.5 left-0.5 text-[9px] opacity-80'
 											title='Заблокирован от перетаскивания'
 										>
 											🔒
 										</span>
 									)}
-									<span className='flex-1 truncate'>
-										{el.type === 'image' &&
-											'🖼 ' + (el.src?.slice(0, 20) || 'image')}
-										{el.type === 'video' &&
-											'🎬 ' + (el.src?.slice(0, 20) || 'video')}
-										{el.type === 'gif' &&
-											'🎞 ' + (el.src?.slice(0, 20) || 'gif')}
-										{el.type === 'iframe' &&
-											'🌐 ' + (el.src?.slice(0, 25) || 'embed')}
-										{el.type === 'text' && '✏️ ' + (el.text || 'text')}
-										{el.type === 'timer' && '⏱ ' + (el.timerLabel || 'timer')}
-									</span>
-									<button
-										onClick={e => {
-											e.stopPropagation()
-											emit('element:delete', el.id)
-											if (selectedId === el.id) setSelectedId(null)
-										}}
-										className='shrink-0 text-red-400 hover:text-red-300'
-									>
-										✕
-									</button>
 								</div>
 							))}
-							{state.elements.length === 0 && (
-								<p className='text-xs text-gray-600 px-2 py-4'>
-									Нет элементов. Добавьте сверху.
-								</p>
-							)}
 						</div>
-						<button
-							onClick={() => {
-								if (confirm('Очистить все элементы?')) emit('elements:clear')
-							}}
-							className='w-full mt-4 px-3 py-2 text-sm text-red-400 hover:bg-red-950/40 rounded-lg border border-red-900/50 transition-colors'
-						>
-							Очистить всё
-						</button>
+						{state.elements.length === 0 && (
+							<p className='text-xs text-gray-600 px-2 py-4'>
+								Нет элементов. Добавьте сверху.
+							</p>
+						)}
 					</aside>
 				)}
 
@@ -2627,8 +3121,11 @@ export default function PanelClient({
 							</span>
 							{state.elements.map(el => {
 								const hs = 10 / view.s
+								// у медиа (YouTube/Twitch/видео) плашка управления показывается
+								// наведением — значит, обёртка должна отдавать enter/leave
 								const isMedia =
-									el.type === 'iframe' && !!parseMediaUrl(el.src || '')
+									el.type === 'video' ||
+									(el.type === 'iframe' && !!parseMediaUrl(el.src || ''))
 								return (
 									<div
 										key={el.id}
@@ -2681,6 +3178,7 @@ export default function PanelClient({
 											mediaToggle={mediaToggle}
 											mediaSelect={setSelectedId}
 											mediaCommand={mediaCommand}
+											onMediaState={applyMediaState}
 											onTwitchPlayer={onTwitchPlayer}
 										/>
 										{(() => {
@@ -3008,6 +3506,17 @@ export default function PanelClient({
 									</div>
 								))}
 						</div>
+						{!isMobile && !sidebarOpen && (
+							<button
+								onClick={toggleSidebar}
+								title='Показать панель элементов'
+								data-nopan='1'
+								onPointerDown={e => e.stopPropagation()}
+								className='absolute left-0 top-1/2 -translate-y-1/2 z-20 rounded-r-lg border border-l-0 border-border bg-panel px-1.5 py-3 text-gray-400 hover:text-white hover:bg-border transition-colors'
+							>
+								›
+							</button>
+						)}
 						{previewPill}
 						{marquee && (
 							<div
@@ -3113,7 +3622,7 @@ export default function PanelClient({
 									className='pl-0.5 text-[10px] text-gray-500'
 									style={{ textShadow: '0 1px 3px rgba(0,0,0,.6)' }}
 								>
-									Элементы удаляются через 3 часа без изменений
+									Элементы сохраняются на сервере
 								</span>
 							</div>
 						)}
@@ -3324,6 +3833,7 @@ export default function PanelClient({
 						<div className='flex items-center gap-2'>
 							<button
 								onClick={() => {
+									remember()
 									emit('element:delete', selected.id)
 									setSelectedId(null)
 									setSheetOpen(false)
@@ -3481,8 +3991,96 @@ export default function PanelClient({
 	)
 }
 
-function SunIcon() {
+// Подпись элемента в списке: вместо «data:image/png;base64,iVBOR…» — понятное слово
+function elementLabel(el: StreamElement): string {
+	if (el.type === 'text') {
+		const t = (el.text || '').trim().replace(/\s+/g, ' ')
+		return t ? t.slice(0, 40) : 'Текст'
+	}
+	if (el.type === 'timer') return el.timerLabel?.trim() || 'Таймер'
+	const src = el.src || ''
+	if (src.startsWith('data:')) {
+		if (el.type === 'video') return 'Видео с ПК'
+		if (el.type === 'gif') return 'Гифка с ПК'
+		return 'Картинка с ПК'
+	}
+	try {
+		const u = new URL(src)
+		if (el.type === 'iframe') return u.hostname.replace(/^www\./, '') || 'Сайт'
+		const tail = u.pathname.split('/').filter(Boolean).pop()
+		// у ссылок вида /600/400 «хвост» — просто число: домен понятнее
+		if (!tail || /^d+$/.test(tail) || /^[0-9a-f]{8,}$/i.test(tail))
+			return u.hostname.replace(/^www./, '')
+		return decodeURIComponent(tail)
+	} catch {
+		return el.type
+	}
+}
+
+// Мини-превью в списке: у картинки/гифки/видео показываем сам файл, у остальных —
+// иконку по типу (в списке это понятнее, чем первые символы URL)
+function ElementThumb({ el }: { el: StreamElement }) {
+	if (el.type === 'image' || el.type === 'gif')
+		return (
+			<img
+				src={el.src}
+				alt=''
+				loading='lazy'
+				draggable={false}
+				className='w-full h-full object-cover'
+			/>
+		)
+	if (el.type === 'video')
+		return (
+			<video
+				src={el.src}
+				muted
+				preload='metadata'
+				playsInline
+				className='w-full h-full object-cover'
+			/>
+		)
+	if (el.type === 'text')
+		return (
+			<span
+				className='px-1 text-center leading-tight'
+				style={{
+					color: el.color || '#fff',
+					fontFamily: el.fontFamily || undefined,
+					fontWeight: (el.fontWeight as React.CSSProperties['fontWeight']) || 'normal',
+					fontStyle: el.italic ? 'italic' : 'normal',
+					textDecoration: el.underline ? 'underline' : 'none',
+					fontSize: 10,
+					display: '-webkit-box',
+					WebkitLineClamp: 3,
+					WebkitBoxOrient: 'vertical',
+					overflow: 'hidden',
+				}}
+			>
+				{el.text || 'Текст'}
+			</span>
+		)
+	if (el.type === 'timer')
+		return (
+			<span className='text-[10px] text-gray-400'>
+				⏱ {el.timerLabel || formatTime(el.duration || 0)}
+			</span>
+		)
+	const info = parseMediaUrl(el.src || '')
+	if (info) return <span className='text-lg'>{info.kind === 'youtube' ? '▶️' : '🟣'}</span>
+	let host = ''
+	try {
+		host = new URL(el.src || '').hostname.replace(/^www\./, '')
+	} catch {}
 	return (
+		<span className='flex flex-col items-center gap-0.5 min-w-0'>
+			<span className='text-lg'>🌐</span>
+			{host && <span className='text-[9px] text-gray-500 truncate max-w-full'>{host}</span>}
+		</span>
+	)
+}
+
+function SunIcon() {	return (
 		<svg
 			width='14'
 			height='14'
@@ -3535,6 +4133,7 @@ function PreviewElement({
 	mediaToggle,
 	mediaSelect,
 	mediaCommand,
+	onMediaState,
 	onTwitchPlayer,
 }: {
 	el: StreamElement
@@ -3546,8 +4145,13 @@ function PreviewElement({
 	mediaToggle?: (id: string) => void
 	mediaSelect?: (id: string) => void
 	mediaCommand?: (id: string, cmd: string, value?: number) => void
+	onMediaState?: (id: string, patch: Partial<MediaSt>) => void
 	onTwitchPlayer?: (id: string, p: any | null) => void
 }) {
+	// веб-шрифт текста подгружаем по требованию (у панели и оверлея — свои документы)
+	useEffect(() => {
+		if (el.type === 'text') ensureFontLoaded(el.fontFamily)
+	}, [el.type, el.fontFamily])
 	if (el.type === 'image' || el.type === 'gif')
 		return (
 			<img
@@ -3557,6 +4161,39 @@ function PreviewElement({
 				draggable={false}
 			/>
 		)
+	if (el.type === 'video') {
+		// обычное видео (файл с ПК или прямая ссылка): свой плеер в превью + плашка
+		// управления, как у YouTube/Twitch — раньше видео нельзя было даже поставить
+		// на паузу или включить звук
+		if (chromeRegister && mediaToggle && mediaSelect && mediaCommand && onMediaState)
+			return (
+				<>
+					<VideoPreview
+						el={el}
+						onState={patch => onMediaState(el.id, patch)}
+					/>
+					<MediaChrome
+						el={el}
+						kind='video'
+						st={mediaSt}
+						register={chromeRegister}
+						toggle={mediaToggle}
+						select={mediaSelect}
+						command={mediaCommand}
+					/>
+				</>
+			)
+		return (
+			<video
+				src={el.src}
+				className='w-full h-full object-fill pointer-events-none'
+				muted
+				loop
+				autoPlay
+				playsInline
+			/>
+		)
+	}
 	if (el.type === 'iframe') {
 		const info = parseMediaUrl(el.src || '')
 		if (
@@ -3574,7 +4211,12 @@ function PreviewElement({
 					{mounted ? (
 						info.kind === 'youtube' ? (
 							<iframe
-								src={youtubeEmbedUrl(info.id, window.location.origin)}
+								src={youtubeEmbedUrl(
+									info.id,
+									window.location.origin,
+									true,
+									!!el.autoplay,
+								)}
 								title='media'
 								data-id={el.id}
 								className='w-full h-full'
@@ -3590,6 +4232,7 @@ function PreviewElement({
 					)}
 					<MediaChrome
 						el={el}
+						kind={info.kind === 'youtube' ? 'youtube' : 'twitch'}
 						st={mediaSt}
 						register={chromeRegister}
 						toggle={mediaToggle}
@@ -3600,45 +4243,92 @@ function PreviewElement({
 			)
 		}
 		return (
-			<iframe
-				src={toEmbedUrl(el.src || '')}
-				title='embed'
-				data-id={el.id}
-				className='w-full h-full'
-				style={{ border: 0, pointerEvents: interactive ? 'auto' : 'none' }}
-				allow='autoplay; encrypted-media; picture-in-picture; fullscreen'
-				allowFullScreen
-			/>
+			<>
+				<iframe
+					src={toEmbedUrl(el.src || '')}
+					title='embed'
+					data-id={el.id}
+					className='w-full h-full'
+					style={{ border: 0, pointerEvents: interactive ? 'auto' : 'none' }}
+					allow='autoplay; encrypted-media; picture-in-picture; fullscreen'
+					allowFullScreen
+				/>
+				{/* частая причина «не работает вывод»: сайт запрещает встраивание
+				    (Twitch-страница, YouTube-страница и т.п.) — говорим об этом прямо */}
+				{!interactive && cannotBeFramed(el.src || '') && (
+					<div className='absolute left-1 top-1 max-w-[92%] rounded-md bg-black/75 px-2 py-1 text-[10px] leading-tight text-amber-300 pointer-events-none'>
+						⚠️ Сайт запрещает встраивание — в рамке он не откроется. Для Twitch нужна
+						ссылка на канал, видео или клип, для YouTube — на видео
+					</div>
+				)}
+			</>
 		)
 	}
-	if (el.type === 'video')
-		return (
-			<video
-				src={el.src}
-				className='w-full h-full object-fill pointer-events-none'
-				muted
-				loop
-				autoPlay
-				playsInline
-			/>
-		)
 	if (el.type === 'text')
 		return (
 			<div
-				className='w-full h-full flex items-center justify-center pointer-events-none overflow-hidden'
-				style={{
-					fontSize: (el.fontSize || 24) * scale,
-					color: el.color || '#fff',
-					fontWeight: el.fontWeight || 'normal',
-					background: el.bgColor === 'transparent' ? 'none' : el.bgColor,
-					textAlign: 'center',
-				}}
+				className='w-full h-full pointer-events-none'
+				style={textBoxStyle(el, scale)}
 			>
 				{el.text}
 			</div>
 		)
 	if (el.type === 'timer') return <TimerPreview el={el} scale={1} />
 	return null
+}
+
+// обычное видео в панели: играет локально и отдаёт своё состояние (позиция, звук,
+// пауза) в общий поток медиа-состояний — благодаря этому плашка управления и
+// ретрансляция на оверлей работают так же, как у YouTube/Twitch
+function VideoPreview({
+	el,
+	onState,
+}: {
+	el: StreamElement
+	onState: (patch: Partial<MediaSt>) => void
+}) {
+	const ref = useRef<HTMLVideoElement | null>(null)
+	const report = useCallback(() => {
+		const v = ref.current
+		if (!v) return
+		onState({
+			vid: mediaKeyFor(el),
+			kind: 'video',
+			st: v.paused ? (v.ended ? 0 : 2) : 1,
+			t: v.currentTime || 0,
+			dur: isFinite(v.duration) ? v.duration : 0,
+			muted: v.muted,
+			vol: Math.round(v.volume * 100),
+		})
+	}, [el, onState])
+	// смена ссылки на лету: начинаем воспроизведение заново (vid в состоянии
+	// поменяется, поэтому прежние позиция/длительность к новому источнику не применятся)
+	const srcRef = useRef(el.src)
+	useEffect(() => {
+		if (srcRef.current === el.src) return
+		srcRef.current = el.src
+		const v = ref.current
+		if (!v) return
+		v.load()
+		void v.play().catch(() => {})
+	}, [el.src])
+	return (
+		<video
+			ref={ref}
+			data-id={el.id}
+			src={el.src}
+			className='w-full h-full object-fill pointer-events-none'
+			muted
+			loop
+			autoPlay
+			playsInline
+			onLoadedMetadata={report}
+			onTimeUpdate={report}
+			onPlay={report}
+			onPause={report}
+			onVolumeChange={report}
+		/>
+	)
 }
 
 function TimerPreview({ el, scale }: { el: StreamElement; scale: number }) {
@@ -3890,70 +4580,7 @@ function PropertyEditor({
 				)}
 			</div>
 			{el.type === 'text' && (
-				<>
-					<div>
-						<label className='text-xs text-gray-500 block mb-1'>Текст</label>
-						<textarea
-							value={el.text || ''}
-							onChange={e => update({ text: e.target.value })}
-							className='w-full px-2 py-1.5 bg-bg border border-border rounded-lg text-sm resize-none'
-							rows={3}
-						/>
-					</div>
-					<div className='grid grid-cols-2 gap-2'>
-						<NumberField
-							label='Шрифт'
-							value={el.fontSize || 24}
-							onChange={v => update({ fontSize: v })}
-						/>
-						<div>
-							<label className='text-xs text-gray-500 block mb-1'>Цвет</label>
-							<input
-								type='color'
-								value={el.color || '#ffffff'}
-								onChange={e => update({ color: e.target.value })}
-								className='w-full h-9 rounded-lg border border-border bg-bg cursor-pointer'
-							/>
-						</div>
-					</div>
-					<div className='grid grid-cols-2 gap-2'>
-						<div>
-							<label className='text-xs text-gray-500 block mb-1'>Фон</label>
-							<input
-								type='color'
-								value={
-									el.bgColor === 'transparent'
-										? '#000000'
-										: el.bgColor || '#000000'
-								}
-								onChange={e => update({ bgColor: e.target.value })}
-								className='w-full h-9 rounded-lg border border-border bg-bg cursor-pointer'
-							/>
-						</div>
-						<div>
-							<label className='text-xs text-gray-500 block mb-1'>
-								Прозр. фон
-							</label>
-							<button
-								onClick={() => update({ bgColor: 'transparent' })}
-								className='w-full px-2 py-2 text-xs bg-border hover:bg-gray-600 rounded-lg'
-							>
-								Убрать фон
-							</button>
-						</div>
-					</div>
-					<div>
-						<label className='text-xs text-gray-500 block mb-1'>Жирность</label>
-						<select
-							value={el.fontWeight || 'normal'}
-							onChange={e => update({ fontWeight: e.target.value })}
-							className='w-full px-2 py-1.5 bg-bg border border-border rounded-lg text-sm'
-						>
-							<option value='normal'>Обычный</option>
-							<option value='bold'>Жирный</option>
-						</select>
-					</div>
-				</>
+				<TextStyleControls key={el.id} el={el} update={update} />
 			)}
 			{el.type === 'timer' && (
 				<>
@@ -4065,28 +4692,6 @@ function PropertyEditor({
 					/>
 				</div>
 			)}
-		</div>
-	)
-}
-
-function NumberField({
-	label,
-	value,
-	onChange,
-}: {
-	label: string
-	value: number
-	onChange: (v: number) => void
-}) {
-	return (
-		<div>
-			<label className='text-xs text-gray-500 block mb-1'>{label}</label>
-			<input
-				type='number'
-				value={value}
-				onChange={e => onChange(parseInt(e.target.value) || 0)}
-				className='w-full px-2 py-1.5 bg-bg border border-border rounded-lg text-sm'
-			/>
 		</div>
 	)
 }

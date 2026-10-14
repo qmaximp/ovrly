@@ -16,6 +16,12 @@ export default function ObsPanel() {
   const [currentScene, setCurrentScene] = useState("");
   const [items, setItems] = useState<ObsSceneItem[]>([]);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  // OBS WebSocket слушает незашифрованный ws:// — из HTTPS-страницы браузер такое
+  // соединение может заблокировать (mixed content / доступ к локальной сети)
+  const [httpsPage, setHttpsPage] = useState(false);
+  useEffect(() => {
+    setHttpsPage(window.location.protocol === 'https:');
+  }, []);
 
   const loadSceneItems = useCallback(async (sceneName: string) => {
     const obs = obsRef.current;
@@ -129,6 +135,13 @@ export default function ObsPanel() {
         {!connected ? (
           <>
             <p className="text-sm text-gray-400 mb-4">В OBS: <b>Tools → WebSocket Server Settings</b>, включите сервер. Порт по умолчанию — <code className="bg-bg px-1 rounded">4455</code>.</p>
+            {httpsPage && /^(localhost|127\.|0\.0\.0\.0)/.test(host) && (
+              <p className="text-xs text-amber-400/90 bg-amber-950/30 border border-amber-900/40 rounded-lg px-3 py-2 mb-3">
+                Страница открыта по HTTPS, а OBS WebSocket — незашифрованный ws://. Браузер
+                может заблокировать такое соединение: откройте панель локально
+                (http://localhost:3000) на ПК стримера.
+              </p>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <div><label className="text-xs text-gray-500 block mb-1">Хост</label>
                 <input type="text" value={host} onChange={(e) => setHost(e.target.value)} placeholder="localhost" className="w-full px-3 py-2 bg-bg border border-border rounded-lg text-sm" /></div>
