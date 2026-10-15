@@ -23,7 +23,7 @@ import {
 } from '@/lib/media'
 import { playFinishSound } from '@/lib/sound'
 import { ensureFontLoaded, textBoxStyle } from '@/lib/textStyle'
-import type { StreamElement, SyncState } from '@/lib/types'
+import type { RoomUser, StreamElement, SyncState } from '@/lib/types'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { io as ioInit, Socket } from 'socket.io-client'
 
@@ -63,6 +63,18 @@ export default function PanelClient({
 	const parentHost =
 		typeof window !== 'undefined' ? window.location.hostname : 'localhost'
 	const [emoteOpen, setEmoteOpen] = useState(false)
+	// кто сейчас на странице (ник + роль): список рассылает сервер
+	const [users, setUsers] = useState<RoomUser[]>([])
+	const [usersOpen, setUsersOpen] = useState(false)
+	// окно участников закрывается по Esc
+	useEffect(() => {
+		if (!usersOpen) return
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key === 'Escape') setUsersOpen(false)
+		}
+		window.addEventListener('keydown', onKey)
+		return () => window.removeEventListener('keydown', onKey)
+	}, [usersOpen])
 	const [emotes, setEmotes] = useState<Emote[]>([])
 	const [emoteLoading, setEmoteLoading] = useState(false)
 	const [emoteError, setEmoteError] = useState('')
@@ -474,6 +486,8 @@ export default function PanelClient({
 			}
 		})
 		socket.on('state:init', (s: SyncState) => setState(s))
+		// кто сейчас на странице комнаты (ник + роль)
+		socket.on('room:users', (list: RoomUser[]) => setUsers(list ?? []))
 		socket.on('element:added', (el: StreamElement) =>
 			setState(p => ({ ...p, elements: [...p.elements, el] })),
 		)
@@ -601,13 +615,6 @@ export default function PanelClient({
 			document.documentElement.classList.contains('light') ? 'light' : 'dark',
 		)
 	}, [])
-
-	// заголовок вкладки: у модератора может быть открыто несколько панелей разных
-	// стримеров — по названию вкладки сразу видно, какая чья
-	useEffect(() => {
-		if (!channel) return
-		document.title = `Ovrly · ${channel}`
-	}, [channel])
 
 	const applyTheme = useCallback((next: 'dark' | 'light') => {
 		const root = document.documentElement
@@ -2336,39 +2343,52 @@ export default function PanelClient({
 		}
 	}, [handleResizeMove, emit])
 
-	// стартовый вид: считается при монтировании канваса (в т.ч. после поворота телефона
-	// из портретного экрана, где канваса нет)
+	// стартовый вид (и пересчёт базы) при монтировании канваса и при смене размера:
+	// на телефоне после поворота вьюпорт может быть ещё 0×0 — тогда масштаб выходил
+	// отрицательным, холст зеркалился («всё перевёрнуто»), чёрный бокс превью уезжал
+	// за экран, а зум вёл себя странно. Поэтому размеры зажимаем и считаем заново
 	useEffect(() => {
 		const vp = canvasEl
-		if (!vp || baseViewRef.current) return
-		if (!isMobileRef.current) {
-			const s = Math.min(
-				(vp.clientWidth - 80) / state.canvasW,
-				(vp.clientHeight - 80) / state.canvasH,
-			)
-			const base = {
-				s,
-				x: (vp.clientWidth - state.canvasW * s) / 2,
-				y: (vp.clientHeight - state.canvasH * s) / 2,
+		if (!vp) return
+		const computeBase = () => {
+			const vw = Math.max(vp.clientWidth, 320)
+			const vh = Math.max(vp.clientHeight, 240)
+			if (!isMobileRef.current) {
+				const s = Math.min((vw - 80) / state.canvasW, (vh - 80) / state.canvasH)
+				return {
+					s: Math.max(0.02, s),
+					x: (vw - state.canvasW * s) / 2,
+					y: (vh - state.canvasH * s) / 2,
+				}
 			}
+			// на телефоне начальный вид показывает и парковку под канвасом:
+			// иначе добавленные элементы «далеко от превью», и их приходится долго искать
+			const w = state.canvasW + 240
+			const h = state.canvasH + 60 + 560
+			const s = Math.max(0.02, Math.min((vw - 20) / w, (vh - 20) / h))
+			const cx = state.canvasW / 2
+			const cy = (state.canvasH - 60 + 560) / 2
+			return { s, x: vw / 2 - cx * s, y: vh / 2 - cy * s }
+		}
+		const apply = () => {
+			const prev = baseViewRef.current
+			const base = computeBase()
 			baseViewRef.current = base
-			setView(base)
-			return
+			// двигаем вид, только если пользователь ещё не приближал/не панорамировал
+			const untouched =
+				!prev ||
+				(Math.abs(viewRef.current.s - prev.s) < 0.001 &&
+					Math.abs(viewRef.current.x - prev.x) < 2 &&
+					Math.abs(viewRef.current.y - prev.y) < 2)
+			if (untouched) setView(base)
 		}
-		// на телефоне начальный вид показывает и парковку под канвасом:
-		// иначе добавленные элементы «далеко от превью», и их приходится долго искать
-		const w = state.canvasW + 240
-		const h = state.canvasH + 60 + 560
-		const s = Math.min((vp.clientWidth - 20) / w, (vp.clientHeight - 20) / h)
-		const cx = state.canvasW / 2
-		const cy = (state.canvasH - 60 + 560) / 2
-		const base = {
-			s,
-			x: vp.clientWidth / 2 - cx * s,
-			y: vp.clientHeight / 2 - cy * s,
+		apply()
+		window.addEventListener('resize', apply)
+		window.addEventListener('orientationchange', apply)
+		return () => {
+			window.removeEventListener('resize', apply)
+			window.removeEventListener('orientationchange', apply)
 		}
-		baseViewRef.current = base
-		setView(base)
 	}, [canvasEl, state.canvasW, state.canvasH])
 
 	useEffect(() => {
@@ -2676,9 +2696,9 @@ export default function PanelClient({
 						aria-label='Меню'
 						className='w-9 h-9 rounded-lg bg-border hover:bg-gray-600 flex flex-col items-center justify-center gap-[3px] shrink-0'
 					>
-						<span className='block w-4 h-[2px] bg-gray-300 rounded' />
-						<span className='block w-4 h-[2px] bg-gray-300 rounded' />
-						<span className='block w-4 h-[2px] bg-gray-300 rounded' />
+						<span className='block w-4 h-[2px] bg-gray-300 rounded-sm' />
+						<span className='block w-4 h-[2px] bg-gray-300 rounded-sm' />
+						<span className='block w-4 h-[2px] bg-gray-300 rounded-sm' />
 					</button>
 				)}
 				<a
@@ -2725,11 +2745,40 @@ export default function PanelClient({
 				)}
 				<div className='flex-1' />
 				{isMobile && (
+					<button
+						onClick={() => setUsersOpen(v => !v)}
+						title='Кто сейчас на странице'
+						aria-label='Кто сейчас на странице'
+						className='relative w-8 h-8 rounded-lg bg-border flex items-center justify-center text-gray-300 shrink-0'
+					>
+						<UsersIcon size={15} />
+						{users.filter(u => u.role !== 'guest').length > 0 && (
+							<span className='absolute -top-1 -right-1 min-w-[15px] h-[15px] px-0.5 rounded-full bg-accent text-white text-[9px] leading-[15px] text-center'>
+								{users.filter(u => u.role !== 'guest').length}
+							</span>
+						)}
+					</button>
+				)}
+				{isMobile && (
 					<span className='text-right text-[10px] text-gray-500 leading-tight max-w-[40vw]'>
 						Элементы сохраняются на сервере
 					</span>
 				)}
 				<div className={`flex items-center gap-3 ${isMobile ? 'hidden' : ''}`}>
+					{/* кто сейчас на странице: ники и роли (камера — автор панели, меч — модератор) */}
+					<button
+						onClick={() => setUsersOpen(v => !v)}
+						title='Кто сейчас на странице'
+						aria-label='Кто сейчас на странице'
+						className='relative w-9 h-9 rounded-full bg-border flex items-center justify-center text-gray-300 hover:text-white transition-colors'
+					>
+						<UsersIcon />
+						{users.filter(u => u.role !== 'guest').length > 0 && (
+							<span className='absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-accent text-white text-[10px] leading-4 text-center'>
+								{users.filter(u => u.role !== 'guest').length}
+							</span>
+						)}
+					</button>
 					<button
 						onClick={() => applyTheme(theme === 'dark' ? 'light' : 'dark')}
 						title={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
@@ -3858,6 +3907,63 @@ export default function PanelClient({
 				</div>
 			)}
 
+			{/* кто сейчас на странице: ник с Twitch и роль — камера у автора панели,
+			    меч у модератора, монитор у подключённого оверлея (OBS) */}
+			{usersOpen && (
+				<>
+					<div
+						className='fixed inset-0 z-40'
+						onClick={() => setUsersOpen(false)}
+					/>
+					<div className='fixed top-14 right-2 z-50 w-64 max-w-[92vw] rounded-xl border border-border bg-panel p-2 shadow-xl'>
+						<div className='px-2 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wide'>
+							Сейчас на странице
+						</div>
+						{users.length === 0 && (
+							<p className='px-2 py-3 text-xs text-gray-600'>Никого нет</p>
+						)}
+						{users.map(u => (
+							<div
+								key={u.role + ':' + u.login}
+								className='flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-border/60'
+								title={
+									u.role === 'streamer'
+										? 'Автор панели'
+										: u.role === 'moderator'
+											? 'Модератор'
+											: 'Оверлей в OBS (гость)'
+								}
+							>
+								<span className='shrink-0 text-gray-300'>
+									{u.role === 'streamer' ? (
+										<CameraIcon />
+									) : u.role === 'moderator' ? (
+										<SwordIcon />
+									) : (
+										<MonitorIcon />
+									)}
+								</span>
+								<span className='flex-1 truncate text-sm text-gray-200'>
+									{u.login}
+								</span>
+								{u.connections > 1 && (
+									<span className='shrink-0 text-[10px] text-gray-500'>
+										×{u.connections}
+									</span>
+								)}
+								<span className='shrink-0 text-[10px] text-gray-500'>
+									{u.role === 'streamer'
+										? 'автор'
+										: u.role === 'moderator'
+											? 'модератор'
+											: 'оверлей'}
+								</span>
+							</div>
+						))}
+					</div>
+				</>
+			)}
+
 			{emoteOpen && (
 				<div
 					className='fixed inset-0 z-50 bg-black/60 flex items-center justify-center'
@@ -4077,6 +4183,91 @@ function ElementThumb({ el }: { el: StreamElement }) {
 			<span className='text-lg'>🌐</span>
 			{host && <span className='text-[9px] text-gray-500 truncate max-w-full'>{host}</span>}
 		</span>
+	)
+}
+
+// Иконки списка участников и кнопки «кто на странице» (контурные, под тему).
+// Кнопка — силуэт человека со щитом, как на макете
+function UsersIcon({ size = 16 }: { size?: number }) {
+	return (
+		<svg
+			width={size}
+			height={size}
+			viewBox='0 0 24 24'
+			fill='none'
+			stroke='currentColor'
+			strokeWidth='2'
+			strokeLinecap='round'
+			strokeLinejoin='round'
+			aria-hidden='true'
+		>
+			<circle cx='9' cy='8' r='3.2' />
+			<path d='M3.5 19.5c0-3 2.5-5 5.5-5 .9 0 1.8.2 2.6.6' />
+			<path d='M16.5 11.5 20 13v3.2c0 2-1.5 3.6-3.5 4.3-2-.7-3.5-2.3-3.5-4.3V13z' />
+		</svg>
+	)
+}
+
+// камера — автор панели (стример)
+function CameraIcon({ size = 15 }: { size?: number }) {
+	return (
+		<svg
+			width={size}
+			height={size}
+			viewBox='0 0 24 24'
+			fill='none'
+			stroke='currentColor'
+			strokeWidth='2'
+			strokeLinecap='round'
+			strokeLinejoin='round'
+			aria-hidden='true'
+		>
+			<rect x='2.5' y='6.5' width='12' height='11' rx='2.5' />
+			<path d='M14.5 11.2l5-2.7v7l-5-2.7z' />
+		</svg>
+	)
+}
+
+// меч — модератор
+function SwordIcon({ size = 15 }: { size?: number }) {
+	return (
+		<svg
+			width={size}
+			height={size}
+			viewBox='0 0 24 24'
+			fill='none'
+			stroke='currentColor'
+			strokeWidth='2'
+			strokeLinecap='round'
+			strokeLinejoin='round'
+			aria-hidden='true'
+		>
+			<path d='M14.5 17.5 3 6V3h3l11.5 11.5' />
+			<path d='M13 19l6-6' />
+			<path d='M16 16l4 4' />
+			<path d='M19 21l2-2' />
+		</svg>
+	)
+}
+
+// монитор — оверлей в OBS (гость без ника Twitch)
+function MonitorIcon({ size = 15 }: { size?: number }) {
+	return (
+		<svg
+			width={size}
+			height={size}
+			viewBox='0 0 24 24'
+			fill='none'
+			stroke='currentColor'
+			strokeWidth='2'
+			strokeLinecap='round'
+			strokeLinejoin='round'
+			aria-hidden='true'
+		>
+			<rect x='2.5' y='4' width='19' height='13' rx='2.5' />
+			<path d='M9 20.5h6' />
+			<path d='M12 17v3.5' />
+		</svg>
 	)
 }
 

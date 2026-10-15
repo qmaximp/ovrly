@@ -3,15 +3,15 @@ import { verifySession } from '@/lib/session'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 
-export default function Home({
+// Next 16: cookies() и searchParams асинхронные — их нужно дожидаться
+export default async function Home({
 	searchParams,
 }: {
-	searchParams?: { error?: string }
+	searchParams?: Promise<{ error?: string }>
 }) {
-	const c = cookies().get('sc_session')
-	const session = c ? verifySession(c.value) : null
+	const session = verifySession((await cookies()).get('sc_session')?.value)
 	if (session) redirect('/cabinet')
-	const error = searchParams?.error
+	const error = (await searchParams)?.error
 
 	// структурированные данные для поиска: что это за приложение
 	const jsonLd = {
@@ -85,7 +85,7 @@ export default function Home({
 				>
 					github
 				</a>
-				{' проекта | Версия 1.4'}
+				{' проекта | Версия 1.5'}
 			</footer>
 		</main>
 	)

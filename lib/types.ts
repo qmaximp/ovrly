@@ -66,3 +66,11 @@ export interface SyncState {
   canvasW: number;
   canvasH: number;
 }
+
+// Кто сейчас на странице комнаты (для списка участников в шапке панели):
+// streamer — автор панели, moderator — приглашённый модератор, guest — оверлей в OBS
+export type RoomUser = {
+  login: string;
+  role: 'streamer' | 'moderator' | 'guest';
+  connections: number;
+};

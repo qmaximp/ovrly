@@ -1,6 +1,15 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+/* Цвета темы: утилиты Tailwind (bg-panel, text-accent2, border-border…) берут их
+   отсюда, а сами переменные переключаются классом html.light. Прозрачность
+   (bg-panel/80) Tailwind 4 подмешивает сам через color-mix */
+@theme {
+  --color-bg: rgb(var(--c-bg));
+  --color-panel: rgb(var(--c-panel));
+  --color-accent: rgb(var(--c-accent));
+  --color-accent2: rgb(var(--c-accent2));
+  --color-border: rgb(var(--c-border));
+}
 
 /* Тёмная тема — значения по умолчанию (как было) */
 :root {

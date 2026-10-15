@@ -164,13 +164,13 @@ export default function CabinetClient({
 						href={url}
 						target='_blank'
 						rel='noopener noreferrer'
-						className='text-xs px-2 py-1 bg-border hover:bg-gray-600 text-gray-300 rounded transition-colors'
+						className='text-xs px-2 py-1 bg-border hover:bg-gray-600 text-gray-300 rounded-sm transition-colors'
 					>
 						Перейти ↗
 					</a>
 					<button
 						onClick={() => copy(url, key)}
-						className='text-xs px-2 py-1 bg-border hover:bg-gray-600 text-gray-300 rounded transition-colors'
+						className='text-xs px-2 py-1 bg-border hover:bg-gray-600 text-gray-300 rounded-sm transition-colors'
 					>
 						{copied === key ? 'Скопировано ✓' : 'Копировать'}
 					</button>
@@ -484,7 +484,7 @@ export default function CabinetClient({
 					>
 						github
 					</a>
-					{' проекта | Версия 1.4'}
+					{' проекта | Версия 1.5'}
 				</p>
 			</footer>
 		</main>

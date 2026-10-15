@@ -72,6 +72,9 @@ const MUTATING_EVENTS = new Set([
 	'elements:clear',
 ])
 
+// порядок участников в списке «кто на странице»: стример, модераторы, оверлей
+const ROLE_RANK = { streamer: 0, moderator: 1, guest: 2 }
+
 // как часто сбрасывать изменения комнат на диск
 const ROOM_FLUSH_MS = 5000
 
@@ -181,6 +184,7 @@ app.prepare().then(() => {
 			state: saved ?? { elements: [], canvasW: CANVAS_W, canvasH: CANVAS_H },
 			lastActivity: Date.now(),
 			locks: new Map(), // id элемента -> { socketId, login, until }
+			users: new Map(), // socketId -> { login, role } — кто сейчас на странице
 			dirty: false,
 		}
 		rooms.set(key, r)
@@ -304,6 +308,28 @@ app.prepare().then(() => {
 			socket.disconnect(true)
 			return
 		}
+		// участники комнаты: ник + роль (у оверлея в OBS сессии нет — он гость).
+		// Список рассылаем всем в комнате при входе и выходе
+		roomRec.users.set(socket.id, {
+			login: isGuest ? 'Оверлей (OBS)' : userLogin,
+			role: isGuest ? 'guest' : isStreamer ? 'streamer' : 'moderator',
+		})
+		const broadcastUsers = () => {
+			const byKey = new Map()
+			for (const u of roomRec.users.values()) {
+				// одинаковые ники (несколько вкладок одного человека) схлопываем со счётчиком
+				const key = u.role === 'guest' ? '__guest__' : u.login
+				const cur = byKey.get(key) ?? { login: u.login, role: u.role, connections: 0 }
+				cur.connections += 1
+				byKey.set(key, cur)
+			}
+			const list = [...byKey.values()].sort(
+				(a, b) => ROLE_RANK[a.role] - ROLE_RANK[b.role] || a.login.localeCompare(b.login),
+			)
+			io.to(room).emit('room:users', list)
+		}
+		broadcastUsers()
+
 		console.log(
 			'[io] connect:',
 			socket.id,
@@ -385,6 +411,8 @@ app.prepare().then(() => {
 
 		socket.on('disconnect', () => {
 			io.to(room).emit('cursor:leave', { id: socket.id })
+			roomRec.users.delete(socket.id)
+			broadcastUsers()
 			// снимаем локи отключившегося
 			for (const [id, lock] of roomRec.locks) {
 				if (lock.socketId === socket.id) {

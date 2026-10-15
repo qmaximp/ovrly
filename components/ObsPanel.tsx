@@ -134,7 +134,7 @@ export default function ObsPanel() {
         </h2>
         {!connected ? (
           <>
-            <p className="text-sm text-gray-400 mb-4">В OBS: <b>Tools → WebSocket Server Settings</b>, включите сервер. Порт по умолчанию — <code className="bg-bg px-1 rounded">4455</code>.</p>
+            <p className="text-sm text-gray-400 mb-4">В OBS: <b>Tools → WebSocket Server Settings</b>, включите сервер. Порт по умолчанию — <code className="bg-bg px-1 rounded-sm">4455</code>.</p>
             {httpsPage && /^(localhost|127\.|0\.0\.0\.0)/.test(host) && (
               <p className="text-xs text-amber-400/90 bg-amber-950/30 border border-amber-900/40 rounded-lg px-3 py-2 mb-3">
                 Страница открыта по HTTPS, а OBS WebSocket — незашифрованный ws://. Браузер
@@ -198,8 +198,8 @@ export default function ObsPanel() {
                       </button>
                     )}
                     <div className="flex gap-1 shrink-0">
-                      <button onClick={() => moveItem(item, "up")} className="w-6 h-6 flex items-center justify-center text-gray-400 hover:text-white hover:bg-border rounded">↑</button>
-                      <button onClick={() => moveItem(item, "down")} className="w-6 h-6 flex items-center justify-center text-gray-400 hover:text-white hover:bg-border rounded">↓</button>
+                      <button onClick={() => moveItem(item, "up")} className="w-6 h-6 flex items-center justify-center text-gray-400 hover:text-white hover:bg-border rounded-sm">↑</button>
+                      <button onClick={() => moveItem(item, "down")} className="w-6 h-6 flex items-center justify-center text-gray-400 hover:text-white hover:bg-border rounded-sm">↓</button>
                     </div>
                   </div>
                   {item.isGroup && item.children && expandedGroups.has(item.sourceName) && (

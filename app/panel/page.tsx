@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import PanelClient from "@/components/PanelClient";
@@ -14,14 +15,31 @@ import { verifySession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
-export default function Panel({ searchParams }: { searchParams?: { room?: string } }) {
-  const room = searchParams?.room;
+// Заголовок вкладки: у модератора бывает открыто несколько панелей разных стримеров —
+// по вкладке видно, какая чья. absolute — чтобы не подставлялся шаблон "%s · Ovrly"
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams?: Promise<{ room?: string }>;
+}): Promise<Metadata> {
+  const room = (await searchParams)?.room;
+  const owner = room ? findOwnerByToken(room) : null;
+  return { title: { absolute: owner ? `Ovrly · ${owner}` : "Ovrly" } };
+}
+
+// Next 16: cookies() и searchParams асинхронные — их нужно дожидаться
+export default async function Panel({
+  searchParams,
+}: {
+  searchParams?: Promise<{ room?: string }>;
+}) {
+  const room = (await searchParams)?.room;
   // чистая ссылка /panel закрыта: панель открывается только по ссылке с токеном комнаты
   if (!room || !isValidRoomToken(room)) {
     return invalidLinkScreen();
   }
 
-  const session = verifySession(cookies().get("sc_session")?.value);
+  const session = verifySession((await cookies()).get("sc_session")?.value);
   // не авторизован — после входа попадёт в кабинет (приглашение выдаёт стример по нику)
   if (!session) return notRegisteredScreen(`/cabinet?invite=${encodeURIComponent(room)}`);
 
