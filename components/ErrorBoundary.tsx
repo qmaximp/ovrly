@@ -19,7 +19,7 @@ export default class ErrorBoundary extends React.Component<
 			return (
 				<div className='min-h-[100dvh] bg-bg flex flex-col items-center justify-center text-center px-4'>
 					<div className='text-5xl mb-4'>💥</div>
-					<h1 className='text-lg font-semibold text-white mb-2'>
+					<h1 className='text-lg font-semibold text-[color:var(--c-on-bg)] mb-2'>
 						Что-то сломалось
 					</h1>
 					<p className='text-sm text-gray-500 max-w-sm mb-6'>

@@ -37,6 +37,11 @@ export interface StreamElement {
   isRunning?: boolean;
   elapsed?: number;
   timerLabel?: string;
+  // свой звук окончания таймера (файл с ПК как data-URL) + его настройки:
+  // громкость 0..1 и длительность проигрывания в секундах (не больше 10)
+  soundSrc?: string;
+  soundVolume?: number;
+  soundDuration?: number;
   visible: boolean;
   alwaysLoaded?: boolean;
   locked?: boolean;

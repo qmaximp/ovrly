@@ -34,7 +34,9 @@ export default async function Home({
 			/>
 			<div className='flex items-center gap-3 mb-3'>
 				<LogoMark size={44} />
-				<h1 className='text-2xl font-semibold text-white'>Ovrly</h1>
+				<h1 className='text-2xl font-semibold text-[color:var(--c-on-bg)]'>
+					Ovrly
+				</h1>
 			</div>
 			<p className='text-lg text-gray-500 mb-8 text-center'>
 				Панель управления оверлеем для модераторов и стримера
@@ -85,7 +87,7 @@ export default async function Home({
 				>
 					github
 				</a>
-				{' проекта | Версия 1.5'}
+				{' проекта | Версия 1.6'}
 			</footer>
 		</main>
 	)

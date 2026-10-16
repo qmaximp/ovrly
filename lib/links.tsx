@@ -74,7 +74,7 @@ export function notRegisteredScreen(next?: string): React.ReactNode {
           <path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714H20.57z" />
         </svg>
       </span>
-      <h1 className="text-xl font-semibold text-white mb-2">Вы не зарегистрированы</h1>
+      <h1 className="text-xl font-semibold text-[color:var(--c-on-bg)] mb-2">Вы не зарегистрированы</h1>
       <p className="text-sm text-gray-500 max-w-sm mb-6">
         Вход через Twitch не выполнен — пока нет доступа к этой странице. Войдите, чтобы получить кабинет и ссылки для панели.
       </p>
@@ -95,7 +95,7 @@ export function notRegisteredScreen(next?: string): React.ReactNode {
 export function invalidLinkScreen(): React.ReactNode {
   return (
     <main className="min-h-screen bg-bg flex flex-col items-center justify-center px-4 text-center">
-      <h1 className="text-xl font-semibold text-white mb-2">Ссылка недействительна</h1>
+      <h1 className="text-xl font-semibold text-[color:var(--c-on-bg)] mb-2">Ссылка недействительна</h1>
       <p className="text-sm text-gray-500 max-w-sm">
         Эта ссылка была отозвана или заменена новой. Попросите свежую ссылку в личном кабинете.
       </p>
@@ -112,7 +112,7 @@ export function accessSuspendedScreen(ownerLogin: string): React.ReactNode {
     <main className="min-h-screen bg-bg flex flex-col items-center justify-center px-4 text-center">
       <div className="bg-panel border border-border rounded-2xl p-8 max-w-sm w-full">
         <div className="text-5xl mb-4">🔒</div>
-        <h1 className="text-lg font-semibold text-white mb-2">Доступ временно отключён</h1>
+        <h1 className="text-lg font-semibold text-[color:var(--c-on-bg)] mb-2">Доступ временно отключён</h1>
         <p className="text-sm text-gray-400 mb-6">
           Стример <span className="text-gray-200">{ownerLogin}</span> приостановил ваш доступ к панели.
           Напишите ему, чтобы вернуть.
@@ -135,7 +135,7 @@ export function noInviteScreen(ownerLogin: string): React.ReactNode {
     <main className="min-h-screen bg-bg flex flex-col items-center justify-center px-4 text-center">
       <div className="bg-panel border border-border rounded-2xl p-8 max-w-sm w-full">
         <div className="text-5xl mb-4">🚪</div>
-        <h1 className="text-lg font-semibold text-white mb-2">У вас нет приглашения</h1>
+        <h1 className="text-lg font-semibold text-[color:var(--c-on-bg)] mb-2">У вас нет приглашения</h1>
         <p className="text-sm text-gray-400 mb-6">
           Стример <span className="text-gray-200">{ownerLogin}</span> выдаёт доступ к панели только по нику Twitch.
           Попросите его пригласить вас во вкладке «Доступ к панели».

@@ -41,3 +41,41 @@ export function playFinishSound() {
 		// звук — необязательная часть
 	}
 }
+
+// Звук окончания таймера: свой файл (data-URL с ПК) или встроенный сигнал.
+// Громкость и длительность берутся из настроек элемента; длительность ограничена
+// 10 секундами, чтобы случайно не залить эфир длинным треком
+export type TimerSoundOpts = {
+	src?: string
+	volume?: number
+	duration?: number
+}
+
+// текущее воспроизведение: повторный сигнал не накладывается на предыдущий
+let currentSound: HTMLAudioElement | null = null
+
+export function playTimerSound(opts: TimerSoundOpts = {}) {
+	try {
+		if (currentSound) {
+			currentSound.pause()
+			currentSound = null
+		}
+	} catch {}
+	if (!opts.src) {
+		playFinishSound()
+		return
+	}
+	try {
+		const audio = new Audio(opts.src)
+		audio.volume = Math.min(1, Math.max(0, opts.volume ?? 1))
+		currentSound = audio
+		const stopAfterMs = Math.max(200, Math.min(opts.duration ?? 10, 10) * 1000)
+		void audio.play().catch(() => {})
+		setTimeout(() => {
+			try {
+				audio.pause()
+				if (currentSound === audio) currentSound = null
+			} catch {}
+		}, stopAfterMs)
+	} catch {}
+}

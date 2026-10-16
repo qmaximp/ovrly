@@ -50,7 +50,10 @@ export default async function Panel({
   if (owner === session.login) {
     return (
       <ErrorBoundary>
-        <PanelClient channel={owner} room={room} userLogin={session.login} />
+        <PanelClient
+        channel={owner}
+        room={room}
+        userLogin={session.login}      />
       </ErrorBoundary>
     );
   }

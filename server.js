@@ -75,6 +75,21 @@ const MUTATING_EVENTS = new Set([
 // порядок участников в списке «кто на странице»: стример, модераторы, оверлей
 const ROLE_RANK = { streamer: 0, moderator: 1, guest: 2 }
 
+// Доступ в админ-панель (см. lib/admin.ts — список должен совпадать)
+const DEFAULT_ADMINS = ['jettle_', 'nezory_1']
+function adminLogins() {
+  const raw = process.env.ADMIN_LOGINS
+  return (raw ? raw.split(',') : DEFAULT_ADMINS).map(s => s.trim().toLowerCase()).filter(Boolean)
+}
+const isAdminLogin = login => !!login && adminLogins().includes(login.toLowerCase())
+
+// Последние действия по комнатам (для админки): кто что менял и когда
+const recentEvents = []
+function noteEvent(room, login, event) {
+  recentEvents.push({ at: Date.now(), room: String(room).slice(0, 8), login, event })
+  if (recentEvents.length > 120) recentEvents.splice(0, recentEvents.length - 120)
+}
+
 // как часто сбрасывать изменения комнат на диск
 const ROOM_FLUSH_MS = 5000
 
@@ -278,6 +293,94 @@ app.prepare().then(() => {
 		return !!entry && entry.status === 'accepted' && !entry.suspended
 	}
 
+	const adminSockets = new Set()
+
+	// Статистика для админ-панели: комнаты, участники, активность, память
+	function adminStats() {
+		const mem = process.memoryUsage()
+		const now = Date.now()
+		const roomsOut = []
+		let elements = 0
+		let bytes = 0
+		// уникальные люди (без оверлеев) — Set глобально: один человек в двух комнатах считается один раз
+		const peopleLogins = new Set()
+		let sockets = 0
+		for (const [key, r] of rooms) {
+			const owner = roomOwner(key)
+			// Один и тот же ник может держать несколько вкладок (панель, оверлей) — схлопываем
+			// в одну строку с числом подключений, иначе в списке «кто на сайте» плодятся дубликаты
+			const byLogin = new Map()
+			for (const u of r.users.values()) {
+				const seenSec = Math.round((now - (u.lastSeen || now)) / 1000)
+				const connectedSec = Math.round((now - (u.connectedAt || now)) / 1000)
+				const cur = byLogin.get(u.login)
+				if (cur) {
+					cur.connections += 1
+					if (seenSec < cur.seenSec) cur.seenSec = seenSec
+					if (connectedSec < cur.connectedSec) cur.connectedSec = connectedSec
+				} else {
+					byLogin.set(u.login, {
+						login: u.login,
+						role: u.role,
+						seenSec,
+						connectedSec,
+						connections: 1,
+					})
+				}
+				if (u.role !== 'guest') peopleLogins.add(u.login.toLowerCase())
+			}
+			const users = [...byLogin.values()].sort(
+				(a, b) =>
+					ROLE_RANK[a.role] - ROLE_RANK[b.role] || a.login.localeCompare(b.login),
+			)
+			const elev = r.state.elements.length
+			const byt = roomStore.roomBytes(r.state)
+			elements += elev
+			bytes += byt
+			sockets += r.users.size
+			roomsOut.push({
+				key: String(key).slice(0, 12),
+				owner: owner || '—',
+				elements: elev,
+				bytesMB: Math.round((byt / 1024 / 1024) * 10) / 10,
+					sockets: r.users.size,
+				dirty: !!r.dirty,
+				lastActivitySec: Math.round((now - r.lastActivity) / 1000),
+				lastEditSec: r.lastEditAt ? Math.round((now - r.lastEditAt) / 1000) : null,
+				edits: r.edits || 0,
+				users,
+			})
+		}
+		roomsOut.sort((x, y) => x.lastActivitySec - y.lastActivitySec)
+		const fiveMinAgo = now - 5 * 60 * 1000
+		return {
+			now,
+			uptimeSec: Math.round(process.uptime()),
+			memory: { rssMB: Math.round(mem.rss / 1024 / 1024), heapMB: Math.round(mem.heapUsed / 1024 / 1024) },
+			dataDir: dataDir(),
+			totals: {
+				rooms: rooms.size,
+				elements,
+				bytesMB: Math.round((bytes / 1024 / 1024) * 10) / 10,
+				sockets,
+				people: peopleLogins.size,
+				admins: [...adminSockets].length,
+			},
+			activity: {
+				actions5m: recentEvents.filter(e => e.at > fiveMinAgo).length,
+				edits5m: recentEvents.filter(e => e.at > fiveMinAgo && MUTATING_EVENTS.has(e.event)).length,
+				lastAt: recentEvents.length ? recentEvents[recentEvents.length - 1].at : null,
+			},
+			rooms: roomsOut,
+		}
+	}
+	const pushStats = () => {
+		if (!adminSockets.size) return
+		const data = adminStats()
+		for (const id of adminSockets) io.to(id).emit('admin:stats', data)
+	}
+	setInterval(pushStats, 5000)
+
 	io.on('connection', socket => {
 		// комната из handshake (?room=токен), иначе общая default-комната
 		const room = ((socket.handshake.query.room || 'default') + '').slice(0, 64)
@@ -298,6 +401,28 @@ app.prepare().then(() => {
 			!isGuest && !!ownerByRoom && userLogin.toLowerCase() === ownerByRoom.toLowerCase()
 		const hasAccess = !isGuest && hasPanelAccess(room, userLogin)
 
+		// Админ-панель: служебное соединение (?admin=1) — комнату не занимает, только
+		// статистика и предупреждение всех о деплое
+		if (socket.handshake.query.admin === '1') {
+			if (!isAdminLogin(userLogin)) {
+				socket.emit('access:revoked')
+				socket.disconnect(true)
+				return
+			}
+			adminSockets.add(socket.id)
+			console.log('[io] админ-панель подключена:', userLogin)
+			socket.emit('admin:stats', adminStats())
+			socket.on('admin:stats', () => socket.emit('admin:stats', adminStats()))
+			socket.on('admin:announce', data => {
+				const text = (data && typeof data.text === 'string' ? data.text : '').slice(0, 200)
+				if (!text) return
+				console.log('[io] объявление админа:', userLogin, '—', text)
+				io.emit('server:notice', { text, at: Date.now() })
+			})
+			socket.on('disconnect', () => adminSockets.delete(socket.id))
+			return
+		}
+
 		// сообщаем роль клиенту: панель без валидной сессии предупредит, что правки
 		// не сохраняются (иначе действия молча отклонялись бы)
 		socket.emit('access:role', { readOnly: !hasAccess, guest: isGuest })
@@ -313,6 +438,8 @@ app.prepare().then(() => {
 		roomRec.users.set(socket.id, {
 			login: isGuest ? 'Оверлей (OBS)' : userLogin,
 			role: isGuest ? 'guest' : isStreamer ? 'streamer' : 'moderator',
+			connectedAt: Date.now(),
+			lastSeen: Date.now(),
 		})
 		const broadcastUsers = () => {
 			const byKey = new Map()
@@ -359,7 +486,14 @@ app.prepare().then(() => {
 				socket.disconnect(true)
 				return next(new Error('access revoked'))
 			}
-			if (MUTATING_EVENTS.has(event)) roomRec.dirty = true
+			if (MUTATING_EVENTS.has(event)) {
+				roomRec.dirty = true
+				roomRec.lastEditAt = Date.now()
+				roomRec.edits = (roomRec.edits || 0) + 1
+				noteEvent(room, userLogin, event)
+			}
+			const me = roomRec.users.get(socket.id)
+			if (me) me.lastSeen = Date.now()
 			next()
 		})
 

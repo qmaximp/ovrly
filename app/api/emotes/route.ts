@@ -1,174 +1,25 @@
 export const dynamic = "force-dynamic";
 
 import { verifySession } from "@/lib/session";
-import { readLinks, writeLinks } from "@/lib/links";
-import { safe, helix, twitchUserId } from "@/lib/twitch";
+import { loadEmotes } from "@/lib/emotes";
 
-type Emote = { platform: "twitch" | "7tv" | "bttv" | "ffz"; code: string; url: string };
-
-const json = (data: unknown, status = 200) =>
-  new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
-
-// user-токен Helix для chat/emotes/channel (с app-токеном Twitch возвращает 404).
-// Приоритет: токен владельца канала из links.json (корректен для user_id-эндпоинтов),
-// затем токен из cookie-сессии. Просроченный обновляем по refresh_token.
-async function refreshEntryToken(channel: string): Promise<string | null> {
-  const links = readLinks();
-  const entry = links[channel];
-  if (!entry?.refreshToken) return null;
-  const cid = process.env.TWITCH_CLIENT_ID;
-  const sec = process.env.TWITCH_CLIENT_SECRET;
-  if (!cid || !sec) return null;
-  const refreshed = await safe(() =>
-    fetch("https://id.twitch.tv/oauth2/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ client_id: cid, client_secret: sec, grant_type: "refresh_token", refresh_token: entry.refreshToken! }),
-    }).then((r) => r.json())
-  );
-  if (!refreshed?.access_token) return null;
-  entry.userToken = refreshed.access_token;
-  entry.userTokenExpires = Date.now() + (refreshed.expires_in ?? 14400) * 1000;
-  entry.refreshToken = refreshed.refresh_token ?? entry.refreshToken;
-  writeLinks(links);
-  return refreshed.access_token;
-}
-
-async function resolveUserToken(req: Request, channel: string): Promise<{ token: string; isOwner: boolean } | null> {
-  const links = readLinks();
-  const entry = links[channel];
-  if (entry?.userToken) {
-    const token = (entry.userTokenExpires ?? 0) > Date.now() + 30000
-      ? entry.userToken
-      : await refreshEntryToken(channel);
-    if (token) return { token, isOwner: true };
-  }
-  const m = (req.headers.get("cookie") || "").match(/sc_session=([^;]+)/);
-  if (m) {
-    const session = verifySession(decodeURIComponent(m[1]));
-    if (session?.access_token && (session.token_expires ?? 0) > Date.now() + 30000) {
-      return { token: session.access_token, isOwner: session.login === channel };
-    }
-  }
-  return null;
-}
-
-async function twitchEmotes(broadcasterId: string | null, user: { token: string; isOwner: boolean } | null): Promise<Emote[]> {
-  const out: Emote[] = [];
-  const img = (e: any) => e.images?.url_4x || e.images?.url_2x || e.images?.url_1x;
-  const glob = await safe(() => helix("chat/emotes/global"));
-  for (const e of glob?.data ?? []) if (img(e)) out.push({ platform: "twitch", code: e.name, url: img(e) });
-  if (!broadcasterId || !user) return out;
-
-  const headers = { "Client-Id": process.env.TWITCH_CLIENT_ID!, Authorization: `Bearer ${user.token}` };
-  const seen = new Set(out.map((e) => e.code));
-  // 1) прямые канальные смайлики (если у канала они есть; иначе Twitch отдаёт 404)
-  const ch = await safe(() =>
-    fetch(`https://api.twitch.tv/helix/chat/emotes/channel?broadcaster_id=${broadcasterId}`, { headers }).then((r) => r.json())
-  );
-  if (ch?.data?.length) {
-    for (const e of ch.data) {
-      if (img(e) && !seen.has(e.name)) {
-        out.push({ platform: "twitch", code: e.name, url: img(e) });
-        seen.add(e.name);
-      }
-    }
-  }
-  // 2) все смайлики, доступные АККАУНТУ стримера (его подписки и свой канал) —
-  //    эндпоинт требует user_id, совпадающий с токеном, поэтому только токеном владельца
-  if (user.isOwner) {
-    const own = await safe(() =>
-      fetch(`https://api.twitch.tv/helix/chat/emotes/user?user_id=${broadcasterId}`, { headers }).then((r) => r.json())
-    );
-    for (const e of own?.data ?? []) {
-      if (img(e) && !seen.has(e.name)) {
-        out.push({ platform: "twitch", code: e.name, url: img(e) });
-        seen.add(e.name);
-      }
-    }
-  }
-  return out;
-}
-
-async function sevenTv(broadcasterId: string | null): Promise<{ emotes: Emote[]; note?: string }> {
-  const out: Emote[] = [];
-  const url = (e: any) => {
-    const host = e.data?.host;
-    if (!host?.url) return null;
-    const names: string[] = (host.files ?? []).map((f: any) => f.name);
-    const file = names.find((n) => n === "3x.webp") || names.find((n) => n === "2x.webp") || names[0] || "2x.webp";
-    return `https:${host.url}/${file}`;
-  };
-  const g = await safe(() => fetch("https://7tv.io/v3/emote-sets/global").then((r) => r.json()));
-  for (const e of g?.emotes ?? []) { const u = url(e); if (u) out.push({ platform: "7tv", code: e.name, url: u }); }
-  if (broadcasterId) {
-    const u = await safe(() => fetch(`https://7tv.io/v3/users/twitch/${broadcasterId}`).then((r) => r.json()));
-    // 7tv.io отдаёт "user not found", если 7tv-аккаунт не привязан к Twitch-аккаунту канала
-    if (!u || u.error_code) {
-      return { emotes: out, note: "7TV: смайлики вашего канала недоступны — зайдите на 7tv.app через Twitch (Connections), и они появятся здесь" };
-    }
-    for (const e of u?.emote_set?.emotes ?? []) { const eu = url(e); if (eu) out.push({ platform: "7tv", code: e.name, url: eu }); }
-  }
-  return { emotes: out };
-}
-
-async function bttv(broadcasterId: string | null): Promise<Emote[]> {
-  const out: Emote[] = [];
-  const push = (arr: any) => { for (const e of arr ?? []) if (e.id && e.code) out.push({ platform: "bttv", code: e.code, url: `https://cdn.betterttv.net/emote/${e.id}/3x` }); };
-  const g = await safe(() => fetch("https://api.betterttv.net/3/cached/emotes/global").then((r) => r.json()));
-  push(g);
-  if (broadcasterId) {
-    const u = await safe(() => fetch(`https://api.betterttv.net/3/cached/users/twitch/${broadcasterId}`).then((r) => r.json()));
-    push(u?.channelEmotes); push(u?.sharedEmotes);
-  }
-  return out;
-}
-
-async function ffz(broadcasterId: string | null): Promise<Emote[]> {
-  const out: Emote[] = [];
-  const parseSets = (sets: any) => {
-    for (const set of Object.values(sets ?? {})) {
-      for (const e of (set as any)?.emoticons ?? []) {
-        const u = e.urls?.["4"] || e.urls?.["2"] || e.urls?.["1"];
-        if (u) out.push({ platform: "ffz", code: e.name, url: u.startsWith("//") ? `https:${u}` : u });
-      }
-    }
-  };
-  const g = await safe(() => fetch("https://api.frankerfacez.com/v1/set/global").then((r) => r.json()));
-  parseSets(g?.sets);
-  if (broadcasterId) {
-    const r = await safe(() => fetch(`https://api.frankerfacez.com/v1/room/id/${broadcasterId}`).then((x) => x.json()));
-    parseSets(r?.sets);
-  }
-  return out;
-}
-
+// Смайлики канала: Twitch (личный набор автора + канальные + глобальные),
+// 7TV, BetterTTV, FrankerFaceZ. Вся логика — в lib/emotes.ts.
+// ?refresh=1 — сбросить кэш (кнопка «Обновить» в пикере)
 export async function GET(req: Request) {
-	// смайлики запрашивает только панель: без сессии ручка не нужна (и не должна
-	// работать как открытый прокси к Twitch/7TV от имени владельца канала)
-	const m = (req.headers.get("cookie") || "").match(/(?:^|;\s*)sc_session=([^;]+)/);
-	const session = m ? verifySession(decodeURIComponent(m[1])) : null;
-	if (!session) return json({ error: "unauthorized" }, 401);
+  const m = (req.headers.get("cookie") || "").match(/(?:^|;\s*)sc_session=([^;]+)/);
+  const session = m ? verifySession(decodeURIComponent(m[1])) : null;
+  if (!session) {
+    return Response.json({ error: "unauthorized" }, { status: 401 });
+  }
 
-	const channel = (new URL(req.url).searchParams.get("channel") || "").trim().toLowerCase().replace(/^@/, "");
-  // без кэша: каждый запрос — живые данные всех платформ
+  const url = new URL(req.url);
+  const channel = (url.searchParams.get("channel") || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^@/, "");
+  const refresh = url.searchParams.get("refresh") === "1";
 
-  let broadcasterId: string | null = null;
-  if (channel) broadcasterId = await twitchUserId(channel);
-  const user = await resolveUserToken(req, channel);
-  const [t, s7, b, f] = await Promise.all([
-    safe(() => twitchEmotes(broadcasterId, user)), safe(() => sevenTv(broadcasterId)),
-    safe(() => bttv(broadcasterId)), safe(() => ffz(broadcasterId)),
-  ]);
-  const notes: string[] = [];
-  if (s7?.note) notes.push(s7.note);
-  // дедупликация в рамках платформы (канальные наборы частично пересекаются с глобальными)
-  const seen = new Set<string>();
-  const emotes = [...(t ?? []), ...(s7?.emotes ?? []), ...(b ?? []), ...(f ?? [])].filter((e) => {
-    const key = `${e.platform}|${e.code}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-  return json({ channel, emotes, notes });
+  const data = await loadEmotes(channel, refresh);
+  return Response.json(data);
 }

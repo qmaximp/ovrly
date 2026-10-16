@@ -2,6 +2,7 @@ import { cookies, headers } from "next/headers";
 import { notRegisteredScreen, isValidRoomToken } from "@/lib/links";
 import { tokenForLogin, verifySession } from "@/lib/session";
 import CabinetClient from "@/components/CabinetClient";
+import { isAdminLogin } from "@/lib/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +34,7 @@ export default async function Cabinet({
       token={tokenForLogin(session.login)}
       origin={`${proto}://${host}`}
       defaultTab={cameFromRoomLink ? "access" : "links"}
+      isAdmin={isAdminLogin(session.login)}
     />
   );
 }

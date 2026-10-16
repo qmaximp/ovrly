@@ -21,7 +21,7 @@ import {
 	parseMediaUrl,
 	youtubeEmbedUrl,
 } from '@/lib/media'
-import { playFinishSound } from '@/lib/sound'
+import { playTimerSound } from '@/lib/sound'
 import { ensureFontLoaded, textBoxStyle } from '@/lib/textStyle'
 import type { RoomUser, StreamElement, SyncState } from '@/lib/types'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -30,7 +30,12 @@ import { io as ioInit, Socket } from 'socket.io-client'
 const CANVAS_W = 1920
 const CANVAS_H = 1080
 
-type Emote = { platform: string; code: string; url: string }
+type Emote = {
+	platform: string
+	code: string
+	url: string
+	scope?: 'channel' | 'personal' | 'global'
+}
 
 export default function PanelClient({
 	channel,
@@ -49,6 +54,8 @@ export default function PanelClient({
 	const [connected, setConnected] = useState(false)
 	// стример отозвал доступ — сервер закрыл соединение; блокируем панель целиком
 	const [accessRevoked, setAccessRevoked] = useState(false)
+	// предупреждение от админа (деплой и т.п.): приходит событием server:notice
+	const [notice, setNotice] = useState<string | null>(null)
 	// сервер не увидел валидную сессию: панель открыта, но правки не сохраняются
 	const [readOnly, setReadOnly] = useState(false)
 	const [tab, setTab] = useState<'elements' | 'obs'>('elements')
@@ -450,6 +457,10 @@ export default function PanelClient({
 			})
 		})
 
+		// предупреждение от админ-панели: показываем баннером, пока его не закроют
+		socket.on('server:notice', (d: { text?: string }) => {
+			if (d?.text) setNotice(d.text)
+		})
 		socket.on('connect', () => setConnected(true))
 		socket.on('disconnect', () => setConnected(false))
 		// стример отозвал доступ: сервер закрыл соединение — блокируем панель
@@ -1063,23 +1074,51 @@ export default function PanelClient({
 
 	// Twitch-превью фоном холста (как в pogly): стрим тянется напрямую с канала через
 	// официальный SDK. Оффлайн — Twitch сам показывает арт канала, при эфире — стрим.
-	// URL-параметры автозапуска ненадёжны (браузер блокирует play() до применения мьюта),
-	// поэтому после READY/PAUSE дёргаем play() по расписанию (~40 секунд страховки)
+	//
+	// Почему так: URL-параметры автозапуска ненадёжны (браузер блокирует play() до
+	// применения мьюта), поэтому держим НЕОГРАНИЧЕННЫЙ сторож: пока превью включено,
+	// раз в 3 секунды проверяем, что плеер реально играет, и будим его. Раньше попытки
+	// кончались через 40 секунд, и застрявший на паузе плеер оставался на паузе навсегда.
+	// Размер iframe плеера фиксируем в момент включения (Twitch перерисовывается при
+	// смене размера — отсюда «двойной рендер» и подвисания), а масштаб вида применяем
+	// CSS-трансформом: на телефоне после поворота превью не пересоздаётся и не «раздувается»
 	const twitchPreviewRef = useRef<HTMLDivElement | null>(null)
 	const twitchPlayerRef = useRef<any>(null)
+	// Размер iframe превью в пикселях: задаётся в момент включения и потом НЕ меняется
+	// (Twitch перерисовывает плеер при смене размера — отсюда подвисания и «двойной рендер»),
+	// а под текущий размер холста подгоняется CSS-трансформом. Считаем от размера бокса
+	// на экране, но не меньше 640px по ширине: на телефоне бокс маленький, и плеер
+	// в натуральную величину был бы нечитаемым
+	const [previewBox, setPreviewBox] = useState<{ w: number; h: number } | null>(null)
+	// играет ли превью прямо сейчас: пока нет — бокс кликабельный, чтобы можно было
+	// нажать встроенную кнопку Twitch (автозапуск браузер может заблокировать)
+	const [previewPlaying, setPreviewPlaying] = useState(false)
 
 	useEffect(() => {
 		if (!previewOn || !channel || !mounted) return
 		const target = twitchPreviewRef.current
 		if (!target) return
 		let cancelled = false
-		let cleanupTimers: (() => void) | null = null
+		const timers: ReturnType<typeof setTimeout>[] = []
+		let watchdog: ReturnType<typeof setInterval> | null = null
+
+		// ВАЖНО: методы Twitch-плеера возвращают Promise (isPaused, getMuted, play…).
+		// Раньше мы сравнивали их результат с boolean напрямую — условие всегда было
+		// ложным, поэтому «сторож» ничего не делал и плеер оставался на паузе
+		const unwrap = async (v: any) => {
+			try {
+				return v && typeof v.then === 'function' ? await v : v
+			} catch {
+				return undefined
+			}
+		}
+
+		const resumeRef: { current: null | (() => void) } = { current: null }
 
 		;(async () => {
 			try {
 				const Tw = await loadTwitchSdk()
 				if (cancelled || !twitchPreviewRef.current) return
-				let resumeAttempts = 0
 				const player = new Tw.Player('twitch-preview', {
 					width: '100%',
 					height: '100%',
@@ -1089,41 +1128,80 @@ export default function PanelClient({
 					muted: true,
 				})
 				twitchPlayerRef.current = player
-				const resume = () => {
+
+				// «разбудить» плеер: сначала гарантированно mute (без него браузер
+				// блокирует запуск), затем play()
+				const resume = async () => {
+					if (cancelled) return
 					try {
-						if (player.getMuted?.() === false) player.setMuted(true)
-						player.play()
+						await unwrap(player.setMuted?.(true))
 					} catch {}
+					await unwrap(player.play?.())
 				}
-				player.addEventListener(Tw.Player.READY, () => setTimeout(resume, 200))
-				player.addEventListener(Tw.Player.PLAY, () => {
-					resumeAttempts = 0
+				resumeRef.current = resume
+				const isPaused = async () => {
+					const v = await unwrap(player.isPaused?.())
+					// если метод вообще не отдал значение — считаем, что на паузе,
+					// и пробуем разбудить (play() на играющем плеере безвреден)
+					return v === undefined ? true : v === true
+				}
+
+				player.addEventListener(Tw.Player.READY, () => {
+					void resume()
 				})
+				player.addEventListener(Tw.Player.PLAY, () => setPreviewPlaying(true))
 				player.addEventListener(Tw.Player.PAUSE, () => {
-					// авто-возобновление (до 6 попыток), чтобы браузерная блокировка автозапуска не оставляла плеер на паузе
-					if (resumeAttempts >= 6) return
-					resumeAttempts += 1
-					setTimeout(resume, 500)
+					setPreviewPlaying(false)
+					timers.push(setTimeout(() => void resume(), 600))
 				})
-				player.addEventListener(Tw.Player.ONLINE, resume)
-				// страховка: на мобильных плеер цепляет HLS долго — дёргаем play() по расписанию ~40 секунд
-				// (play() на уже играющем плеере — no-op)
-				const delays = [
-					300, 700, 1500, 2500, 4000, 6000, 8000, 11000, 14000, 18000, 22000,
-					26000, 30000, 35000, 40000,
-				]
-				const timers = delays.map(d =>
-					setTimeout(() => {
-						if (!cancelled) resume()
-					}, d),
+				player.addEventListener(Tw.Player.ONLINE, () => void resume())
+				if (Tw.Player.PLAYBACK_BLOCKED)
+					player.addEventListener(Tw.Player.PLAYBACK_BLOCKED, () => {
+						timers.push(setTimeout(() => void resume(), 900))
+					})
+
+				// первые быстрые попытки — чтобы стрим поднялся сразу, дальше сторож
+				;[250, 800, 1600, 3000, 6000].forEach(d =>
+					timers.push(setTimeout(() => void resume(), d)),
 				)
-				cleanupTimers = () => timers.forEach(clearTimeout)
+
+				// состояние берём из getPlayerState().playback: isPaused() возвращает false
+				// даже когда трансляция ещё не стартовала (playback: 'Ready')
+				const playbackState = async () => {
+					try {
+						const st = await unwrap(player.getPlayerState?.())
+						return typeof st?.playback === 'string' ? st.playback : null
+					} catch {
+						return null
+					}
+				}
+				watchdog = setInterval(async () => {
+					if (cancelled) return
+					const p = twitchPlayerRef.current
+					if (!p) return
+					const state = await playbackState()
+					const playing = state === 'Playing'
+					setPreviewPlaying(playing)
+					if (!playing) await resume()
+				}, 3000)
 			} catch {}
 		})()
 
+		// страховка для политик автозапуска: любое действие пользователя в панели
+		// (клик, клавиша) снимает блокировку — сразу будим плеер
+		const onInteract = () => void resumeRef.current?.()
+		// фаза перехвата (true): жест должен долетать до плеера даже если обработчик
+		// канваса (выделение/панорама) вызывает stopPropagation и глушит всплытие —
+		// иначе клик по превью-стриму перестаёт «будить» трансляцию
+		window.addEventListener('pointerdown', onInteract, true)
+		window.addEventListener('keydown', onInteract, true)
+
 		return () => {
 			cancelled = true
-			cleanupTimers?.()
+			if (watchdog) clearInterval(watchdog)
+			timers.forEach(clearTimeout)
+			window.removeEventListener('pointerdown', onInteract, true)
+			window.removeEventListener('keydown', onInteract, true)
 			twitchPlayerRef.current = null
 			if (twitchPreviewRef.current) twitchPreviewRef.current.innerHTML = ''
 		}
@@ -1277,30 +1355,40 @@ export default function PanelClient({
 		return { x: k * 40, y: 1200 + k * 24 }
 	}
 
-	const openEmotePicker = useCallback(async () => {
-		setEmoteOpen(true)
-		setEmoteLoading(true)
-		setEmoteError('')
-		setEmoteQuery('')
-		setEmotePlatform('all')
-		try {
-			const res = await fetch(
-				`/api/emotes${channel ? `?channel=${encodeURIComponent(channel)}` : ''}`,
-			)
-			const j = await res.json()
-			if (!res.ok) throw new Error(j?.error || 'Ошибка загрузки')
-			setEmotes(j.emotes ?? [])
-			setEmoteNotes(j.notes ?? [])
-			if (!j.emotes?.length)
-				setEmoteError(
-					'Смайлики не найдены. Проверьте TWITCH_CLIENT_ID/SECRET в .env.local или попробуйте позже.',
+	// refresh=true — кнопка «Обновить»: сбрасываем кэш на сервере, но сохраняем
+	// введённый поиск и выбранную платформу
+	const openEmotePicker = useCallback(
+		async (refresh = false) => {
+			setEmoteOpen(true)
+			setEmoteLoading(true)
+			setEmoteError('')
+			if (!refresh) {
+				setEmoteQuery('')
+				setEmotePlatform('all')
+			}
+			try {
+				const params = new URLSearchParams()
+				if (channel) params.set('channel', channel)
+				if (refresh) params.set('refresh', '1')
+				const res = await fetch(
+					`/api/emotes${params.size ? `?${params.toString()}` : ''}`,
 				)
-		} catch (e: any) {
-			setEmoteError(e?.message || 'Не удалось загрузить смайлики')
-		} finally {
-			setEmoteLoading(false)
-		}
-	}, [channel])
+				const j = await res.json()
+				if (!res.ok) throw new Error(j?.error || 'Ошибка загрузки')
+				setEmotes(j.emotes ?? [])
+				setEmoteNotes(j.notes ?? [])
+				if (!j.emotes?.length)
+					setEmoteError(
+						'Смайлики не найдены. Проверьте TWITCH_CLIENT_ID/SECRET в .env.local или попробуйте позже.',
+					)
+			} catch (e: any) {
+				setEmoteError(e?.message || 'Не удалось загрузить смайлики')
+			} finally {
+				setEmoteLoading(false)
+			}
+		},
+		[channel],
+	)
 
 	const addEmote = useCallback(
 		(em: Emote) => {
@@ -1741,6 +1829,12 @@ export default function PanelClient({
 		bw: number
 		bh: number
 		corner: string
+		// пропорциональный масштаб: только для групп с разными углами поворота
+		uniform: boolean
+		// поворот бокса (град) и его pivot: масштаб считаем в этой системе координат
+		rot: number
+		pivot: { x: number; y: number }
+		startLocal: { x: number; y: number }
 		items: { id: string; x: number; y: number; w: number; h: number }[]
 		lastTick: number
 	} | null>(null)
@@ -1801,39 +1895,60 @@ export default function PanelClient({
 			}
 			const gs = groupScaleRef.current
 			if (gs) {
-				// дельта курсора — в экранных пикселях: переводим в мировые (делим на зум),
-				// иначе при отдалении группа масштабируется медленнее курсора
+				// курсор → мировые координаты → система бокса (разворот на -rot вокруг pivot).
+				// Дельты считаем в этой системе: тогда ручка точно следует за курсором,
+				// даже когда бокс повёрнут вместе с контентом (как в pogly)
 				const s = viewRef.current.s || 1
-				gs.dx = (e.clientX - gs.sx) / s
-				gs.dy = (e.clientY - gs.sy) / s
+				const rot = (gs.rot * Math.PI) / 180
+				const cos = Math.cos(rot)
+				const sin = Math.sin(rot)
+				const rect = viewportRef.current?.getBoundingClientRect()
+				const px = rect ? (e.clientX - rect.left - viewRef.current.x) / s : 0
+				const py = rect ? (e.clientY - rect.top - viewRef.current.y) / s : 0
+				const lx = (px - gs.pivot.x) * cos + (py - gs.pivot.y) * sin
+				const ly = -(px - gs.pivot.x) * sin + (py - gs.pivot.y) * cos
+				gs.dx = lx - gs.startLocal.x
+				gs.dy = ly - gs.startLocal.y
 				let fx = 1
 				let fy = 1
 				if (gs.corner.includes('e')) fx = (gs.bw + gs.dx) / gs.bw
 				if (gs.corner.includes('w')) fx = (gs.bw - gs.dx) / gs.bw
 				if (gs.corner.includes('s')) fy = (gs.bh + gs.dy) / gs.bh
 				if (gs.corner.includes('n')) fy = (gs.bh - gs.dy) / gs.bh
-				fx = Math.max(0.05, fx)
-				fy = Math.max(0.05, fy)
-				// Shift — масштаб с сохранением пропорций группы
-				if (e.shiftKey) {
+				fx = Math.max(0.05, Math.min(20, fx))
+				fy = Math.max(0.05, Math.min(20, fy))
+				// Shift — пропорционально; для групп с РАЗНЫМИ углами пропорции обязательны
+				// (иначе рамка и картинки расходятся) — там масштаб всегда пропорциональный
+				if (e.shiftKey || gs.uniform) {
 					const k = Math.max(fx, fy)
 					fx = k
 					fy = k
 				}
-				// неподвижный угол — противоположный тянемому
-				const ox = gs.corner.includes('w') ? gs.bx + gs.bw : gs.bx
-				const oy = gs.corner.includes('n') ? gs.by + gs.bh : gs.by
+				// неподвижный угол в локальных координатах бокса (origin — pivot)
+				const oxL = (gs.corner.includes('w') ? 1 : -1) * (gs.bw / 2)
+				const oyL = (gs.corner.includes('n') ? 1 : -1) * (gs.bh / 2)
 				setState(p => ({
 					...p,
 					elements: p.elements.map(el => {
 						const it = gs.items.find(i => i.id === el.id)
 						if (!it) return el
+						// центр элемента в локальной системе: сдвиг → разворот → масштаб → обратно
+						const ecx = it.x + it.w / 2
+						const ecy = it.y + it.h / 2
+						const elLx = (ecx - gs.pivot.x) * cos + (ecy - gs.pivot.y) * sin
+						const elLy = -(ecx - gs.pivot.x) * sin + (ecy - gs.pivot.y) * cos
+						const nLx = oxL + (elLx - oxL) * fx
+						const nLy = oyL + (elLy - oyL) * fy
+						const ncx = gs.pivot.x + nLx * cos - nLy * sin
+						const ncy = gs.pivot.y + nLx * sin + nLy * cos
+						const width = Math.max(4, Math.round(it.w * fx))
+						const height = Math.max(4, Math.round(it.h * fy))
 						return {
 							...el,
-							x: Math.round(ox + (it.x - ox) * fx),
-							y: Math.round(oy + (it.y - oy) * fy),
-							width: Math.max(4, Math.round(it.w * fx)),
-							height: Math.max(4, Math.round(it.h * fy)),
+							x: Math.round(ncx - width / 2),
+							y: Math.round(ncy - height / 2),
+							width,
+							height,
 						}
 					}),
 				}))
@@ -1979,36 +2094,82 @@ export default function PanelClient({
 		}
 	}, [emit, mediaToggle])
 
-	// групповой бокс: общие границы выбранных элементов. Углы считаем с учётом
-	// поворота — рамка облегает повёрнутый контент, а не «пустой» прямоугольник
+	// Групповой бокс — в собственной системе координат выбранных элементов (как в pogly):
+	// если у всех совпадает угол поворота, бокс берём в их повёрнутой рамке, и он крутится
+	// вместе с контентом, не «дыша» при вращении; ручки прикреплены к боксу и следуют за ним.
+	// Если углы разные — бокс строим по «прямым» прямоугольникам (x/y/w/h): поворот этих
+	// полей не меняет, поэтому бокс стабилен.
+	// Pivot (центр вращения) — центроид центров элементов: он инвариантен относительно
+	// вращения группы, поэтому бокс не съезжает во время поворота
 	const groupBox = useMemo(() => {
 		if (selectedIds.size < 2) return null
 		const items = stateRef.current.elements.filter(e => selectedIds.has(e.id))
 		if (items.length < 2) return null
-		let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity
+		const norm = (r?: number) => (((r ?? 0) % 360) + 360) % 360
+		const rot0 = norm(items[0].rotation)
+		const sameRot = items.every(e => {
+			const d = Math.abs(norm(e.rotation) - rot0)
+			return d < 0.5 || Math.abs(d - 360) < 0.5
+		})
+		// pivot: центроид центров — при вращении группы он остаётся на месте
+		let gx = 0
+		let gy = 0
 		for (const e of items) {
-			const cx = e.x + e.width / 2,
-				cy = e.y + e.height / 2
-			const th = ((e.rotation ?? 0) * Math.PI) / 180
-			const c = Math.cos(th),
-				sn = Math.sin(th)
-			const hw = e.width / 2,
-				hh = e.height / 2
+			gx += e.x + e.width / 2
+			gy += e.y + e.height / 2
+		}
+		gx /= items.length
+		gy /= items.length
+		// локальная система: сдвиг в pivot и разворот на -rot (когда углы совпадают)
+		const th = (sameRot ? rot0 : 0) * (Math.PI / 180)
+		const cos = Math.cos(th)
+		const sin = Math.sin(th)
+		let x1 = Infinity
+		let y1 = Infinity
+		let x2 = -Infinity
+		let y2 = -Infinity
+		for (const e of items) {
+			const ecx = e.x + e.width / 2
+			const ecy = e.y + e.height / 2
+			// угол элемента относительно рамки группы
+			const dth = ((norm(e.rotation) - (sameRot ? rot0 : 0)) * Math.PI) / 180
+			const c2 = Math.cos(dth)
+			const s2 = Math.sin(dth)
+			const hw = e.width / 2
+			const hh = e.height / 2
+			// центр элемента в системе бокса: сдвиг от pivot, развёрнутый на -th
+			const ccx = (ecx - gx) * cos + (ecy - gy) * sin
+			const ccy = -(ecx - gx) * sin + (ecy - gy) * cos
 			for (const [dx, dy] of [
 				[-hw, -hh],
 				[hw, -hh],
 				[hw, hh],
 				[-hw, hh],
 			]) {
-				const px = cx + dx * c - dy * sn
-				const py = cy + dx * sn + dy * c
-				if (px < x1) x1 = px
-				if (px > x2) x2 = px
-				if (py < y1) y1 = py
-				if (py > y2) y2 = py
+				// смещение угла вращаем только на относительный угол элемента:
+				// при совпадающих углах оно остаётся осевым и размер рамки не «дышит»
+				const lx = ccx + dx * c2 - dy * s2
+				const ly = ccy + dx * s2 + dy * c2
+				if (lx < x1) x1 = lx
+				if (lx > x2) x2 = lx
+				if (ly < y1) y1 = ly
+				if (ly > y2) y2 = ly
 			}
 		}
-		return { x: x1, y: y1, w: x2 - x1, h: y2 - y1 }
+		const w = x2 - x1
+		const h = y2 - y1
+		// локальный центр бокса обратно в мир: pivot + R(th)·(локальный центр)
+		const lcx = (x1 + x2) / 2
+		const lcy = (y1 + y2) / 2
+		return {
+			cx: gx + lcx * cos - lcy * sin,
+			cy: gy + lcx * sin + lcy * cos,
+			w,
+			h,
+			rot: sameRot ? rot0 : 0,
+			sameRot,
+			pivot: { x: gx, y: gy },
+		}
 	}, [state, selectedIds])
 
 	// тянем грань бокса — двигаем группу (тот же groupDrag, что и при драге элемента)
@@ -2050,8 +2211,10 @@ export default function PanelClient({
 			const rect = viewportRef.current.getBoundingClientRect()
 			const px = (e.clientX - rect.left - vx) / s
 			const py = (e.clientY - rect.top - vy) / s
-			const cx = groupBox.x + groupBox.w / 2
-			const cy = groupBox.y + groupBox.h / 2
+			// вращаем вокруг pivot (центроид центров): он не смещается при вращении,
+			// поэтому и бокс, и содержимое движутся согласованно, без прыжков
+			const cx = groupBox.pivot.x
+			const cy = groupBox.pivot.y
 			const items: {
 				id: string
 				cx: number
@@ -2104,16 +2267,37 @@ export default function PanelClient({
 			if (items.length < 2) return
 			items.forEach(it => emit('element:grab', { id: it.id }))
 			remember()
+			// Масштаб считаем в СИСТЕМЕ БОКСА: если у всей группы один угол поворота,
+			// бокс идёт вдоль контента, и растяжение по его осям точное (как в pogly) —
+			// свободно тяни за любой угол, рамка не «уползает». Если углы разные,
+			// непропорциональный ресайз оставляем только через Shift
+			const rot = (groupBox.rot * Math.PI) / 180
+			const cos = Math.cos(rot)
+			const sin = Math.sin(rot)
+			// курсор в локальных координатах бокса (origin — pivot)
+			const rect = viewportRef.current?.getBoundingClientRect()
+			const s = viewRef.current.s || 1
+			const px = rect ? (e.clientX - rect.left - viewRef.current.x) / s : 0
+			const py = rect ? (e.clientY - rect.top - viewRef.current.y) / s : 0
+			const toLocal = (x: number, y: number) => ({
+				x: (x - groupBox.pivot.x) * cos + (y - groupBox.pivot.y) * sin,
+				y: -(x - groupBox.pivot.x) * sin + (y - groupBox.pivot.y) * cos,
+			})
+			const start = toLocal(px, py)
 			groupScaleRef.current = {
 				sx: e.clientX,
 				sy: e.clientY,
 				dx: 0,
 				dy: 0,
-				bx: groupBox.x,
-				by: groupBox.y,
+				bx: 0,
+				by: 0,
 				bw: groupBox.w,
 				bh: groupBox.h,
 				corner,
+				uniform: !groupBox.sameRot,
+				rot: groupBox.rot,
+				pivot: groupBox.pivot,
+				startLocal: start,
 				items,
 				lastTick: 0,
 			}
@@ -2630,11 +2814,10 @@ export default function PanelClient({
 		)
 	}
 
-	// пилюля Превью: на ПК и мобильном — закреплена в правом нижнем углу окна превью
-	// плеер превью рендерится ОДИН РАЗ в фиксированном размере (как при 100% зума)
-	// и визуально уменьшается только CSS-transform'ом вместе с холстом: iframe никогда
-	// не меняет размер — Twitch-плеер не перерисовывается при зуме и не глючит
-	const pvBaseS = baseViewRef.current?.s ?? view.s
+	// пилюля Превью: на ПК и мобильном — закреплена в правом нижнем углу окна превью.
+	// Плеер рендерится ОДИН РАЗ в фиксированном размере (previewBox) и визуально
+	// уменьшается только CSS-transform'ом вместе с холстом: iframe никогда не меняет
+	// размер — Twitch-плеер не перерисовывается при зуме и не глючит
 	const previewPill = (
 		<div
 			className='absolute right-4 bottom-3 z-10 flex items-center gap-2 bg-panel border border-border rounded-full pl-3 pr-3 py-1.5 pointer-events-auto'
@@ -2643,9 +2826,23 @@ export default function PanelClient({
 			onPointerDown={e => e.stopPropagation()}
 		>
 			<span className='text-xs text-gray-300 select-none'>Превью</span>
-			<button
-				onClick={() => setPreviewOn(v => !v)}
-				disabled={!channel}
+      <button
+        onClick={() => {
+          if (!previewOn) {
+            // размер плеера задаём один раз при включении: от текущего размера бокса,
+            // но не меньше 640px по ширине — иначе на телефоне плеер был бы нечитаемым
+            const boxW = Math.round(
+              stateRef.current.canvasW * (viewRef.current.s || 0.3),
+            )
+            const w = Math.min(1920, Math.max(640, boxW))
+            setPreviewBox({
+              w,
+              h: Math.round((w * stateRef.current.canvasH) / stateRef.current.canvasW),
+            })
+          }
+          setPreviewOn(v => !v)
+        }}
+        disabled={!channel}
 				title={
 					channel
 						? 'Стрим Twitch в превью холста'
@@ -2666,7 +2863,7 @@ export default function PanelClient({
 			{accessRevoked && (
 				<div className='fixed inset-0 z-[200] bg-bg flex flex-col items-center justify-center text-center px-4'>
 					<div className='text-5xl mb-4'>🚫</div>
-					<h1 className='text-xl font-semibold text-white mb-2'>
+					<h1 className='text-xl font-semibold text-[color:var(--c-on-bg)] mb-2'>
 						Доступ отозван
 					</h1>
 					<p className='text-sm text-gray-500 max-w-sm mb-6'>
@@ -2676,6 +2873,20 @@ export default function PanelClient({
 					<a href='/' className='text-sm text-accent2 hover:underline'>
 						На главную
 					</a>
+				</div>
+			)}
+			{/* предупреждение от админа (например, о скором обновлении) */}
+			{notice && (
+				<div className='px-4 py-2 text-xs text-sky-200 bg-sky-950/50 border-b border-sky-900/50 flex items-center gap-3'>
+					<span className='shrink-0'>📢</span>
+					<span className='flex-1'>{notice}</span>
+					<button
+						onClick={() => setNotice(null)}
+						title='Скрыть'
+						className='shrink-0 w-6 h-6 rounded-md hover:bg-sky-900/60 text-sky-300'
+					>
+						✕
+					</button>
 				</div>
 			)}
 			{/* сервер не подтвердил сессию: правки не сохраняются — говорим об этом явно */}
@@ -2876,7 +3087,7 @@ export default function PanelClient({
 									</button>
 								</div>
 								<button
-									onClick={openEmotePicker}
+									onClick={() => openEmotePicker()}
 									className='w-full px-3 py-2 bg-accent hover:bg-violet-700 text-white text-sm rounded-lg transition-colors'
 								>
 									😀 Добавить смайлик
@@ -3081,12 +3292,19 @@ export default function PanelClient({
 								height: state.canvasH * view.s,
 							}}
 						>
-							{mounted && previewOn && channel && (
+							{mounted && previewOn && channel && previewBox && (
 								<div
 									style={{
-										width: state.canvasW * pvBaseS,
-										height: state.canvasH * pvBaseS,
-										transform: `scale(${view.s / pvBaseS})`,
+										position: 'relative',
+										width: previewBox.w,
+										height: previewBox.h,
+										// превью — чисто визуальный слой и НИКОГДА не перехватывает клики,
+										// иначе под ним нельзя ни тащить холст, ни менять размер элемента.
+										// Запуск (если автозапуск заблокирован) ловит window-pointerdown ниже
+										pointerEvents: 'none',
+										// масштаб считаем от текущего размера бокса: превью всегда
+										// ровно в размер холста (на телефоне — тоже), без пересоздания iframe
+										transform: `scale(${(state.canvasW * view.s) / previewBox.w})`,
 										transformOrigin: '0 0',
 									}}
 								>
@@ -3096,6 +3314,22 @@ export default function PanelClient({
 										id='twitch-preview'
 										className='absolute inset-0'
 									/>
+								</div>
+							)}
+							{/* пока превью не заиграло (браузер ждёт клика) — подсказка поверх кадра */}
+							{mounted && previewOn && channel && previewBox && !previewPlaying && (
+								<div
+									className='absolute left-1/2 -translate-x-1/2 flex items-center gap-2 rounded-full px-3 py-1.5 pointer-events-none'
+									style={{
+										top: 'calc(50% - 14px)',
+										background: 'rgba(0,0,0,.72)',
+										color: '#fff',
+										fontSize: 12,
+										whiteSpace: 'nowrap',
+									}}
+								>
+									<span>▶</span>
+									<span>Нажмите в любом месте, чтобы запустить трансляцию</span>
 								</div>
 							)}
 							{!(mounted && previewOn && channel) && (
@@ -3379,50 +3613,31 @@ export default function PanelClient({
 									</div>
 								)
 							})}
-							{/* групповой бокс выделения (как в pogly): тянешь грани — двигается группа,
-							 угловая ручка — масштабирует всю группу */}
+							{/* групповой бокс выделения (как в pogly): бокс повёрнут вместе с контентом,
+							    ручки прикреплены к нему; тянешь грани — двигается группа,
+							    угловые ручки — масштабируют, верхняя — вращает всю группу */}
 							{groupBox && selectedIds.size > 1 && (
-								<>
+								<div
+									className='absolute'
+									style={{
+										left: groupBox.cx,
+										top: groupBox.cy,
+										width: groupBox.w,
+										height: groupBox.h,
+										transform: `translate(-50%, -50%) rotate(${groupBox.rot}deg)`,
+										transformOrigin: 'center',
+									}}
+								>
 									<div
-										className='absolute border border-dashed pointer-events-none'
-										style={{
-											left: groupBox.x,
-											top: groupBox.y,
-											width: groupBox.w,
-											height: groupBox.h,
-											borderColor: 'rgb(var(--c-accent2))',
-										}}
+										className='absolute inset-0 border border-dashed pointer-events-none'
+										style={{ borderColor: 'rgb(var(--c-accent2))' }}
 									/>
 									{(
 										[
-											[
-												'n',
-												groupBox.x + groupBox.w / 2 - 30,
-												groupBox.y - 5,
-												60,
-												10,
-											],
-											[
-												's',
-												groupBox.x + groupBox.w / 2 - 30,
-												groupBox.y + groupBox.h - 5,
-												60,
-												10,
-											],
-											[
-												'w',
-												groupBox.x - 5,
-												groupBox.y + groupBox.h / 2 - 30,
-												10,
-												60,
-											],
-											[
-												'e',
-												groupBox.x + groupBox.w - 5,
-												groupBox.y + groupBox.h / 2 - 30,
-												10,
-												60,
-											],
+											['n', groupBox.w / 2 - 30, -5, 60, 10],
+											['s', groupBox.w / 2 - 30, groupBox.h - 5, 60, 10],
+											['w', -5, groupBox.h / 2 - 30, 10, 60],
+											['e', groupBox.w - 5, groupBox.h / 2 - 30, 10, 60],
 										] as const
 									).map(([k, left, top, w, h]) => (
 										<div
@@ -3442,25 +3657,10 @@ export default function PanelClient({
 									))}
 									{(
 										[
-											['nw', groupBox.x, groupBox.y, 'nwse-resize'],
-											[
-												'ne',
-												groupBox.x + groupBox.w,
-												groupBox.y,
-												'nesw-resize',
-											],
-											[
-												'sw',
-												groupBox.x,
-												groupBox.y + groupBox.h,
-												'nesw-resize',
-											],
-											[
-												'se',
-												groupBox.x + groupBox.w,
-												groupBox.y + groupBox.h,
-												'nwse-resize',
-											],
+											['nw', 0, 0, 'nwse-resize'],
+											['ne', groupBox.w, 0, 'nesw-resize'],
+											['sw', 0, groupBox.h, 'nesw-resize'],
+											['se', groupBox.w, groupBox.h, 'nwse-resize'],
 										] as const
 									).map(([corner, left, top, cursor]) => (
 										<div
@@ -3485,17 +3685,17 @@ export default function PanelClient({
 										className='absolute rounded-full flex items-center justify-center pointer-events-auto'
 										data-nopan='1'
 										style={{
-										left: groupBox.x + groupBox.w / 2 - 11 / view.s,
-										top: groupBox.y - 44 / view.s,
-										width: 22 / view.s,
-										height: 22 / view.s,
-										background: 'rgb(var(--c-accent))',
+											left: groupBox.w / 2 - 11 / view.s,
+											top: -44 / view.s,
+											width: 22 / view.s,
+											height: 22 / view.s,
+											background: 'rgb(var(--c-accent))',
 											border: `${2 / view.s}px solid #fff`,
-										cursor: 'grab',
-										boxShadow: '0 1px 6px rgba(0,0,0,.5)',
-									}}
-									onPointerDown={startGroupRotate}
-									title='Повернуть группу (Shift — шаг 15°)'
+											cursor: 'grab',
+											boxShadow: '0 1px 6px rgba(0,0,0,.5)',
+										}}
+										onPointerDown={startGroupRotate}
+										title='Повернуть группу (Shift — шаг 15°)'
 									>
 										<svg
 											width={12 / view.s}
@@ -3505,12 +3705,17 @@ export default function PanelClient({
 											stroke='#fff'
 											strokeWidth='2.5'
 											strokeLinecap='round'
+											style={{
+												// иконка всегда «прямая», хотя бокс повёрнут
+												transform: `rotate(${-groupBox.rot}deg)`,
+											}}
 										>
 											<path d="M21 12a9 9 0 1 1-2.64-6.36" />
 											<path d="M21 3v6h-6" />
 										</svg>
 									</div>
-								</>					)}
+								</div>
+							)}
 							{/* курсоры других участников: контр-скейл, чтобы курсор был одного размера на любом зуме */}
 							{remoteCursors
 								.filter(c => !c.hidden)
@@ -3774,7 +3979,7 @@ export default function PanelClient({
 						</button>
 						<button
 							title='Смайлик'
-							onClick={openEmotePicker}
+							onClick={() => openEmotePicker()}
 							className='w-8 h-8 rounded-lg hover:bg-border active:bg-accent flex items-center justify-center text-sm'
 						>
 							😀
@@ -3988,7 +4193,7 @@ export default function PanelClient({
 							</h3>
 							<div className='flex items-center gap-1'>
 								<button
-									onClick={openEmotePicker}
+									onClick={() => openEmotePicker(true)}
 									title='Обновить — подтянуть свежие смайлики'
 									className='w-7 h-7 rounded-lg hover:bg-border text-gray-400 hover:text-white transition-colors'
 								>
@@ -4067,7 +4272,7 @@ export default function PanelClient({
 												<button
 													key={e.platform + e.code + i}
 													onClick={() => addEmote(e)}
-													title={`${e.code} · ${e.platform}`}
+													title={`${e.code} · ${e.platform}${e.scope === 'personal' ? ' · набор автора' : e.scope === 'channel' ? ' · канал' : ''}`}
 													className='flex flex-col items-center gap-1 px-1 py-2 rounded-lg hover:bg-border transition-colors'
 												>
 													<img
@@ -4147,7 +4352,10 @@ function ElementThumb({ el }: { el: StreamElement }) {
 			/>
 		)
 	if (el.type === 'text')
+		// текст рисуем его собственным цветом (часто белым) — подложка всегда тёмная:
+		// на светлой теме белый текст на светлом фоне был бы невидим
 		return (
+			<span className='absolute inset-0 flex items-center justify-center bg-[#14141c]'>
 			<span
 				className='px-1 text-center leading-tight'
 				style={{
@@ -4162,8 +4370,9 @@ function ElementThumb({ el }: { el: StreamElement }) {
 					WebkitBoxOrient: 'vertical',
 					overflow: 'hidden',
 				}}
-			>
-				{el.text || 'Текст'}
+				>
+					{el.text || 'Текст'}
+				</span>
 			</span>
 		)
 	if (el.type === 'timer')
@@ -4268,6 +4477,169 @@ function MonitorIcon({ size = 15 }: { size?: number }) {
 			<path d='M9 20.5h6' />
 			<path d='M12 17v3.5' />
 		</svg>
+	)
+}
+
+// Звук окончания таймера: выбор файла с ПК (хранится как data-URL вместе с элементом,
+// поэтому звук слышен и в панели, и на оверлее у стримера), громкость и длительность
+function TimerSoundControls({
+	el,
+	update,
+}: {
+	el: StreamElement
+	update: (partial: Partial<StreamElement>) => void
+}) {
+	const [busy, setBusy] = useState(false)
+	const hasSound = !!el.soundSrc
+	const volume = el.soundVolume ?? 1
+	const duration = el.soundDuration ?? 5
+
+	const pick = () => {
+		const input = document.createElement('input')
+		input.type = 'file'
+		input.accept = 'audio/*'
+		input.style.display = 'none'
+		let dropped = false
+		const drop = () => {
+			if (dropped) return
+			dropped = true
+			input.remove()
+		}
+		input.addEventListener('cancel', drop)
+		input.addEventListener('change', () => {
+			const f = input.files?.[0]
+			if (!f) {
+				drop()
+				return
+			}
+			// 4 МБ: звук уходит в состояние комнаты (base64) и на оверлей
+			if (f.size > 4 * 1024 * 1024) {
+				alert('Файл больше 4 МБ. Возьмите короткий звук (до 10 секунд).')
+				drop()
+				return
+			}
+			setBusy(true)
+			const r = new FileReader()
+			r.onload = () => {
+				update({
+					soundSrc: r.result as string,
+					soundVolume: volume,
+					soundDuration: Math.min(duration, 10),
+				})
+				setBusy(false)
+				drop()
+			}
+			r.onerror = () => {
+				setBusy(false)
+				drop()
+			}
+			r.readAsDataURL(f)
+		})
+		document.body.appendChild(input)
+		input.click()
+		window.addEventListener(
+			'focus',
+			() =>
+				setTimeout(() => {
+					if (!input.files?.length) drop()
+				}, 500),
+			{ once: true },
+		)
+	}
+
+	return (
+		<div className='pt-2 border-t border-border space-y-2'>
+			<div className='flex items-center justify-between gap-2'>
+				<div>
+					<label className='text-xs text-gray-500 block'>Звук окончания</label>
+					<p className='text-[10px] text-gray-600 leading-tight'>
+						{hasSound
+							? 'Свой файл (с ПК) — слышен и в панели, и на стриме'
+							: 'По умолчанию — встроенный сигнал'}
+					</p>
+				</div>
+				<div className='flex gap-1 shrink-0'>
+					<button
+						onClick={pick}
+						disabled={busy}
+						className='px-2 py-1.5 text-xs bg-border hover:bg-gray-600 rounded-lg disabled:opacity-50'
+					>
+						{busy ? 'Загрузка…' : hasSound ? 'Заменить' : 'Выбрать с ПК'}
+					</button>
+					{hasSound && (
+						<button
+							onClick={() =>
+								update({ soundSrc: undefined, soundDuration: undefined })
+							}
+							title='Вернуть встроенный сигнал'
+							className='px-2 py-1.5 text-xs text-red-400 border border-red-900/50 rounded-lg hover:bg-red-950/40'
+						>
+							✕
+						</button>
+					)}
+				</div>
+			</div>
+			{hasSound && (
+				<>
+					<div className='flex items-center gap-2'>
+						<button
+							onClick={() =>
+								playTimerSound({
+									src: el.soundSrc,
+									volume,
+									duration,
+								})
+							}
+							title='Прослушать'
+							className='px-2 py-1.5 text-xs bg-border hover:bg-gray-600 rounded-lg shrink-0'
+						>
+							▶
+						</button>
+						<label className='text-xs text-gray-500 shrink-0 w-20'>
+							Громкость
+						</label>
+						<input
+							type='range'
+							min={0}
+							max={100}
+							value={Math.round(volume * 100)}
+							onChange={e =>
+								update({ soundVolume: Number(e.target.value) / 100 })
+							}
+							className='flex-1'
+						/>
+						<span className='text-[10px] text-gray-500 w-8 text-right'>
+							{Math.round(volume * 100)}%
+						</span>
+					</div>
+					<div className='flex items-center gap-2'>
+						<span className='w-7 shrink-0' />
+						<label className='text-xs text-gray-500 shrink-0 w-20'>
+							Длительность
+						</label>
+						<input
+							type='range'
+							min={1}
+							max={10}
+							step={0.5}
+							value={duration}
+							onChange={e =>
+								update({
+									soundDuration: Math.min(10, Number(e.target.value)),
+								})
+							}
+							className='flex-1'
+						/>
+						<span className='text-[10px] text-gray-500 w-8 text-right'>
+							{duration} с
+						</span>
+					</div>
+					<p className='text-[10px] text-gray-600'>
+						Звук обрежется на выбранной длительности (максимум 10 секунд)
+					</p>
+				</>
+			)}
+		</div>
 	)
 }
 
@@ -4549,7 +4921,7 @@ function TimerPreview({ el, scale }: { el: StreamElement; scale: number }) {
 	if (remaining !== null && remaining <= 0) {
 		if (el.isRunning && !playedRef.current) {
 			playedRef.current = true
-			playFinishSound()
+			playTimerSound({ src: el.soundSrc, volume: el.soundVolume, duration: el.soundDuration })
 		}
 		if (!el.isRunning) playedRef.current = false
 	} else {
@@ -4859,6 +5231,9 @@ function PropertyEditor({
 							⏹ Сброс
 						</button>
 					</div>
+					{/* Звук окончания: свой файл с ПК вместо встроенного сигнала.
+					    После выбора — громкость и длительность (не больше 10 секунд) */}
+					<TimerSoundControls el={el} update={update} />
 				</>
 			)}
 			{(el.type === 'image' ||

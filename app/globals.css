@@ -94,7 +94,10 @@ input[type="range"]::-moz-range-thumb {
   cursor: grab;
 }
 
-/* Светлая тема: приглушаем серые оттенки, оставляя тёмную тему без изменений */
+/* Светлая тема: приглушаем серые оттенки, оставляя тёмную тему без изменений.
+   text-white на цветных кнопках (accent/red/green) остаётся белым — его не трогаем */
+html.light .text-gray-100 { color: #2f2c44; }
+html.light .text-gray-200 { color: #33304a; }
 html.light .text-gray-300 { color: #4b4763; }
 html.light .hover\:text-gray-300:hover { color: #4b4763; }
 html.light .text-gray-400 { color: #6b6785; }

@@ -4,7 +4,7 @@ import type { StreamElement, SyncState } from '@/lib/types'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toEmbedUrl } from '@/lib/embed'
 import { parseMediaUrl, youtubeEmbedUrl, loadTwitchSdk } from '@/lib/media'
-import { playFinishSound } from '@/lib/sound'
+import { playTimerSound } from '@/lib/sound'
 import { noteServerClock, serverClockLag } from '@/lib/clock'
 import { textBoxStyle, ensureFontLoaded } from '@/lib/textStyle'
 import { io as ioInit } from 'socket.io-client'
@@ -444,7 +444,7 @@ function OverlayElement({ el, ytStarted }: { el: StreamElement; ytStarted: boole
 		if (remaining !== null && remaining <= 0) {
 			if (el.isRunning && !playedRef.current) {
 				playedRef.current = true
-				playFinishSound()
+				playTimerSound({ src: el.soundSrc, volume: el.soundVolume, duration: el.soundDuration })
 			}
 			if (!el.isRunning) playedRef.current = false
 		} else {
