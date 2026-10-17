@@ -73,22 +73,61 @@ const roomFiles = fs.existsSync(roomsDir)
 	? fs.readdirSync(roomsDir).filter(f => f.endsWith('.json'))
 	: []
 
+// Достаём из room-файла сырой JSON значения свойства, не парся весь объект.
+// Для комнат на 100+ МБ JSON.parse + JSON.stringify дают OOM, а строка уже
+// является готовым JSONB — её можно отправить в базу как есть.
+function extractJsonValue(raw, property) {
+	const marker = `"${property}":`
+	const at = raw.indexOf(marker)
+	if (at < 0) throw new Error(`нет поля ${property}`)
+	let i = at + marker.length
+	while (i < raw.length && /\s/.test(raw[i])) i++
+	const start = i
+	let depth = 0
+	let inString = false
+	let escaped = false
+	for (; i < raw.length; i++) {
+		const ch = raw[i]
+		if (inString) {
+			if (escaped) escaped = false
+			else if (ch === '\\') escaped = true
+			else if (ch === '"') inString = false
+			continue
+		}
+		if (ch === '"') {
+			inString = true
+			continue
+		}
+		if (ch === '{' || ch === '[') depth++
+		else if (ch === '}' || ch === ']') {
+			depth--
+			if (depth === 0) return raw.slice(start, i + 1)
+		}
+	}
+	throw new Error(`не закрыто поля ${property}`)
+}
+
 function readRoom(file) {
 	const full = path.join(roomsDir, file)
 	const size = fs.statSync(full).size
-	const data = JSON.parse(fs.readFileSync(full, 'utf8'))
-	if (!data || !data.state || !Array.isArray(data.state.elements)) {
-		throw new Error('нет state.elements')
-	}
+	const raw = fs.readFileSync(full, 'utf8')
+	const stateAt = raw.indexOf('"state":')
+	if (stateAt < 0) throw new Error('нет state')
+	const stateRaw = extractJsonValue(raw, 'state')
+	let meta = {}
+	try {
+		// префикс до state + фиктивное поле делает валидный JSON обёртки
+		meta = JSON.parse(raw.slice(0, stateAt) + '"__meta":null}')
+	} catch {}
 	const key =
-		typeof data.key === 'string' && data.key
-			? data.key
+		typeof meta.key === 'string' && meta.key
+			? meta.key
 			: path.basename(file, '.json')
 	return {
 		key,
 		owner: Object.entries(links).find(([, rec]) => rec?.token === key)?.[0] ?? null,
-		state: data.state,
-		savedAt: dateOrNow(data.savedAt),
+		stateRaw,
+		savedAt: dateOrNow(meta.savedAt),
 		sizeMB: Math.round((size / 1024 / 1024) * 10) / 10,
 	}
 }
@@ -189,7 +228,7 @@ try {
 			await sql.begin(async tx => {
 				await tx`
 					INSERT INTO rooms (key, owner, state, updated_at)
-					VALUES (${room.key}, ${room.owner}, ${JSON.stringify(room.state)}::jsonb, ${room.savedAt})
+					VALUES (${room.key}, ${room.owner}, ${room.stateRaw}::jsonb, ${room.savedAt})
 					ON CONFLICT (key) DO UPDATE SET
 						owner = EXCLUDED.owner,
 						state = EXCLUDED.state,
