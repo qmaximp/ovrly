@@ -173,7 +173,7 @@ try {
 	}
 
 	console.log(
-		`\nИтого: комнат ${rooms}, заменено ${totalChanged}, загружено в R2 ${totalUploaded}, ` +
+		`\nИтого: комнат ${rooms}, заменено ${totalChanged}, загружено в хранилище ${totalUploaded}, ` +
 			`ошибок ${totalFailed}, пропущено ${totalSkipped}, объём ${mb(totalBytes)} МБ` +
 			(dryRun ? ' (dry-run, база не изменялась)' : ''),
 	)
