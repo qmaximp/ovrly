@@ -5,8 +5,9 @@
 //   node --env-file=.env.local scripts/migrate-json-to-db.mjs --dry-run
 //   node --env-file=.env.local scripts/migrate-json-to-db.mjs
 //
+// Важно: комнаты переносятся по одной, каждая в своей транзакции. Иначе
+// состояние с большим base64-медиа загружается целиком и процесс убивает OOM.
 // Скрипт идемпотентен: повторный запуск обновляет существующие записи.
-// Приложение до переключения слоя хранения продолжает работать с JSON.
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -44,33 +45,6 @@ const links = readJson('links.json', {})
 const invites = readJson('invites.json', {})
 const owner = readJson('owner.json', null)
 
-const roomsDir = path.join(dataDir, 'rooms')
-const roomFiles = fs.existsSync(roomsDir)
-	? fs.readdirSync(roomsDir).filter(f => f.endsWith('.json'))
-	: []
-
-const rooms = []
-for (const file of roomFiles) {
-	try {
-		const data = JSON.parse(fs.readFileSync(path.join(roomsDir, file), 'utf8'))
-		if (!data || !data.state || !Array.isArray(data.state.elements)) continue
-		const key =
-			typeof data.key === 'string' && data.key
-				? data.key
-				: path.basename(file, '.json')
-		const ownerLogin =
-			Object.entries(links).find(([, rec]) => rec?.token === key)?.[0] ?? null
-		rooms.push({
-			key,
-			owner: ownerLogin,
-			state: data.state,
-			savedAt: dateOrNow(data.savedAt),
-		})
-	} catch (e) {
-		console.warn(`[skip] ${file}: ${e.message}`)
-	}
-}
-
 const linkRows = Object.entries(links).filter(
 	([, rec]) => rec && typeof rec.token === 'string' && rec.token,
 )
@@ -91,15 +65,51 @@ for (const [ownerLogin, rec] of Object.entries(invites)) {
 	}
 }
 
-const counts = {
-	links: linkRows.length,
-	invites: inviteRows.length,
-	rooms: rooms.length,
-	owner: owner?.login ? 1 : 0,
+const roomsDir = path.join(dataDir, 'rooms')
+const roomFiles = fs.existsSync(roomsDir)
+	? fs.readdirSync(roomsDir).filter(f => f.endsWith('.json'))
+	: []
+
+function readRoom(file) {
+	const full = path.join(roomsDir, file)
+	const size = fs.statSync(full).size
+	const data = JSON.parse(fs.readFileSync(full, 'utf8'))
+	if (!data || !data.state || !Array.isArray(data.state.elements)) {
+		throw new Error('нет state.elements')
+	}
+	const key =
+		typeof data.key === 'string' && data.key
+			? data.key
+			: path.basename(file, '.json')
+	return {
+		key,
+		owner: Object.entries(links).find(([, rec]) => rec?.token === key)?.[0] ?? null,
+		state: data.state,
+		savedAt: dateOrNow(data.savedAt),
+		sizeMB: Math.round((size / 1024 / 1024) * 10) / 10,
+	}
 }
-console.log('JSON:', JSON.stringify(counts))
 
 if (dryRun) {
+	let validRooms = 0
+	for (const file of roomFiles) {
+		try {
+			const room = readRoom(file)
+			validRooms++
+			console.log(`room ${room.key.slice(0, 12)}: ${room.sizeMB} МБ`)
+		} catch (e) {
+			console.warn(`[skip] ${file}: ${e.message}`)
+		}
+	}
+	console.log(
+		'JSON:',
+		JSON.stringify({
+			links: linkRows.length,
+			invites: inviteRows.length,
+			rooms: validRooms,
+			owner: owner?.login ? 1 : 0,
+		}),
+	)
 	console.log('dry-run: база не изменялась')
 	process.exit(0)
 }
@@ -120,9 +130,10 @@ const statements = schema
 	.filter(Boolean)
 
 try {
-	await sql.begin(async tx => {
-		for (const statement of statements) await tx.unsafe(statement)
+	// Схема — отдельно, чтобы таблицы остались даже при ошибке на большой комнате
+	for (const statement of statements) await sql.unsafe(statement)
 
+	await sql.begin(async tx => {
 		for (const [login, rec] of linkRows) {
 			await tx`
 				INSERT INTO links (login, token, updated_at, user_token, user_token_expires, refresh_token)
@@ -149,17 +160,6 @@ try {
 			`
 		}
 
-		for (const room of rooms) {
-			await tx`
-				INSERT INTO rooms (key, owner, state, updated_at)
-				VALUES (${room.key}, ${room.owner}, ${JSON.stringify(room.state)}::jsonb, ${room.savedAt})
-				ON CONFLICT (key) DO UPDATE SET
-					owner = EXCLUDED.owner,
-					state = EXCLUDED.state,
-					updated_at = EXCLUDED.updated_at
-			`
-		}
-
 		if (owner?.login) {
 			await tx`
 				INSERT INTO settings (key, value, updated_at)
@@ -170,7 +170,35 @@ try {
 			`
 		}
 	})
-	console.log('Готово: данные перенесены в PostgreSQL.')
+	console.log('Справочники перенесены: links, invites, settings.')
+
+	let migrated = 0
+	let failed = 0
+	for (const file of roomFiles) {
+		try {
+			const room = readRoom(file)
+			console.log(`room ${room.key.slice(0, 12)}: ${room.sizeMB} МБ`)
+			await sql.begin(async tx => {
+				await tx`
+					INSERT INTO rooms (key, owner, state, updated_at)
+					VALUES (${room.key}, ${room.owner}, ${JSON.stringify(room.state)}::jsonb, ${room.savedAt})
+					ON CONFLICT (key) DO UPDATE SET
+						owner = EXCLUDED.owner,
+						state = EXCLUDED.state,
+						updated_at = EXCLUDED.updated_at
+				`
+			})
+			migrated++
+			console.log('  ok')
+		} catch (e) {
+			failed++
+			console.error(`  ошибка: ${e.message}`)
+		}
+		// после большой комнаты помогаем GC освободить распарсенный объект
+		if (typeof global.gc === 'function') global.gc()
+	}
+	console.log(`Комнаты: перенесено ${migrated}, ошибок ${failed}.`)
+	if (failed) process.exitCode = 1
 } catch (e) {
 	console.error('Ошибка миграции:', e.message)
 	process.exitCode = 1
