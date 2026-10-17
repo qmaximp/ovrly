@@ -18,6 +18,9 @@ const dataDir = process.env.DATA_DIR
 	? path.resolve(process.env.DATA_DIR)
 	: path.join(root, 'data')
 const dryRun = process.argv.includes('--dry-run')
+// --rooms-only: переносим только комнаты. Нужен после переключения links/invites
+// на БД, чтобы не перезаписать свежие ссылки и инвайты старыми JSON-данными
+const roomsOnly = process.argv.includes('--rooms-only')
 
 function readJson(file, fallback) {
 	const full = path.join(dataDir, file)
@@ -108,6 +111,7 @@ if (dryRun) {
 			invites: inviteRows.length,
 			rooms: validRooms,
 			owner: owner?.login ? 1 : 0,
+			mode: roomsOnly ? 'rooms-only' : 'full',
 		}),
 	)
 	console.log('dry-run: база не изменялась')
@@ -133,6 +137,7 @@ try {
 	// Схема — отдельно, чтобы таблицы остались даже при ошибке на большой комнате
 	for (const statement of statements) await sql.unsafe(statement)
 
+	if (!roomsOnly) {
 	await sql.begin(async tx => {
 		for (const [login, rec] of linkRows) {
 			await tx`
@@ -171,6 +176,9 @@ try {
 		}
 	})
 	console.log('Справочники перенесены: links, invites, settings.')
+	} else {
+		console.log('rooms-only: links, invites и settings не трогаем.')
+	}
 
 	let migrated = 0
 	let failed = 0

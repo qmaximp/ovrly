@@ -162,6 +162,25 @@ su - ovrly -c 'cd ~/ovrly && node --env-file=.env.local scripts/migrate-json-to-
 и заполняет их данными из `data/`. Повторный запуск безопасен — записи обновляются.
 Приложение продолжает работать с JSON до переключения слоя хранения.
 
+⚠️ После переключения ссылок и инвайтов на Postgres **не запускайте полную
+миграцию повторно**: она перезапишет свежие ссылки/инвайты старыми JSON-данными.
+Для синхронизации только комнат есть отдельный режим:
+
+```bash
+su - ovrly -c 'cd ~/ovrly && node --env-file=.env.local scripts/migrate-json-to-db.mjs --rooms-only'
+```
+
+#### Cutover комнат
+
+1. Остановите приложение: `systemctl stop ovrly`.
+2. Сделайте бэкап `data/` и `pg_dump`.
+3. Проверьте: `--dry-run --rooms-only`.
+4. Перенесите комнаты: `--rooms-only` (при больших комнатах добавьте
+   `--max-old-space-size=1200`).
+5. Запустите `systemctl start ovrly` и проверьте панели.
+6. После проверки можно выставить `ROOMS_JSON_FALLBACK=0` и перезапустить:
+   JSON больше не будет подстраховывать комнаты, источник — Postgres.
+
 ### Vercel — только если переделать архитектуру:
 
 1. Вынести Socket.io-сервер на отдельный хостинг (Railway/Render) и прописать его URL в PanelClient/OverlayClient.

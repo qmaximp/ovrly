@@ -2,7 +2,6 @@ const { createServer } = require('http')
 const next = require('next')
 const { Server } = require('socket.io')
 const crypto = require('crypto')
-const fs = require('fs')
 const path = require('path')
 const roomStore = require('./lib/roomStore')
 
@@ -170,33 +169,33 @@ app.prepare().then(() => {
 	const liveSockets = key => io.sockets.adapter.rooms.get(key)?.size ?? 0
 
 	// записать комнату на диск, если есть несохранённые изменения
-	function persist(r) {
+	async function persist(r) {
 		if (!r || !r.dirty) return
-		if (roomStore.saveRoom(roomsDir(), r.key, r.state)) r.dirty = false
+		if (await roomStore.saveRoom(roomsDir(), r.key, r.state)) r.dirty = false
 	}
 
 	// пустые комнаты (без подключений и без элементов) можно удалять сразу —
 	// терять нечего, файл на диске тоже убираем
-	function dropEmptyRooms() {
+	async function dropEmptyRooms() {
 		for (const [key, r] of rooms) {
 			if (liveSockets(key) === 0 && r.state.elements.length === 0) {
 				rooms.delete(key)
-				roomStore.deleteRoom(roomsDir(), key)
+				await roomStore.deleteRoom(roomsDir(), key)
 			}
 		}
 	}
 
 	// вытеснение при достижении лимита: сначала пустые, затем самые давние без
 	// подключений — их состояние сначала сохраняем, чтобы не потерять элементы
-	function evictRooms() {
-		dropEmptyRooms()
+	async function evictRooms() {
+		await dropEmptyRooms()
 		if (rooms.size < MAX_ROOMS) return
 		const stale = [...rooms.entries()]
 			.filter(([key]) => liveSockets(key) === 0)
 			.sort((a, b) => a[1].lastActivity - b[1].lastActivity)
 		for (const [key, r] of stale) {
 			if (rooms.size < MAX_ROOMS) break
-			persist(r)
+			await persist(r)
 			rooms.delete(key)
 			console.log('[ovrly] комната вытеснена из памяти (лимит комнат):', key.slice(0, 12))
 		}
@@ -211,7 +210,7 @@ app.prepare().then(() => {
 
 	// общий предохранитель: если все комнаты вместе превысили лимит, выгружаем
 	// самые давние из тех, где нет подключений. Активные комнаты не трогаем
-	function trimMemory() {
+	async function trimMemory() {
 		let total = totalRoomBytes()
 		if (total <= MAX_TOTAL_ROOM_BYTES) return
 		const idle = [...rooms.entries()]
@@ -219,31 +218,47 @@ app.prepare().then(() => {
 			.sort((a, b) => a[1].lastActivity - b[1].lastActivity)
 		for (const [key, r] of idle) {
 			if (total <= MAX_TOTAL_ROOM_BYTES) break
-			persist(r)
+			await persist(r)
 			total -= roomStore.roomBytes(r.state)
 			rooms.delete(key)
 			console.log('[ovrly] комната выгружена из памяти (общий лимит):', key.slice(0, 12))
 		}
 	}
 
-	function getRoom(key) {
+	async function getRoom(key) {
 		let r = rooms.get(key)
 		if (r) return r
-		if (rooms.size >= MAX_ROOMS) evictRooms()
-		// состояние поднимаем с диска: элементы переживают рестарт сервера
-		const saved = roomStore.loadRoom(roomsDir(), key)
+		if (rooms.size >= MAX_ROOMS) await evictRooms()
+		// состояние поднимаем из БД или с диска: элементы переживают рестарт сервера
+		let saved = await roomStore.loadRoom(roomsDir(), key)
+		let restoredFromJson = false
+		// переходная страховка: если комнаты ещё нет в БД (или БД временно недоступна),
+		// поднимаем JSON-файл и помечаем комнату на сохранение в Postgres.
+		// После cutover можно выключить через ROOMS_JSON_FALLBACK=0.
+		if (!saved && process.env.DATABASE_URL && process.env.ROOMS_JSON_FALLBACK !== '0') {
+			saved = roomStore.loadRoomJson(roomsDir(), key)
+			restoredFromJson = !!saved
+			if (saved) {
+				console.log(
+					'[ovrly] комната поднята из JSON fallback:',
+					key.slice(0, 12),
+					'элементов:',
+					saved.elements.length,
+				)
+			}
+		}
 		r = {
 			key,
 			state: saved ?? { elements: [], canvasW: CANVAS_W, canvasH: CANVAS_H },
 			lastActivity: Date.now(),
 			locks: new Map(), // id элемента -> { socketId, login, until }
 			users: new Map(), // socketId -> { login, role } — кто сейчас на странице
-			dirty: false,
+			dirty: restoredFromJson,
 		}
 		rooms.set(key, r)
-		if (saved) {
+		if (saved && !restoredFromJson) {
 			console.log(
-				'[ovrly] комната восстановлена с диска:',
+				'[ovrly] комната восстановлена:',
 				key.slice(0, 12),
 				'элементов:',
 				saved.elements.length,
@@ -253,46 +268,64 @@ app.prepare().then(() => {
 	}
 
 	// периодика: чистим просроченные локи и пустые комнаты. Комнаты с элементами
-	// не теряются: сначала сохраняются на диск, потом выгружаются из памяти
-	setInterval(() => {
-		const now = Date.now()
-		for (const [key, r] of rooms) {
-			for (const [id, lock] of r.locks) if (lock.until < now) r.locks.delete(id)
-			if (liveSockets(key) !== 0) continue
-			if (r.state.elements.length === 0) {
-				rooms.delete(key)
-				roomStore.deleteRoom(roomsDir(), key)
-			} else if (now - r.lastActivity > ROOM_IDLE_EVICT_MS) {
-				persist(r)
-				rooms.delete(key)
-				console.log('[ovrly] комната выгружена из памяти (простой):', key.slice(0, 12))
+	// не теряются: сначала сохраняются, потом выгружаются из памяти
+	let maintenanceRunning = false
+	setInterval(async () => {
+		if (maintenanceRunning) return
+		maintenanceRunning = true
+		try {
+			const now = Date.now()
+			for (const [key, r] of rooms) {
+				for (const [id, lock] of r.locks) if (lock.until < now) r.locks.delete(id)
+				if (liveSockets(key) !== 0) continue
+				if (r.state.elements.length === 0) {
+					rooms.delete(key)
+					await roomStore.deleteRoom(roomsDir(), key)
+				} else if (now - r.lastActivity > ROOM_IDLE_EVICT_MS) {
+					await persist(r)
+					rooms.delete(key)
+					console.log('[ovrly] комната выгружена из памяти (простой):', key.slice(0, 12))
+				}
 			}
+			await trimMemory()
+		} finally {
+			maintenanceRunning = false
 		}
-		trimMemory()
 	}, 60 * 1000)
 
-	// сброс изменений комнат на диск (не чаще раза в ROOM_FLUSH_MS на комнату)
-	setInterval(() => {
-		for (const r of rooms.values()) persist(r)
+	// сброс изменений комнат (не чаще раза в ROOM_FLUSH_MS на комнату)
+	let flushRunning = false
+	setInterval(async () => {
+		if (flushRunning) return
+		flushRunning = true
+		try {
+			for (const r of rooms.values()) await persist(r)
+		} finally {
+			flushRunning = false
+		}
 	}, ROOM_FLUSH_MS)
 
 	// аккуратное завершение: дописываем комнаты, чтобы Ctrl+C не терял последние правки
 	let shuttingDown = false
-	const shutdown = signal => {
+	const shutdown = async signal => {
 		if (shuttingDown) return
 		shuttingDown = true
 		let n = 0
 		for (const r of rooms.values()) {
 			if (r.dirty) {
-				persist(r)
+				await persist(r)
 				n++
 			}
 		}
 		console.log(`[ovrly] выключение (${signal}): сохранено комнат — ${n}`)
 		process.exit(0)
 	}
-	process.on('SIGINT', () => shutdown('SIGINT'))
-	process.on('SIGTERM', () => shutdown('SIGTERM'))
+	process.on('SIGINT', () => {
+		void shutdown('SIGINT')
+	})
+	process.on('SIGTERM', () => {
+		void shutdown('SIGTERM')
+	})
 
 	// Ссылки и доступы живут в Postgres (или JSON локально). Держим снимок в памяти:
 	// middleware сокетов должен проверять доступ синхронно, без запроса на каждое движение
@@ -435,7 +468,7 @@ app.prepare().then(() => {
 		// комната из handshake (?room=токен), иначе общая default-комната
 		const room = ((socket.handshake.query.room || 'default') + '').slice(0, 64)
 		socket.join(room)
-		const roomRec = getRoom(room)
+		const roomRec = await getRoom(room)
 		const state = roomRec.state
 
 		socket.emit('state:init', state)
@@ -662,7 +695,7 @@ app.prepare().then(() => {
 			el.visible = el.visible ?? true
 			state.elements.push(el)
 			io.to(room).emit('element:added', el)
-			trimMemory()
+			void trimMemory()
 		})
 
 		socket.on('element:update', partial => {
