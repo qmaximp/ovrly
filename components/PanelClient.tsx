@@ -21,7 +21,7 @@ import {
 	parseMediaUrl,
 	youtubeEmbedUrl,
 } from '@/lib/media'
-import { playTimerSound } from '@/lib/sound'
+import { analyzeSound, playTimerSound, type SoundAnalysis } from '@/lib/sound'
 import { ensureFontLoaded, textBoxStyle } from '@/lib/textStyle'
 import type { RoomUser, StreamElement, SyncState } from '@/lib/types'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -41,10 +41,13 @@ export default function PanelClient({
 	channel,
 	room,
 	userLogin,
+	ghost,
 }: {
 	channel?: string | null
 	room?: string | null
 	userLogin?: string | null
+	// невидимый вход администратора: сервер не показывает его другим участникам
+	ghost?: boolean
 }) {
 	const [state, setState] = useState<SyncState>({
 		elements: [],
@@ -175,13 +178,15 @@ export default function PanelClient({
 		!!channel &&
 		!!userLogin &&
 		userLogin.toLowerCase() === channel.toLowerCase()
+	// стример и админ-невидимка забирают объект у любого модератора
+	const canOverrideLocks = isStreamer || !!ghost
 	const isLockedByOther = useCallback(
 		(id: string) => {
-			if (isStreamer) return false
+			if (canOverrideLocks) return false
 			const l = elementLocks[id]
 			return !!l && l.until > Date.now() && l.by !== (userLogin ?? '')
 		},
-		[elementLocks, userLogin, isStreamer],
+		[elementLocks, userLogin, canOverrideLocks],
 	)
 	const [isCoarse, setIsCoarse] = useState(false)
 	useEffect(() => {
@@ -328,7 +333,12 @@ export default function PanelClient({
 	useEffect(() => {
 		const socket = ioInit({
 			transports: ['websocket', 'polling'],
-			query: { room: room || 'default', login: userLogin || '' },
+			query: {
+				room: room || 'default',
+				login: userLogin || '',
+				// сервер примет флаг только от администратора (проверка по cookie-сессии)
+				invisible: ghost ? '1' : '0',
+			},
 		})
 		socketRef.current = socket
 
@@ -565,7 +575,7 @@ export default function PanelClient({
 		return () => {
 			socket.disconnect()
 		}
-	}, [room, userLogin])
+	}, [room, userLogin, ghost])
 
 	// курсоры пропадают, если участник перестал двигать мышью или отключился;
 	// локи объектов чистятся по истечении TTL
@@ -594,6 +604,8 @@ export default function PanelClient({
 		const vp = canvasEl
 		if (!vp) return
 		const send = (x: number, y: number, hidden: boolean) => {
+			// невидимка не светит курсором — сервер его всё равно отбросил бы
+			if (ghost) return
 			const now = performance.now()
 			if (!hidden && now - cursorLastSent.current < 50) return
 			cursorLastSent.current = now
@@ -615,7 +627,7 @@ export default function PanelClient({
 			vp.removeEventListener('pointermove', onMove)
 			vp.removeEventListener('pointerleave', onLeave)
 		}
-	}, [canvasEl])
+	}, [canvasEl, ghost])
 
 	const emit = useCallback((event: string, data?: any) => {
 		socketRef.current?.emit(event, data)
@@ -2954,6 +2966,17 @@ export default function PanelClient({
 						<span className='truncate font-medium'>{channel}</span>
 					</span>
 				)}
+				{/* невидимый вход: видно только самому администратору, другим участникам — нет */}
+				{ghost && (
+					<span
+						title='Невидимый режим: вас нет в списке участников и не видно курсор'
+						className={`flex items-center gap-1 rounded-full border border-fuchsia-900/60 bg-fuchsia-950/40 text-fuchsia-300 shrink-0 ${
+							isMobile ? 'px-2 py-0.5 text-[10px]' : 'px-2.5 py-1 text-xs'
+						}`}
+					>
+						👻 <span className='font-medium'>невидимка</span>
+					</span>
+				)}
 				<div className='flex-1' />
 				{isMobile && (
 					<button
@@ -3017,6 +3040,15 @@ export default function PanelClient({
 						className='text-sm text-accent2 hover:underline'
 					>
 						Поддержать проект ❤️
+					</a>
+					<a
+						href='https://github.com/qmaximp/ovrly/blob/main/LICENSE'
+						target='_blank'
+						rel='noopener noreferrer'
+						title='Ovrly · AGPL-3.0 · авторы jettle_, nezory_1'
+						className='text-xs text-gray-500 hover:text-accent2 transition-colors'
+					>
+						AGPL-3.0
 					</a>
 				</div>
 			</header>
@@ -3464,11 +3496,14 @@ export default function PanelClient({
 											onMediaState={applyMediaState}
 											onTwitchPlayer={onTwitchPlayer}
 										/>
-										{(() => {
-											const l = elementLocks[el.id]
-											return l &&
-												l.until > Date.now() &&
-												l.by !== (userLogin ?? '') ? (
+											{(() => {
+												// невидимка лок не показывает: он всё равно может забрать
+												// элемент, а ник владельца лока ему не нужен
+												const l = elementLocks[el.id]
+												return !ghost &&
+													l &&
+													l.until > Date.now() &&
+													l.by !== (userLogin ?? '') ? (
 												<div
 													className='absolute pointer-events-none select-none'
 													style={{
@@ -3484,9 +3519,9 @@ export default function PanelClient({
 															background: 'rgb(var(--c-accent))',
 															boxShadow: '0 1px 4px rgba(0,0,0,.4)',
 														}}
-													>
-														✋ {l.by}
-													</span>
+														>
+															✋ {l.by || 'занято'}
+														</span>
 												</div>
 											) : null
 										})()}
@@ -3958,6 +3993,15 @@ export default function PanelClient({
 							className='block px-3 py-1.5 text-sm text-accent2 hover:bg-border rounded-lg'
 						>
 							Поддержать проект ❤️
+						</a>
+						<a
+							href='https://github.com/qmaximp/ovrly/blob/main/LICENSE'
+							target='_blank'
+							rel='noopener noreferrer'
+							title='Ovrly · AGPL-3.0 · авторы jettle_, nezory_1'
+							className='block px-3 py-1.5 text-[11px] text-gray-500 hover:bg-border rounded-lg'
+						>
+							AGPL-3.0 · © 2026 jettle_, nezory_1
 						</a>
 					</div>
 				</>
@@ -4480,8 +4524,169 @@ function MonitorIcon({ size = 15 }: { size?: number }) {
 	)
 }
 
+// Пределы выбираемого фрагмента: короче 0.2 с — уже не звук, а щелчок;
+// длиннее 10 с — риск залить эфир длинным треком
+const TRIM_MAX = 10
+const TRIM_MIN = 0.2
+
+function fmtSoundTime(sec: number): string {
+	const m = Math.floor(sec / 60)
+	const rest = Math.max(0, sec - m * 60)
+	return `${m}:${rest.toFixed(1).padStart(4, '0')}`
+}
+
+function round2(v: number): number {
+	return Math.round(v * 100) / 100
+}
+
+// Волна с двумя краями. Края меняют границы фрагмента, перетаскивание середины
+// двигает весь фрагмент по дорожке. Пока тянут — показываем черновик, чтобы
+// не гонять состояние на сервер на каждое движение мыши; сохраняем на отпускании
+function SoundTrim({
+	analysis,
+	start,
+	duration,
+	onChange,
+}: {
+	analysis: SoundAnalysis
+	start: number
+	duration: number
+	onChange: (start: number, duration: number) => void
+}) {
+	const trackRef = useRef<HTMLDivElement | null>(null)
+	const [draft, setDraft] = useState<{ start: number; end: number } | null>(null)
+	const total = analysis.duration
+	const maxLen = Math.min(TRIM_MAX, total)
+	const minLen = Math.min(TRIM_MIN, maxLen)
+	const safeStart = Math.min(Math.max(0, start), Math.max(0, total - minLen))
+	const safeEnd = Math.min(
+		total,
+		safeStart + Math.min(Math.max(minLen, duration), maxLen),
+	)
+	const region = draft ?? { start: safeStart, end: safeEnd }
+
+	const beginDrag =
+		(mode: 'start' | 'end' | 'move') => (e: React.PointerEvent) => {
+			if (e.button !== 0 || !(total > 0)) return
+			e.preventDefault()
+			e.stopPropagation()
+			const track = trackRef.current
+			if (!track) return
+			const rect = track.getBoundingClientRect()
+			const init = { ...region }
+			const startX = e.clientX
+			let latest = init
+			const onMove = (ev: PointerEvent) => {
+				const dt = ((ev.clientX - startX) / Math.max(1, rect.width)) * total
+				let a = init.start
+				let b = init.end
+				const len = init.end - init.start
+				if (mode === 'move') {
+					// весь фрагмент едет, не выходя за пределы файла
+					a = Math.min(Math.max(0, init.start + dt), Math.max(0, total - len))
+					b = a + len
+				} else if (mode === 'start') {
+					const lo = Math.max(0, init.end - maxLen)
+					const hi = init.end - minLen
+					a = Math.min(Math.max(lo, init.start + dt), hi)
+					b = init.end
+				} else {
+					const lo = init.start + minLen
+					const hi = Math.min(total, init.start + maxLen)
+					b = Math.min(Math.max(lo, init.end + dt), hi)
+					a = init.start
+				}
+				latest = { start: a, end: b }
+				setDraft(latest)
+			}
+			const finish = () => {
+				window.removeEventListener('pointermove', onMove)
+				window.removeEventListener('pointerup', finish)
+				window.removeEventListener('pointercancel', finish)
+				setDraft(null)
+				onChange(round2(latest.start), round2(latest.end - latest.start))
+			}
+			window.addEventListener('pointermove', onMove)
+			window.addEventListener('pointerup', finish)
+			window.addEventListener('pointercancel', finish)
+		}
+
+	const left = total > 0 ? (region.start / total) * 100 : 0
+	const width = total > 0 ? ((region.end - region.start) / total) * 100 : 0
+	const n = Math.max(1, analysis.peaks.length)
+	return (
+		<div className='space-y-1 min-w-0'>
+			<div
+				ref={trackRef}
+				className='relative h-14 w-full overflow-hidden rounded-lg border border-border bg-bg select-none touch-none'
+			>
+				<svg
+					viewBox={`0 0 ${n} 100`}
+					preserveAspectRatio='none'
+					className='absolute inset-0 h-full w-full pointer-events-none'
+					aria-hidden='true'
+				>
+					{analysis.peaks.map((p, i) => {
+						const h = Math.max(2, p * 92)
+						return (
+							<rect
+								key={i}
+								x={i + 0.14}
+								y={50 - h / 2}
+								width={0.72}
+								height={h}
+								rx={0.3}
+								fill='rgb(var(--c-accent2))'
+								opacity={0.5}
+							/>
+						)
+					})}
+				</svg>
+				{/* затемнение вне фрагмента: границы видно сразу, не вглядываясь */}
+				<div
+					className='absolute inset-y-0 left-0 bg-black/45 pointer-events-none'
+					style={{ width: `${left}%` }}
+				/>
+				<div
+					className='absolute inset-y-0 right-0 bg-black/45 pointer-events-none'
+					style={{ width: `${Math.max(0, 100 - left - width)}%` }}
+				/>
+				<div
+					onPointerDown={beginDrag('move')}
+					title='Перетащите фрагмент по волне'
+					className='absolute inset-y-0 z-10 cursor-grab active:cursor-grabbing touch-none border-y-2 border-accent bg-accent/20'
+					style={{ left: `${left}%`, width: `${width}%` }}
+				>
+					<div
+						onPointerDown={beginDrag('start')}
+						title='Начало фрагмента'
+						className='absolute inset-y-0 left-0 z-20 w-2 cursor-ew-resize touch-none'
+					>
+						<span className='absolute inset-y-1 left-0 w-1.5 rounded-full bg-accent2 border border-white/60 shadow' />
+					</div>
+					<div
+						onPointerDown={beginDrag('end')}
+						title='Конец фрагмента'
+						className='absolute inset-y-0 right-0 z-20 w-2 cursor-ew-resize touch-none'
+					>
+						<span className='absolute inset-y-1 right-0 w-1.5 rounded-full bg-accent2 border border-white/60 shadow' />
+					</div>
+				</div>
+			</div>
+			<div className='flex items-center justify-between gap-1 text-[10px] text-gray-500 tabular-nums'>
+				<span>{fmtSoundTime(region.start)}</span>
+				<span className='text-accent2 font-medium'>
+					{(region.end - region.start).toFixed(1)} с
+				</span>
+				<span>{fmtSoundTime(region.end)}</span>
+			</div>
+		</div>
+	)
+}
+
 // Звук окончания таймера: выбор файла с ПК (хранится как data-URL вместе с элементом,
-// поэтому звук слышен и в панели, и на оверлее у стримера), громкость и длительность
+// поэтому звук слышен и в панели, и на оверлее у стримера), точный фрагмент на волне
+// и громкость. Блок компактный — живёт в узкой колонке свойств (w-72)
 function TimerSoundControls({
 	el,
 	update,
@@ -4490,9 +4695,67 @@ function TimerSoundControls({
 	update: (partial: Partial<StreamElement>) => void
 }) {
 	const [busy, setBusy] = useState(false)
+	const [analysis, setAnalysis] = useState<SoundAnalysis | null>(null)
+	const [waveError, setWaveError] = useState('')
 	const hasSound = !!el.soundSrc
 	const volume = el.soundVolume ?? 1
-	const duration = el.soundDuration ?? 5
+
+	// волну строим из самого файла: декодируем data-URL в AudioBuffer и считаем пики
+	useEffect(() => {
+		if (!el.soundSrc) {
+			setAnalysis(null)
+			setWaveError('')
+			return
+		}
+		let alive = true
+		setAnalysis(null)
+		setWaveError('')
+		analyzeSound(el.soundSrc, 180)
+			.then(a => {
+				if (alive) setAnalysis(a)
+			})
+			.catch(() => {
+				if (alive)
+					setWaveError('Не удалось построить волну. Попробуйте MP3, WAV или OGG.')
+			})
+		return () => {
+			alive = false
+		}
+	}, [el.soundSrc])
+
+	// файл короче 10 с — по умолчанию выделяем его целиком; длиннее — первые 10 с.
+	// Старые сохранённые значения могли оказаться за пределами нового файла:
+	// подрезаем их, иначе на оверлее проигрывался бы пустой/лишний фрагмент
+	useEffect(() => {
+		if (!analysis || !(analysis.duration > 0)) return
+		const total = analysis.duration
+		const len = Math.min(TRIM_MAX, total)
+		const start = Math.max(0, el.soundStart ?? 0)
+		const outOfRange =
+			el.soundDuration === undefined ||
+			el.soundDuration > total + 0.05 ||
+			start > Math.max(0, total - Math.min(TRIM_MIN, total))
+		if (!outOfRange) return
+		update({
+			soundStart: round2(Math.min(start, Math.max(0, total - len))),
+			soundDuration: round2(Math.max(Math.min(TRIM_MIN, total), len)),
+		})
+	}, [analysis, el.soundStart, el.soundDuration])
+
+	const total = analysis?.duration ?? 0
+	const maxLen = total > 0 ? Math.min(TRIM_MAX, total) : TRIM_MAX
+	const minLen = total > 0 ? Math.min(TRIM_MIN, total) : TRIM_MIN
+	const effLen = Math.min(
+		maxLen,
+		Math.max(minLen, el.soundDuration ?? (total > 0 ? maxLen : 5)),
+	)
+	const effStart =
+		total > 0
+			? Math.min(
+					Math.max(0, el.soundStart ?? 0),
+					Math.max(0, total - Math.min(effLen, total)),
+				)
+			: Math.max(0, el.soundStart ?? 0)
 
 	const pick = () => {
 		const input = document.createElement('input')
@@ -4514,17 +4777,20 @@ function TimerSoundControls({
 			}
 			// 4 МБ: звук уходит в состояние комнаты (base64) и на оверлей
 			if (f.size > 4 * 1024 * 1024) {
-				alert('Файл больше 4 МБ. Возьмите короткий звук (до 10 секунд).')
+				alert('Файл больше 4 МБ. Возьмите файл покороче или сожмите его.')
 				drop()
 				return
 			}
 			setBusy(true)
 			const r = new FileReader()
 			r.onload = () => {
+				// новый файл — новый фрагмент: старые границы к нему не относятся.
+				// 10 с — заведомо допустимая длина, после анализа она ужмётся под файл
 				update({
 					soundSrc: r.result as string,
+					soundStart: 0,
+					soundDuration: TRIM_MAX,
 					soundVolume: volume,
-					soundDuration: Math.min(duration, 10),
 				})
 				setBusy(false)
 				drop()
@@ -4547,97 +4813,98 @@ function TimerSoundControls({
 		)
 	}
 
+	const playPreview = () =>
+		playTimerSound({
+			src: el.soundSrc,
+			volume,
+			duration: effLen,
+			start: effStart,
+		})
+
 	return (
-		<div className='pt-2 border-t border-border space-y-2'>
-			<div className='flex items-center justify-between gap-2'>
-				<div>
+		<div className='pt-2 border-t border-border space-y-2 min-w-0'>
+			<div className='flex items-start justify-between gap-2'>
+				<div className='min-w-0'>
 					<label className='text-xs text-gray-500 block'>Звук окончания</label>
 					<p className='text-[10px] text-gray-600 leading-tight'>
 						{hasSound
-							? 'Свой файл (с ПК) — слышен и в панели, и на стриме'
+							? 'Свой файл · точный фрагмент выбирается на волне'
 							: 'По умолчанию — встроенный сигнал'}
 					</p>
 				</div>
-				<div className='flex gap-1 shrink-0'>
+				{hasSound && (
 					<button
-						onClick={pick}
-						disabled={busy}
-						className='px-2 py-1.5 text-xs bg-border hover:bg-gray-600 rounded-lg disabled:opacity-50'
+						onClick={() =>
+							// пустая строка, а не undefined: undefined-поля не уходят
+							// в JSON и на сервере остался бы старый файл
+							update({ soundSrc: '', soundStart: 0, soundDuration: 0 })
+						}
+						title='Вернуть встроенный сигнал'
+						className='shrink-0 w-7 h-7 text-xs text-red-400 border border-red-900/50 rounded-lg hover:bg-red-950/40'
 					>
-						{busy ? 'Загрузка…' : hasSound ? 'Заменить' : 'Выбрать с ПК'}
+						✕
 					</button>
-					{hasSound && (
-						<button
-							onClick={() =>
-								update({ soundSrc: undefined, soundDuration: undefined })
-							}
-							title='Вернуть встроенный сигнал'
-							className='px-2 py-1.5 text-xs text-red-400 border border-red-900/50 rounded-lg hover:bg-red-950/40'
-						>
-							✕
-						</button>
-					)}
-				</div>
+				)}
 			</div>
+			<div className='flex gap-1.5'>
+				<button
+					onClick={pick}
+					disabled={busy}
+					className='flex-1 min-w-0 px-2 py-1.5 text-xs bg-border hover:bg-gray-600 rounded-lg disabled:opacity-50'
+				>
+					{busy ? 'Загрузка…' : hasSound ? 'Заменить файл' : 'Выбрать с ПК'}
+				</button>
+				{hasSound && (
+					<button
+						onClick={playPreview}
+						title='Прослушать выбранный фрагмент'
+						className='flex-1 min-w-0 px-2 py-1.5 text-xs bg-border hover:bg-gray-600 rounded-lg'
+					>
+						▶ Прослушать
+					</button>
+				)}
+			</div>
+			{hasSound && analysis && (
+				<SoundTrim
+					analysis={analysis}
+					start={effStart}
+					duration={effLen}
+					onChange={(start, duration) =>
+						update({ soundStart: start, soundDuration: duration })
+					}
+				/>
+			)}
+			{hasSound && !analysis && !waveError && (
+				<p className='text-[10px] text-gray-600'>Строю волну…</p>
+			)}
+			{hasSound && waveError && (
+				<p className='text-[10px] text-amber-400/90'>{waveError}</p>
+			)}
 			{hasSound && (
-				<>
-					<div className='flex items-center gap-2'>
-						<button
-							onClick={() =>
-								playTimerSound({
-									src: el.soundSrc,
-									volume,
-									duration,
-								})
-							}
-							title='Прослушать'
-							className='px-2 py-1.5 text-xs bg-border hover:bg-gray-600 rounded-lg shrink-0'
-						>
-							▶
-						</button>
-						<label className='text-xs text-gray-500 shrink-0 w-20'>
-							Громкость
-						</label>
-						<input
-							type='range'
-							min={0}
-							max={100}
-							value={Math.round(volume * 100)}
-							onChange={e =>
-								update({ soundVolume: Number(e.target.value) / 100 })
-							}
-							className='flex-1'
-						/>
-						<span className='text-[10px] text-gray-500 w-8 text-right'>
-							{Math.round(volume * 100)}%
-						</span>
-					</div>
-					<div className='flex items-center gap-2'>
-						<span className='w-7 shrink-0' />
-						<label className='text-xs text-gray-500 shrink-0 w-20'>
-							Длительность
-						</label>
-						<input
-							type='range'
-							min={1}
-							max={10}
-							step={0.5}
-							value={duration}
-							onChange={e =>
-								update({
-									soundDuration: Math.min(10, Number(e.target.value)),
-								})
-							}
-							className='flex-1'
-						/>
-						<span className='text-[10px] text-gray-500 w-8 text-right'>
-							{duration} с
-						</span>
-					</div>
-					<p className='text-[10px] text-gray-600'>
-						Звук обрежется на выбранной длительности (максимум 10 секунд)
-					</p>
-				</>
+				<div className='flex items-center gap-2 min-w-0'>
+					<label className='text-[11px] text-gray-500 shrink-0'>
+						Громкость
+					</label>
+					<input
+						type='range'
+						min={0}
+						max={100}
+						value={Math.round(volume * 100)}
+						onChange={e =>
+							update({ soundVolume: Number(e.target.value) / 100 })
+						}
+						className='flex-1 min-w-0'
+					/>
+					<span className='text-[10px] text-gray-500 w-8 text-right shrink-0'>
+						{Math.round(volume * 100)}%
+					</span>
+				</div>
+			)}
+			{hasSound && analysis && (
+				<p className='text-[10px] text-gray-600 leading-tight'>
+					Края — точные границы, середину можно перетаскивать по волне.
+					Максимум 10 с.
+				</p>
 			)}
 		</div>
 	)
@@ -4921,7 +5188,12 @@ function TimerPreview({ el, scale }: { el: StreamElement; scale: number }) {
 	if (remaining !== null && remaining <= 0) {
 		if (el.isRunning && !playedRef.current) {
 			playedRef.current = true
-			playTimerSound({ src: el.soundSrc, volume: el.soundVolume, duration: el.soundDuration })
+			playTimerSound({
+				src: el.soundSrc,
+				volume: el.soundVolume,
+				duration: el.soundDuration,
+				start: el.soundStart,
+			})
 		}
 		if (!el.isRunning) playedRef.current = false
 	} else {
@@ -5233,7 +5505,7 @@ function PropertyEditor({
 					</div>
 					{/* Звук окончания: свой файл с ПК вместо встроенного сигнала.
 					    После выбора — громкость и длительность (не больше 10 секунд) */}
-					<TimerSoundControls el={el} update={update} />
+					<TimerSoundControls key={el.id} el={el} update={update} />
 				</>
 			)}
 			{(el.type === 'image' ||

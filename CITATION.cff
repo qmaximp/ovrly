@@ -1,0 +1,13 @@
+cff-version: 1.2.0
+message: "Если вы используете Ovrly, пожалуйста, ссылайтесь на этот репозиторий."
+title: "Ovrly"
+abstract: "Панель управления оверлеем OBS: картинки, видео, сайты, текст и таймеры с доступом для модераторов."
+authors:
+  - alias: "jettle_"
+    website: "https://www.twitch.tv/jettle_"
+  - alias: "nezory_1"
+    website: "https://www.twitch.tv/nezory_1"
+repository-code: "https://github.com/qmaximp/ovrly"
+license: "AGPL-3.0-only"
+version: "1.6"
+date-released: "2026-10-17"

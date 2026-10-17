@@ -444,7 +444,12 @@ function OverlayElement({ el, ytStarted }: { el: StreamElement; ytStarted: boole
 		if (remaining !== null && remaining <= 0) {
 			if (el.isRunning && !playedRef.current) {
 				playedRef.current = true
-				playTimerSound({ src: el.soundSrc, volume: el.soundVolume, duration: el.soundDuration })
+				playTimerSound({
+					src: el.soundSrc,
+					volume: el.soundVolume,
+					duration: el.soundDuration,
+					start: el.soundStart,
+				})
 			}
 			if (!el.isRunning) playedRef.current = false
 		} else {

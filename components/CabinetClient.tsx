@@ -492,14 +492,34 @@ export default function CabinetClient({
 					</a>
 					{' новости и тех. поддержка | '}
 					<a
-						href='https://github.com/qmaximp/stream-control-2'
+						href='https://github.com/qmaximp/ovrly'
 						target='_blank'
 						rel='noopener noreferrer'
 						className='text-accent2 hover:underline'
 					>
 						github
 					</a>
-					{' проекта | Версия 1.6'}
+					{' проекта | '}
+					<a
+						href='https://github.com/qmaximp/ovrly/blob/main/LICENSE'
+						target='_blank'
+						rel='noopener noreferrer'
+						className='text-accent2 hover:underline'
+						title='GNU Affero General Public License v3.0'
+					>
+						AGPL-3.0
+					</a>
+					{' · '}
+					<a
+						href='https://github.com/qmaximp/ovrly'
+						target='_blank'
+						rel='noopener noreferrer'
+						className='hover:text-gray-400 transition-colors'
+						title='Авторы: jettle_, nezory_1'
+					>
+						© 2026 jettle_, nezory_1
+					</a>
+					{' | Версия 1.6'}
 				</p>
 			</footer>
 		</main>

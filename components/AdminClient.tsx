@@ -14,6 +14,8 @@ type StatsUser = {
 }
 type StatsRoom = {
 	key: string
+	// полный токен комнаты — только для кнопки «войти невидимо» (статистика админская)
+	token: string
 	owner: string
 	elements: number
 	bytesMB: number
@@ -127,8 +129,25 @@ export default function AdminClient({
 
 	const busy = stats ? stats.activity.edits5m > 0 : false
 	const onlineUsers = stats
-		? stats.rooms.flatMap(r => r.users.map(u => ({ ...u, room: r.key, owner: r.owner })))
+		? stats.rooms.flatMap(r =>
+				r.users.map(u => ({
+					...u,
+					room: r.key,
+					owner: r.owner,
+					roomToken: r.token,
+				})),
+			)
 		: []
+	// Невидимый вход: открываем панель комнаты с ?ghost=1. Сервер проверит, что
+	// вошедший — администратор, и не добавит его в список участников комнаты
+	const openGhostPanel = useCallback((token: string, owner: string) => {
+		if (!token) return
+		window.open(
+			`/panel?room=${encodeURIComponent(token)}&ghost=1`,
+			`ovrly-ghost-${encodeURIComponent(owner)}`,
+			'width=1280,height=860,menubar=no,toolbar=no',
+		)
+	}, [])
 	const peopleOnline = onlineUsers.filter(u => u.role !== 'guest')
 	// оверлеев может быть несколько (каждый Browser Source — отдельное подключение)
 	const overlaysOnline = peopleOnline.length === 0 && onlineUsers.length === 0
@@ -241,6 +260,16 @@ export default function AdminClient({
 											<span className='font-medium text-[color:var(--c-on-bg)] truncate'>
 												{u.login}
 											</span>
+											{u.owner !== '—' && u.roomToken && (
+												<button
+													onClick={() => openGhostPanel(u.roomToken, u.owner)}
+													title={`Войти в панель ${u.owner} невидимо — вас не будет в списке участников`}
+													aria-label={`Войти в панель ${u.owner} невидимо`}
+													className='shrink-0 w-6 h-6 rounded-md bg-border hover:bg-accent text-xs leading-none flex items-center justify-center transition-colors'
+												>
+													👻
+												</button>
+											)}
 											<span className='text-xs text-gray-500'>{ROLE_LABELS[u.role]}</span>
 											{u.connections > 1 && (
 												<span

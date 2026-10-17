@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import PanelClient from "@/components/PanelClient";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import { isAdminLogin } from "@/lib/admin";
 import {
   accessSuspendedScreen,
   invalidLinkScreen,
@@ -29,34 +30,40 @@ export async function generateMetadata({
 
 // Next 16: cookies() и searchParams асинхронные — их нужно дожидаться
 export default async function Panel({
-  searchParams,
+	searchParams,
 }: {
-  searchParams?: Promise<{ room?: string }>;
+	searchParams?: Promise<{ room?: string; ghost?: string }>;
 }) {
-  const room = (await searchParams)?.room;
-  // чистая ссылка /panel закрыта: панель открывается только по ссылке с токеном комнаты
-  if (!room || !isValidRoomToken(room)) {
-    return invalidLinkScreen();
-  }
+	const params = await searchParams;
+	const room = params?.room;
+	// чистая ссылка /panel закрыта: панель открывается только по ссылке с токеном комнаты
+	if (!room || !isValidRoomToken(room)) {
+		return invalidLinkScreen();
+	}
 
-  const session = verifySession((await cookies()).get("sc_session")?.value);
-  // не авторизован — после входа попадёт в кабинет (приглашение выдаёт стример по нику)
-  if (!session) return notRegisteredScreen(`/cabinet?invite=${encodeURIComponent(room)}`);
+	const session = verifySession((await cookies()).get("sc_session")?.value);
+	// не авторизован — после входа попадёт в кабинет (приглашение выдаёт стример по нику)
+	if (!session) return notRegisteredScreen(`/cabinet?invite=${encodeURIComponent(room)}`);
 
-  const owner = findOwnerByToken(room);
-  if (!owner) return invalidLinkScreen();
+	const owner = findOwnerByToken(room);
+	if (!owner) return invalidLinkScreen();
 
-  // владелец комнаты — доступ всегда
-  if (owner === session.login) {
-    return (
-      <ErrorBoundary>
-        <PanelClient
-        channel={owner}
-        room={room}
-        userLogin={session.login}      />
-      </ErrorBoundary>
-    );
-  }
+	// невидимый вход: параметр учитывается только для администраторов. Остальным
+	// он ничего не даёт — сервер тоже перепроверяет ник из подписанной сессии
+	const ghost = params?.ghost === "1" && isAdminLogin(session.login);
+
+	// владелец комнаты — доступ всегда; администратор в невидимом режиме — тоже
+	if (owner === session.login || ghost) {
+		return (
+			<ErrorBoundary>
+				<PanelClient
+				channel={owner}
+				room={room}
+				userLogin={session.login}
+				ghost={ghost}      />
+			</ErrorBoundary>
+		);
+	}
 
   // модератор: приглашение создаётся ТОЛЬКО стримером по нику в кабинете.
   // Просто открыв ссылку (даже угадав токен), доступ не получишь

@@ -40,6 +40,9 @@ const nextConfig = {
 	reactStrictMode: true,
 	// не светим, что проект на Next
 	poweredByHeader: false,
+	// В dev Next блокирует HMR/служебные запросы с чужих origin. Разработчики
+	// открывают панель и по localhost, и по 127.0.0.1 — разрешаем оба.
+	allowedDevOrigins: ['127.0.0.1', 'localhost'],
 	async headers() {
 		return [{ source: '/:path*', headers: securityHeaders }]
 	},

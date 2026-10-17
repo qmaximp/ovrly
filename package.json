@@ -2,6 +2,16 @@
   "name": "ovrly",
   "version": "1.0.0",
   "private": true,
+  "license": "AGPL-3.0-only",
+  "author": {
+    "name": "jettle_, nezory_1",
+    "url": "https://github.com/qmaximp/ovrly"
+  },
+  "homepage": "https://github.com/qmaximp/ovrly",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/qmaximp/ovrly.git"
+  },
   "scripts": {
     "dev": "node server.js --dev",
     "build": "next build",

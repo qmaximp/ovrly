@@ -340,6 +340,9 @@ app.prepare().then(() => {
 			sockets += r.users.size
 			roomsOut.push({
 				key: String(key).slice(0, 12),
+				// полный токен комнаты нужен админке для кнопки невидимого входа;
+				// статистика отдаётся только администраторам
+				token: String(key),
 				owner: owner || '—',
 				elements: elev,
 				bytesMB: Math.round((byt / 1024 / 1024) * 10) / 10,
@@ -399,7 +402,13 @@ app.prepare().then(() => {
 		// стример (владелец комнаты) может перехватывать элементы у модераторов всегда
 		const isStreamer =
 			!isGuest && !!ownerByRoom && userLogin.toLowerCase() === ownerByRoom.toLowerCase()
-		const hasAccess = !isGuest && hasPanelAccess(room, userLogin)
+		// невидимый вход разрешён только администраторам (jettle_/nezory_1). Проверяем
+		// ник из подписанной cookie, а не только параметр URL: иначе ссылка с ?invisible=1
+		// дала бы любому скрытый доступ к чужой комнате
+		const isGhost =
+			!isGuest && socket.handshake.query.invisible === '1' && isAdminLogin(userLogin)
+		// админ-невидимка может войти в любую комнату без приглашения
+		const hasAccess = isGhost || (!isGuest && hasPanelAccess(room, userLogin))
 
 		// Админ-панель: служебное соединение (?admin=1) — комнату не занимает, только
 		// статистика и предупреждение всех о деплое
@@ -425,7 +434,11 @@ app.prepare().then(() => {
 
 		// сообщаем роль клиенту: панель без валидной сессии предупредит, что правки
 		// не сохраняются (иначе действия молча отклонялись бы)
-		socket.emit('access:role', { readOnly: !hasAccess, guest: isGuest })
+		socket.emit('access:role', {
+			readOnly: !hasAccess,
+			guest: isGuest,
+			ghost: isGhost,
+		})
 
 		if (!isGuest && !hasAccess) {
 			console.log('[io] доступ отозван, отключаю:', userLogin, 'room:', room.slice(0, 12))
@@ -434,13 +447,17 @@ app.prepare().then(() => {
 			return
 		}
 		// участники комнаты: ник + роль (у оверлея в OBS сессии нет — он гость).
-		// Список рассылаем всем в комнате при входе и выходе
-		roomRec.users.set(socket.id, {
-			login: isGuest ? 'Оверлей (OBS)' : userLogin,
-			role: isGuest ? 'guest' : isStreamer ? 'streamer' : 'moderator',
-			connectedAt: Date.now(),
-			lastSeen: Date.now(),
-		})
+		// Список рассылаем всем в комнате при входе и выходе.
+		// Невидимку в список не добавляем вовсе: он есть в комнате, но для всех —
+		// его нет (и в статистике админки он тоже не появится)
+		if (!isGhost) {
+			roomRec.users.set(socket.id, {
+				login: isGuest ? 'Оверлей (OBS)' : userLogin,
+				role: isGuest ? 'guest' : isStreamer ? 'streamer' : 'moderator',
+				connectedAt: Date.now(),
+				lastSeen: Date.now(),
+			})
+		}
 		const broadcastUsers = () => {
 			const byKey = new Map()
 			for (const u of roomRec.users.values()) {
@@ -455,7 +472,7 @@ app.prepare().then(() => {
 			)
 			io.to(room).emit('room:users', list)
 		}
-		broadcastUsers()
+		if (!isGhost) broadcastUsers()
 
 		console.log(
 			'[io] connect:',
@@ -464,6 +481,7 @@ app.prepare().then(() => {
 			room.slice(0, 12),
 			'login:',
 			userLogin,
+			isGhost ? '(невидимый вход)' : '',
 			isGuest ? '(гость, только чтение)' : '',
 		)
 
@@ -480,7 +498,7 @@ app.prepare().then(() => {
 			// курсоры — косметика: не гоняем проверку доступа на каждое движение мыши,
 			// отзыв всё равно сработает на первом же действии
 			if (event === 'cursor:move') return next()
-			if (!isStreamer && !hasPanelAccess(room, userLogin)) {
+			if (!isStreamer && !isGhost && !hasPanelAccess(room, userLogin)) {
 				console.log('[io] доступ отозван на событии:', event, userLogin)
 				socket.emit('access:revoked')
 				socket.disconnect(true)
@@ -508,6 +526,8 @@ app.prepare().then(() => {
 				return
 			const x = Math.max(-100000, Math.min(100000, data.x))
 			const y = Math.max(-100000, Math.min(100000, data.y))
+			// курсор невидимки не рассылаем: иначе его ник всплывёт у всех на холсте
+			if (isGhost) return
 			socket.broadcast.to(room).emit('cursor:update', {
 				id: socket.id,
 				login: userLogin,
@@ -526,10 +546,10 @@ app.prepare().then(() => {
 			const lock = roomRec.locks.get(id)
 			const takenByOther =
 				lock && lock.socketId !== socket.id && now < lock.until
-			if (takenByOther && !isStreamer) return // занято другим
+			if (takenByOther && !isStreamer && !isGhost) return // занято другим
 			if (takenByOther) {
 				console.log(
-					'[io] перехват стримером:',
+					'[io] перехват:',
 					id.slice(0, 8),
 					'был у',
 					lock.login,
@@ -540,7 +560,12 @@ app.prepare().then(() => {
 				login: userLogin,
 				until: now + 5000,
 			})
-			io.to(room).emit('element:lock', { id, by: userLogin, until: now + 5000 })
+			// ник невидимки не показываем: для остальных элемент просто «занят»
+			io.to(room).emit('element:lock', {
+				id,
+				by: isGhost ? '' : userLogin,
+				until: now + 5000,
+			})
 		})
 
 		socket.on('disconnect', () => {
@@ -590,8 +615,8 @@ app.prepare().then(() => {
 				const lock = roomRec.locks.get(data.id)
 				const now = Date.now()
 				if (lock && lock.socketId !== socket.id && now < lock.until) {
-					if (!isStreamer) return // объект тащит другой
-					// стример двигает чужой элемент — лок переходит к нему
+					if (!isStreamer && !isGhost) return // объект тащит другой
+					// стример/невидимка двигает чужой элемент — лок переходит к нему
 					roomRec.locks.set(data.id, {
 						socketId: socket.id,
 						login: userLogin,
@@ -599,7 +624,7 @@ app.prepare().then(() => {
 					})
 					io.to(room).emit('element:lock', {
 						id: data.id,
-						by: userLogin,
+						by: isGhost ? '' : userLogin,
 						until: now + 5000,
 					})
 				} else if (lock && lock.socketId === socket.id) {
@@ -617,7 +642,7 @@ app.prepare().then(() => {
 				const lock = roomRec.locks.get(data.id)
 				const now = Date.now()
 				if (lock && lock.socketId !== socket.id && now < lock.until) {
-					if (!isStreamer) return // объект тащит другой
+					if (!isStreamer && !isGhost) return // объект тащит другой
 					roomRec.locks.set(data.id, {
 						socketId: socket.id,
 						login: userLogin,
@@ -625,7 +650,7 @@ app.prepare().then(() => {
 					})
 					io.to(room).emit('element:lock', {
 						id: data.id,
-						by: userLogin,
+						by: isGhost ? '' : userLogin,
 						until: now + 5000,
 					})
 				} else if (lock && lock.socketId === socket.id) {

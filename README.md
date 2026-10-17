@@ -107,3 +107,30 @@ DATA_DIR=/data
 ### Vercel — только если переделать архитектуру:
 1. Вынести Socket.io-сервер на отдельный хостинг (Railway/Render) и прописать его URL в PanelClient/OverlayClient.
 2. Либо переписать синхронизацию на REST API + базу (например, Upstash Redis / Supabase) с поллингом — тогда Vercel заработает, но это рефакторинг.
+
+## Авторы
+
+Ovrly создан и поддерживается **jettle_** и **nezory_1**.
+
+- jettle_ — https://www.twitch.tv/jettle_
+- nezory_1 — https://www.twitch.tv/nezory_1
+- Исходный код: https://github.com/qmaximp/ovrly
+- Связь и поддержка: https://t.me/ovrly_control
+
+## Лицензия
+
+Проект распространяется по лицензии **GNU Affero General Public License v3.0**
+(SPDX: `AGPL-3.0-only`). Полный текст — в файле [LICENSE](LICENSE), сведения об
+авторах — в [NOTICE](NOTICE).
+
+```
+Ovrly — панель управления оверлеем OBS
+Copyright (C) 2026 jettle_, nezory_1
+```
+
+Если вы запускаете изменённую версию Ovrly как публичный сетевой сервис, AGPL
+требует предоставить пользователям этого сервиса исходный код соответствующей
+версии. Ссылка на исходники: https://github.com/qmaximp/ovrly.
+
+Twitch, YouTube, 7TV, BetterTTV и FrankerFaceZ, их API, смайлики и бренды не
+входят в лицензию проекта; используйте их по их собственным правилам.
