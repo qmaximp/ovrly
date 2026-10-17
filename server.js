@@ -13,6 +13,12 @@ const dev = process.argv.includes('--dev')
 		? false
 		: process.env.NODE_ENV !== 'production'
 
+// Кастомный сервер и Next работают в одном процессе, но .env.local нужно
+// загрузить до создания приложения: иначе server.js/roomStore не увидят
+// DATABASE_URL, хотя API-роуты Next его увидят.
+const { loadEnvConfig } = require('@next/env')
+loadEnvConfig(process.cwd(), dev)
+
 const app = next({ dev })
 const handle = app.getRequestHandler()
 
@@ -886,6 +892,10 @@ app.prepare().then(() => {
 		console.log('  ➜  Panel:   http://localhost:' + port + '/panel')
 		console.log('  ➜  Overlay: http://localhost:' + port + '/overlay')
 		console.log('  ➜  Data:    ' + dataDir())
-		console.log('  ➜  Rooms:   ' + roomsDir() + ' (элементы хранятся на диске)\n')
+		console.log(
+			'  ➜  Storage: ' +
+				(process.env.DATABASE_URL ? 'PostgreSQL' : 'JSON (data/)'),
+		)
+		console.log('  ➜  Rooms:   ' + roomsDir() + '\n')
 	})
 })
