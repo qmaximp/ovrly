@@ -1,29 +1,7 @@
-import fs from "fs";
-import path from "path";
+import * as storage from "./storage";
 
-// каталог данных можно вынести на смонтированный том (DATA_DIR) — иначе на хостинге
-// с эфемерной ФС ссылки и токены теряются при каждом рестарте
-const DATA_DIR = process.env.DATA_DIR
-  ? path.resolve(process.env.DATA_DIR)
-  : path.join(process.cwd(), "data");
-const LINKS_FILE = path.join(DATA_DIR, "links.json");
-const OWNER_FILE = path.join(DATA_DIR, "owner.json");
-
-// атомарная запись: пишем в временный файл и переименовываем — читатель
-// (сервер сокетов, соседний запрос) никогда не увидит обрезанный JSON
-function writeJsonAtomic(file: string, data: unknown) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  const text = JSON.stringify(data, null, 2);
-  const tmp = `${file}.${process.pid}.tmp`;
-  try {
-    fs.writeFileSync(tmp, text);
-    fs.renameSync(tmp, file);
-  } catch {
-    fs.writeFileSync(file, text);
-    try { fs.unlinkSync(tmp); } catch {}
-  }
-}
-
+// Данные ссылок и владельца живут в lib/storage: Postgres при наличии
+// DATABASE_URL, иначе JSON в data/ (локальная разработка).
 export type LinksData = Record<string, {
   token: string;
   updatedAt: string;
@@ -33,33 +11,41 @@ export type LinksData = Record<string, {
   refreshToken?: string;
 }>;
 
-export function readLinks(): LinksData {
-  try {
-    return JSON.parse(fs.readFileSync(LINKS_FILE, "utf8"));
-  } catch {
-    return {};
+export async function readLinks(): Promise<LinksData> {
+  const rows = await storage.getLinks();
+  const out: LinksData = {};
+  for (const row of rows) {
+    out[row.login] = {
+      token: row.token,
+      updatedAt: row.updatedAt ?? new Date().toISOString(),
+      ...(row.userToken ? { userToken: row.userToken } : {}),
+      ...(row.userTokenExpires ? { userTokenExpires: row.userTokenExpires } : {}),
+      ...(row.refreshToken ? { refreshToken: row.refreshToken } : {}),
+    };
   }
+  return out;
 }
 
-export function writeLinks(data: LinksData) {
-  writeJsonAtomic(LINKS_FILE, data);
+export async function writeLinks(data: LinksData): Promise<void> {
+  await storage.saveLinks(data);
 }
 
 // токен валиден, только если совпадает с последним сгенерированным;
 // прямой доступ без ?room= не блокируем
-export function isValidRoomToken(room: string | undefined | null): boolean {
+export async function isValidRoomToken(
+  room: string | undefined | null,
+): Promise<boolean> {
   if (!room) return true;
-  const data = readLinks();
-  return Object.values(data).some((e) => e.token === room);
+  return !!(await storage.findOwnerByToken(room));
 }
 
 // владелец панели — первый аккаунт, вошедший через Twitch; определяет канал смайликов/превью
-export function readOwner(): string | null {
-  try { return JSON.parse(fs.readFileSync(OWNER_FILE, "utf8")).login ?? null; } catch { return null; }
+export async function readOwner(): Promise<string | null> {
+  return storage.getOwner();
 }
 
-export function writeOwner(login: string) {
-  writeJsonAtomic(OWNER_FILE, { login, setAt: new Date().toISOString() });
+export async function writeOwner(login: string): Promise<void> {
+  await storage.setOwner(login);
 }
 
 // экран «нет регистрации»: доступ только после входа через Twitch.

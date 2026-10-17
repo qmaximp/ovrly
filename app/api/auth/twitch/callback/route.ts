@@ -53,17 +53,17 @@ export async function GET(req: Request) {
 
   // сохраняем токен на диск: канал-владелец панели сможет отдавать свои канальные смайлики,
   // даже когда панель открыта без входа (панелью пользуется модератор по room-ссылке)
-  const links = readLinks();
+  const links = await readLinks();
   links[u.login] = {
     ...(links[u.login] ?? { token: tokenForLogin(u.login), updatedAt: new Date().toISOString() }),
     userToken: token.access_token,
     userTokenExpires: session.token_expires!,
     refreshToken: token.refresh_token ?? links[u.login]?.refreshToken,
   };
-  writeLinks(links);
+  await writeLinks(links);
 
   // первый вошедший аккаунт считается владельцем панели
-  if (!readOwner()) writeOwner(u.login);
+  if (!(await readOwner())) await writeOwner(u.login);
 
   // возврат на исходную страницу (по умолчанию кабинет)
   const nextRaw = req.headers.get("cookie")?.match(/(?:^|;\s*)sc_next=([^;]+)/)?.[1];

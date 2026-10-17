@@ -24,9 +24,9 @@ function sessionFrom(req: Request) {
 export async function GET(req: Request) {
   const session = sessionFrom(req);
   if (!session) return json({ error: "unauthorized" }, 401);
-  const links = readLinks();
+  const links = await readLinks();
 
-  const invites = listInvitesFor(session.login).map(({ owner, entry }) => ({
+  const invites = (await listInvitesFor(session.login)).map(({ owner, entry }) => ({
     owner,
     status: entry.status,
     suspended: entry.suspended,
@@ -36,7 +36,7 @@ export async function GET(req: Request) {
 
   return json({
     invites,
-    moderators: listModerators(session.login),
+    moderators: await listModerators(session.login),
     roomToken: links[session.login]?.token ?? null,
   });
 }
@@ -60,32 +60,32 @@ export async function POST(req: Request) {
       const uid = await safe(() => twitchUserId(login));
       if (!uid) return json({ error: "Пользователь Twitch не найден" }, 400);
     }
-    ensurePendingInvite(session.login, login);
+    await ensurePendingInvite(session.login, login);
     return json({ ok: true });
   }
 
   if (body.action === "accept") {
     const owner = body.owner ?? "";
-    if (!getInviteStatus(owner, session.login)) return json({ error: "Приглашение не найдено" }, 404);
-    acceptInvite(owner, session.login);
+    if (!(await getInviteStatus(owner, session.login))) return json({ error: "Приглашение не найдено" }, 404);
+    await acceptInvite(owner, session.login);
     return json({ ok: true });
   }
 
   // модератор сам отклоняет приглашение или отсоединяется от панели
   if (body.action === "decline") {
     const owner = body.owner ?? "";
-    if (!getInviteStatus(owner, session.login)) return json({ error: "Приглашение не найдено" }, 404);
-    removeModerator(owner, session.login);
+    if (!(await getInviteStatus(owner, session.login))) return json({ error: "Приглашение не найдено" }, 404);
+    await removeModerator(owner, session.login);
     return json({ ok: true });
   }
 
   // управление доступом — только владелец комнаты
   if (body.action === "suspend" || body.action === "resume" || body.action === "revoke") {
     const login = (body.login ?? "").trim().toLowerCase();
-    if (!login || !getInviteStatus(session.login, login)) return json({ error: "Модератор не найден" }, 404);
-    if (body.action === "suspend") setModeratorSuspended(session.login, login, true);
-    if (body.action === "resume") setModeratorSuspended(session.login, login, false);
-    if (body.action === "revoke") removeModerator(session.login, login);
+    if (!login || !(await getInviteStatus(session.login, login))) return json({ error: "Модератор не найден" }, 404);
+    if (body.action === "suspend") await setModeratorSuspended(session.login, login, true);
+    if (body.action === "resume") await setModeratorSuspended(session.login, login, false);
+    if (body.action === "revoke") await removeModerator(session.login, login);
     return json({ ok: true });
   }
 

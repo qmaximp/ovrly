@@ -24,7 +24,7 @@ export async function generateMetadata({
   searchParams?: Promise<{ room?: string }>;
 }): Promise<Metadata> {
 	const room = (await searchParams)?.room;
-	const owner = room ? findOwnerByToken(room) : null;
+	const owner = room ? await findOwnerByToken(room) : null;
 	// панель открывается только по личной ссылке с токеном — в поиске ей не место
 	return {
 		title: { absolute: owner ? `Ovrly · ${owner}` : "Ovrly" },
@@ -41,7 +41,7 @@ export default async function Panel({
 	const params = await searchParams;
 	const room = params?.room;
 	// чистая ссылка /panel закрыта: панель открывается только по ссылке с токеном комнаты
-	if (!room || !isValidRoomToken(room)) {
+	if (!room || !(await isValidRoomToken(room))) {
 		return invalidLinkScreen();
 	}
 
@@ -49,7 +49,7 @@ export default async function Panel({
 	// не авторизован — после входа попадёт в кабинет (приглашение выдаёт стример по нику)
 	if (!session) return notRegisteredScreen(`/cabinet?invite=${encodeURIComponent(room)}`);
 
-	const owner = findOwnerByToken(room);
+	const owner = await findOwnerByToken(room);
 	if (!owner) return invalidLinkScreen();
 
 	// невидимый вход: параметр учитывается только для администраторов. Остальным
@@ -71,7 +71,7 @@ export default async function Panel({
 
   // модератор: приглашение создаётся ТОЛЬКО стримером по нику в кабинете.
   // Просто открыв ссылку (даже угадав токен), доступ не получишь
-  const entry = getInviteStatus(owner, session.login);
+  const entry = await getInviteStatus(owner, session.login);
   if (!entry) {
     return noInviteScreen(owner);
   }

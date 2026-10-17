@@ -50,10 +50,11 @@ async function helix(path: string, token: string | null): Promise<any | null> {
 	return safe(() => res.json())
 }
 
-// Личный user-токен автора канала: из links.json, при истечении — по refresh_token.
-// Обновлённый токен сохраняем обратно, чтобы им пользовался и весь остальной код
+// Личный user-токен автора канала: из storage (Postgres или JSON), при истечении —
+// по refresh_token. Обновлённый токен сохраняем обратно, чтобы им пользовался и
+// весь остальной код
 async function ownerUserToken(channel: string): Promise<string | null> {
-	const links = readLinks()
+	const links = await readLinks()
 	const entry = links[channel]
 	if (!entry) return null
 	if (entry.userToken && (entry.userTokenExpires ?? 0) > Date.now() + 60_000)
@@ -76,14 +77,14 @@ async function ownerUserToken(channel: string): Promise<string | null> {
 		}).then(r => r.json()),
 	)
 	if (!refreshed?.access_token) return null
-	const fresh = readLinks() // перечитываем: файл мог обновиться параллельно
+	const fresh = await readLinks() // перечитываем: данные могли обновиться параллельно
 	fresh[channel] = {
 		...fresh[channel],
 		userToken: refreshed.access_token,
 		userTokenExpires: Date.now() + (refreshed.expires_in ?? 14400) * 1000,
 		refreshToken: refreshed.refresh_token ?? entry.refreshToken,
 	}
-	writeLinks(fresh)
+	await writeLinks(fresh)
 	return refreshed.access_token as string
 }
 

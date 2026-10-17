@@ -294,46 +294,47 @@ app.prepare().then(() => {
 	process.on('SIGINT', () => shutdown('SIGINT'))
 	process.on('SIGTERM', () => shutdown('SIGTERM'))
 
-	// владелец комнаты (стример) по токену ссылки: links.json — login -> { token }
-	let linksCache = { mtime: 0, map: new Map() }
-	function roomOwner(token) {
+	// Ссылки и доступы живут в Postgres (или JSON локально). Держим снимок в памяти:
+	// middleware сокетов должен проверять доступ синхронно, без запроса на каждое движение
+	const storage = require('./lib/storage')
+	let access = { at: 0, links: new Map(), invites: new Map() }
+	async function refreshAccess(force = false) {
+		if (!force && Date.now() - access.at < 2000) return
 		try {
-			const file = path.join(dataDir(), 'links.json')
-			const mtime = fs.statSync(file).mtimeMs
-			if (linksCache.mtime !== mtime) {
-				const map = new Map()
-				const data = JSON.parse(fs.readFileSync(file, 'utf8'))
-				for (const [login, rec] of Object.entries(data)) {
-					if (rec && rec.token) map.set(rec.token, login)
+			const [links, invites] = await Promise.all([
+				storage.getLinks(),
+				storage.getAllInvites(),
+			])
+			const linksByToken = new Map()
+			for (const link of links) {
+				if (link.token) linksByToken.set(link.token, link.login)
+			}
+			const invitesByOwner = new Map()
+			for (const invite of invites) {
+				let mods = invitesByOwner.get(invite.owner)
+				if (!mods) {
+					mods = new Map()
+					invitesByOwner.set(invite.owner, mods)
 				}
-				linksCache = { mtime, map }
+				mods.set(invite.moderator, invite)
 			}
-			return linksCache.map.get(token) || null
-		} catch {
-			return null
+			access = { at: Date.now(), links: linksByToken, invites: invitesByOwner }
+		} catch (e) {
+			console.error('[ovrly] не удалось обновить доступы:', e.message)
 		}
 	}
+	refreshAccess(true)
+	setInterval(() => refreshAccess(true), 2000)
 
-	// доступ модератора к панели: приглашение принято и не отозвано/не приостановлено.
-	// Проверяется на каждое действие — отзыв доступа действует мгновенно, без обновления страницы
-	let invitesCache = { mtime: 0, data: {} }
-	function invitesData() {
-		try {
-			const file = path.join(dataDir(), 'invites.json')
-			const mtime = fs.statSync(file).mtimeMs
-			if (invitesCache.mtime !== mtime) {
-				invitesCache = { mtime, data: JSON.parse(fs.readFileSync(file, 'utf8')) }
-			}
-			return invitesCache.data
-		} catch {
-			return {}
-		}
+	function roomOwner(token) {
+		return access.links.get(token) || null
 	}
+	// приглашение должно быть accepted и не suspended; кэш обновляется раз в 2 секунды
 	function hasPanelAccess(room, login) {
 		const owner = roomOwner(room)
 		if (!owner) return false // комната без владельца — панель не отдаём
 		if (login.toLowerCase() === owner.toLowerCase()) return true // стример — всегда
-		const entry = invitesData()[owner]?.moderators?.[login]
+		const entry = access.invites.get(owner)?.get(login)
 		return !!entry && entry.status === 'accepted' && !entry.suspended
 	}
 
@@ -428,7 +429,9 @@ app.prepare().then(() => {
 	}
 	setInterval(pushStats, 5000)
 
-	io.on('connection', socket => {
+	io.on('connection', async socket => {
+		// новый линк/инвайт должен применяться сразу, а не ждать периодического обновления
+		await refreshAccess(true)
 		// комната из handshake (?room=токен), иначе общая default-комната
 		const room = ((socket.handshake.query.room || 'default') + '').slice(0, 64)
 		socket.join(room)

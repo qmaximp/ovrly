@@ -13,7 +13,7 @@ const json = (data: unknown, status = 200) =>
 export async function GET(req: Request) {
   const session = sessionFrom(req);
   if (!session) return json({ error: "unauthorized" }, 401);
-  const saved = readLinks()[session.login];
+  const saved = (await readLinks())[session.login];
   return json({ token: saved?.token ?? null });
 }
 
@@ -21,13 +21,13 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const session = sessionFrom(req);
   if (!session) return json({ error: "unauthorized" }, 401);
-  const data = readLinks();
+  const data = await readLinks();
   const token = crypto.randomBytes(8).toString("hex");
   data[session.login] = {
     ...data[session.login],
     token,
     updatedAt: new Date().toISOString(),
   };
-  writeLinks(data);
+  await writeLinks(data);
   return json({ token });
 }

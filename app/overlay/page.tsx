@@ -19,7 +19,7 @@ export default async function Overlay({
 	const room = (await searchParams)?.room
 	// оверлей тоже открывается только по ссылке с токеном комнаты: без него
 	// работала бы «общая» комната-фантом, куда никто не пишет
-	if (!room || !isValidRoomToken(room)) {
+	if (!room || !(await isValidRoomToken(room))) {
 		return invalidLinkScreen()
 	}
 	return (

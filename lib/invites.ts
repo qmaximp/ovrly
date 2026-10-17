@@ -1,132 +1,80 @@
-import fs from "fs";
-import path from "path";
-import { readLinks } from "@/lib/links";
+// Инвайты и доступы. Данные живут в lib/storage: Postgres при наличии
+// DATABASE_URL, иначе JSON в data/ (локальная разработка).
+import * as storage from './storage'
+import type { InviteEntry } from './storage'
 
-// Инвайты на доступ к панели: у каждой комнаты (владелец = логин в links.json)
-// свой список модераторов со статусами.
-//   pending  — приглашён стримером по нику, но ещё не принял (ссылка сама по себе
-//              доступа не даёт: открыв её, модератор видит экран «нет приглашения»)
-//   accepted — доступ открыт; suspended=true — временно отключён стримером
-// Токен в записи модератора НЕ хранится: ссылка всегда строится из АКТУАЛЬНОГО
-// токена владельца, поэтому после «Сгенерировать заново» ссылка у модератора меняется сама.
-
-const DATA_DIR = process.env.DATA_DIR
-  ? path.resolve(process.env.DATA_DIR)
-  : path.join(process.cwd(), "data");
-const INVITES_FILE = path.join(DATA_DIR, "invites.json");
-
-// атомарная запись (см. lib/links.tsx): никаких обрезанных JSON у читателей
-function writeJsonAtomic(file: string, data: unknown) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  const text = JSON.stringify(data, null, 2);
-  const tmp = `${file}.${process.pid}.tmp`;
-  try {
-    fs.writeFileSync(tmp, text);
-    fs.renameSync(tmp, file);
-  } catch {
-    fs.writeFileSync(file, text);
-    try { fs.unlinkSync(tmp); } catch {}
-  }
-}
-
-export type InviteStatus = "pending" | "accepted";
-
-export type ModeratorEntry = {
-  status: InviteStatus;
-  suspended: boolean;
-  invitedAt: string;
-  visitedAt?: string; // модератор уже открывал ссылку, войдя под своим аккаунтом
-  acceptedAt?: string;
-};
-
-export type InvitesData = Record<string, { moderators: Record<string, ModeratorEntry> }>;
-
-export function readInvites(): InvitesData {
-  try {
-    return JSON.parse(fs.readFileSync(INVITES_FILE, "utf8"));
-  } catch {
-    return {};
-  }
-}
-
-export function writeInvites(data: InvitesData) {
-  writeJsonAtomic(INVITES_FILE, data);
-}
+export type InviteStatus = 'pending' | 'accepted'
+export type ModeratorEntry = InviteEntry
+export type InvitesData = Record<string, { moderators: Record<string, ModeratorEntry> }>
 
 // владелец комнаты по токену ссылки
-export function findOwnerByToken(token: string): string | null {
-  const links = readLinks();
-  const entry = Object.entries(links).find(([, e]) => e.token === token);
-  return entry?.[0] ?? null;
+export async function findOwnerByToken(token: string): Promise<string | null> {
+	return storage.findOwnerByToken(token)
 }
 
-export function getInviteStatus(owner: string, login: string): ModeratorEntry | null {
-  return readInvites()[owner]?.moderators?.[login] ?? null;
+export async function getInviteStatus(
+	owner: string,
+	login: string,
+): Promise<ModeratorEntry | null> {
+	return storage.getInvite(owner, login)
 }
 
 // приглашение в статусе pending: создаётся стримером по нику в кабинете.
 // Уже принятый доступ не сбрасываем (повторное приглашение ничего не ломает)
-export function ensurePendingInvite(owner: string, login: string): ModeratorEntry {
-  const data = readInvites();
-  data[owner] = data[owner] ?? { moderators: {} };
-  const mods = data[owner].moderators;
-  const now = new Date().toISOString();
-  const prev = mods[login];
-  const entry: ModeratorEntry =
-    prev && prev.status === "accepted"
-      ? { ...prev, visitedAt: now }
-      : {
-          status: "pending",
-          suspended: false,
-          invitedAt: prev?.invitedAt ?? now,
-          visitedAt: now,
-        };
-  mods[login] = entry;
-  writeInvites(data);
-  return entry;
+export async function ensurePendingInvite(
+	owner: string,
+	login: string,
+): Promise<ModeratorEntry> {
+	const prev = await storage.getInvite(owner, login)
+	const now = new Date().toISOString()
+	const entry: ModeratorEntry =
+		prev && prev.status === 'accepted'
+			? { ...prev, visitedAt: now }
+			: {
+					status: 'pending',
+					suspended: false,
+					invitedAt: prev?.invitedAt ?? now,
+					visitedAt: now,
+				}
+	await storage.upsertInvite(owner, login, entry)
+	return entry
 }
 
-export function acceptInvite(owner: string, login: string) {
-  const data = readInvites();
-  const entry = data[owner]?.moderators?.[login];
-  if (!entry) return;
-  entry.status = "accepted";
-  entry.suspended = false;
-  entry.acceptedAt = new Date().toISOString();
-  writeInvites(data);
+export async function acceptInvite(owner: string, login: string): Promise<void> {
+	const prev = await storage.getInvite(owner, login)
+	if (!prev) return
+	await storage.upsertInvite(owner, login, {
+		...prev,
+		status: 'accepted',
+		suspended: false,
+		acceptedAt: new Date().toISOString(),
+	})
 }
 
-export function setModeratorSuspended(owner: string, login: string, suspended: boolean) {
-  const data = readInvites();
-  const entry = data[owner]?.moderators?.[login];
-  if (!entry) return;
-  entry.suspended = suspended;
-  writeInvites(data);
+export async function setModeratorSuspended(
+	owner: string,
+	login: string,
+	suspended: boolean,
+): Promise<void> {
+	const prev = await storage.getInvite(owner, login)
+	if (!prev) return
+	await storage.upsertInvite(owner, login, { ...prev, suspended })
 }
 
-export function removeModerator(owner: string, login: string) {
-  const data = readInvites();
-  if (data[owner]?.moderators?.[login]) {
-    delete data[owner].moderators[login];
-    writeInvites(data);
-  }
+export async function removeModerator(owner: string, login: string): Promise<void> {
+	await storage.removeInvite(owner, login)
 }
 
 // все модераторы, приглашённые владельцем
-export function listModerators(owner: string): Array<ModeratorEntry & { login: string }> {
-  const mods = readInvites()[owner]?.moderators ?? {};
-  return Object.entries(mods)
-    .map(([login, entry]) => ({ login, ...entry }))
-    .sort((a, b) => (a.invitedAt < b.invitedAt ? 1 : -1));
+export async function listModerators(
+	owner: string,
+): Promise<Array<ModeratorEntry & { login: string }>> {
+	return storage.listModerators(owner)
 }
 
 // все доступы/приглашения, выданные аккаунту другими стримерами
-export function listInvitesFor(login: string): Array<{ owner: string; entry: ModeratorEntry }> {
-  const data = readInvites();
-  const out: Array<{ owner: string; entry: ModeratorEntry }> = [];
-  for (const [owner, rec] of Object.entries(data)) {
-    const entry = rec.moderators?.[login];
-    if (entry) out.push({ owner, entry });
-  }
-  return out;
+export async function listInvitesFor(
+	login: string,
+): Promise<Array<{ owner: string; entry: ModeratorEntry }>> {
+	return storage.listInvitesFor(login)
 }

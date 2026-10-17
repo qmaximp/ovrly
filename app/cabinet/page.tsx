@@ -26,7 +26,7 @@ export default async function Cabinet({
   // ?invite=<токен> приходит после входа по ссылке стримера — кабинет открывается
   // сразу на вкладке «Доступ к панели», где видно приглашение (выдаётся только по нику)
   const inviteToken = (await searchParams)?.invite;
-  const cameFromRoomLink = !!inviteToken && isValidRoomToken(inviteToken);
+  const cameFromRoomLink = !!inviteToken && (await isValidRoomToken(inviteToken));
 
   const h = await headers();
   const host = h.get("host") || "localhost:3000";
