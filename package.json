@@ -19,6 +19,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "aws4fetch": "^1.0.20",
     "next": "^16.4.1",
     "obs-websocket-js": "^5.0.6",
     "postgres": "^3.4.9",

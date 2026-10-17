@@ -38,6 +38,37 @@ const ObsPanel = dynamic(() => import('@/components/ObsPanel'), {
 const CANVAS_W = 1920
 const CANVAS_H = 1080
 
+// Файл с ПК: сначала пробуем R2 (сервер вернёт URL), иначе — прежний base64.
+// 501 от /api/media означает, что R2 не настроен: панель работает как раньше.
+async function uploadMediaFile(file: File): Promise<string | null> {
+	try {
+		const qs = new URLSearchParams({ name: file.name, type: file.type || '' })
+		const res = await fetch(`/api/media?${qs}`, {
+			method: 'POST',
+			headers: { 'Content-Type': file.type || 'application/octet-stream' },
+			body: file,
+		})
+		if (!res.ok) return null
+		const data = (await res.json()) as { url?: unknown }
+		return typeof data?.url === 'string' ? data.url : null
+	} catch {
+		return null
+	}
+}
+
+function fileToDataUrl(file: File): Promise<string> {
+	return new Promise((res, rej) => {
+		const r = new FileReader()
+		r.onload = () => res(r.result as string)
+		r.onerror = rej
+		r.readAsDataURL(file)
+	})
+}
+
+async function fileToSrc(file: File): Promise<string> {
+	return (await uploadMediaFile(file)) || fileToDataUrl(file)
+}
+
 type Emote = {
 	platform: string
 	code: string
@@ -1273,14 +1304,6 @@ export default function PanelClient({
 		[emit, remember],
 	)
 
-	const fileToDataUrl = (file: File): Promise<string> =>
-		new Promise((res, rej) => {
-			const r = new FileReader()
-			r.onload = () => res(r.result as string)
-			r.onerror = rej
-			r.readAsDataURL(file)
-		})
-
 	// пробуем натуральный размер картинки, чтобы элемент спавнился без искажений
 	const getImageSize = (src: string): Promise<{ w: number; h: number }> =>
 		new Promise(resolve => {
@@ -1474,15 +1497,15 @@ export default function PanelClient({
 
 	const addImagePC = useCallback(() => {
 		void pickFile('image/*', async f => {
-			const dataUrl = await fileToDataUrl(f)
-			const size = await getImageSize(dataUrl)
+			const src = await fileToSrc(f)
+			const size = await getImageSize(src)
 			const k = Math.min(1, 1280 / Math.max(size.w, size.h))
 			const w = Math.round(size.w * k),
 				h = Math.round(size.h * k)
 			const p = parkingSpot(w, h)
 			addElement({
 				type: 'image',
-				src: dataUrl,
+				src,
 				...p,
 				width: w,
 				height: h,
@@ -1497,11 +1520,11 @@ export default function PanelClient({
 				alert('Файл больше 40 МБ. Лучше использовать ссылку.')
 				return
 			}
-			const dataUrl = await fileToDataUrl(f)
+			const src = await fileToSrc(f)
 			const p = parkingSpot(480, 270)
 			addElement({
 				type: 'video',
-				src: dataUrl,
+				src,
 				...p,
 				width: 480,
 				height: 270,
@@ -1556,15 +1579,15 @@ export default function PanelClient({
 		async (files: File[]) => {
 			for (const f of files) {
 				if (isImageFile(f)) {
-					const dataUrl = await fileToDataUrl(f)
-					const size = await getImageSize(dataUrl)
+					const src = await fileToSrc(f)
+					const size = await getImageSize(src)
 					const k = Math.min(1, 1280 / Math.max(size.w, size.h))
 					const w = Math.round(size.w * k),
 						h = Math.round(size.h * k)
 					const p = parkingSpot(w, h)
 					addElement({
 						type: 'image',
-						src: dataUrl,
+						src,
 						...p,
 						width: w,
 						height: h,
@@ -1575,11 +1598,11 @@ export default function PanelClient({
 						alert(`«${f.name}» больше 40 МБ — добавьте видео по ссылке.`)
 						continue
 					}
-					const dataUrl = await fileToDataUrl(f)
+					const src = await fileToSrc(f)
 					const p = parkingSpot(480, 270)
 					addElement({
 						type: 'video',
-						src: dataUrl,
+						src,
 						...p,
 						width: 480,
 						height: 270,
@@ -4700,9 +4723,9 @@ function SoundTrim({
 	)
 }
 
-// Звук окончания таймера: выбор файла с ПК (хранится как data-URL вместе с элементом,
-// поэтому звук слышен и в панели, и на оверлее у стримера), точный фрагмент на волне
-// и громкость. Блок компактный — живёт в узкой колонке свойств (w-72)
+// Звук окончания таймера: выбор файла с ПК (в R2; без R2 — data-URL вместе с
+// элементом, поэтому звук слышен и в панели, и на оверлее у стримера), точный
+// фрагмент на волне и громкость. Блок компактный — живёт в узкой колонке свойств (w-72)
 function TimerSoundControls({
 	el,
 	update,
@@ -4791,7 +4814,7 @@ function TimerSoundControls({
 				drop()
 				return
 			}
-			// звук уходит в состояние комнаты (base64) и на оверлей — не раздуваем его
+			// звук уходит в R2 (или base64, если R2 не настроен) и на оверлей
 			if (f.size > MAX_SOUND_FILE) {
 				alert(
 					'Файл больше 2 МБ. Для таймера достаточно короткого MP3 — фрагмент всё равно обрезается до 10 секунд.',
@@ -4800,24 +4823,23 @@ function TimerSoundControls({
 				return
 			}
 			setBusy(true)
-			const r = new FileReader()
-			r.onload = () => {
-				// новый файл — новый фрагмент: старые границы к нему не относятся.
-				// 10 с — заведомо допустимая длина, после анализа она ужмётся под файл
-				update({
-					soundSrc: r.result as string,
-					soundStart: 0,
-					soundDuration: TRIM_MAX,
-					soundVolume: volume,
-				})
-				setBusy(false)
-				drop()
-			}
-			r.onerror = () => {
-				setBusy(false)
-				drop()
-			}
-			r.readAsDataURL(f)
+			void (async () => {
+				try {
+					// новый файл — новый фрагмент: старые границы к нему не относятся.
+					// 10 с — заведомо допустимая длина, после анализа она ужмётся под файл
+					update({
+						soundSrc: await fileToSrc(f),
+						soundStart: 0,
+						soundDuration: TRIM_MAX,
+						soundVolume: volume,
+					})
+				} catch {
+					alert('Не удалось прочитать файл. Попробуйте MP3, WAV или OGG.')
+				} finally {
+					setBusy(false)
+					drop()
+				}
+			})()
 		})
 		document.body.appendChild(input)
 		input.click()
