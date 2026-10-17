@@ -135,6 +135,33 @@ NEXT_PUBLIC_SITE_URL=https://ваш-домен
 Для хостинга на 512 МБ уменьшите `MAX_ROOM_BYTES` до 64 МБ, `MAX_TOTAL_ROOM_BYTES`
 до 192 МБ и `MAX_ROOMS` до 100 в начале `server.js`.
 
+### PostgreSQL
+В `.env.local` задайте строку подключения:
+
+```
+DATABASE_URL=postgresql://ovrly:пароль@127.0.0.1:5433/ovrly
+```
+
+Схема и перенос данных:
+
+```bash
+# 1. Бэкап JSON
+tar czf ~/ovrly-data-$(date +%F-%H%M).tar.gz -C ~/ovrly data
+
+# 2. Драйвер (после git pull)
+su - ovrly -c 'cd ~/ovrly && npm install'
+
+# 3. Проверка без записи в базу
+su - ovrly -c 'cd ~/ovrly && node --env-file=.env.local scripts/migrate-json-to-db.mjs --dry-run'
+
+# 4. Создание таблиц и перенос
+su - ovrly -c 'cd ~/ovrly && node --env-file=.env.local scripts/migrate-json-to-db.mjs'
+```
+
+Скрипт создаёт таблицы `links`, `invites`, `rooms`, `settings` из `db/schema.sql`
+и заполняет их данными из `data/`. Повторный запуск безопасен — записи обновляются.
+Приложение продолжает работать с JSON до переключения слоя хранения.
+
 ### Vercel — только если переделать архитектуру:
 
 1. Вынести Socket.io-сервер на отдельный хостинг (Railway/Render) и прописать его URL в PanelClient/OverlayClient.
