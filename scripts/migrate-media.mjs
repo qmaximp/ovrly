@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// Перенос base64-медиа из комнат в Cloudflare R2.
+// Перенос base64-медиа из комнат в файловое хранилище (локальный диск или R2).
 //
 // Запуск (на VDS, при остановленном приложении!):
 //   systemctl stop ovrly
-//   su - ovrly -c 'cd ~/ovrly && node --max-old-space-size=1500 --env-file=.env.local scripts/migrate-media-to-r2.mjs'
+//   su - ovrly -c 'cd ~/ovrly && node --max-old-space-size=1500 --env-file=.env.local scripts/migrate-media.mjs'
 //   systemctl start ovrly
 //
 // Флаги:
@@ -27,7 +27,7 @@ if (!url) {
 const config = mediaConfig()
 if (!config) {
 	console.error(
-		'R2 не настроен: нужны R2_ENDPOINT, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_PUBLIC_URL',
+		'Хранилище медиа не настроено: задай MEDIA_DIR (локальный диск) или R2_* (Cloudflare R2)',
 	)
 	process.exit(1)
 }

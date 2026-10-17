@@ -1,5 +1,6 @@
 export type MediaConfig = {
 	enabled: true
+	storage: 'r2' | 'local'
 	maxBytes: number
 	imageMaxBytes: number
 	videoMaxBytes: number

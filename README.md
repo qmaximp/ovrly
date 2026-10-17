@@ -182,10 +182,56 @@ su - ovrly -c 'cd ~/ovrly && node --env-file=.env.local scripts/migrate-json-to-
 6. После проверки можно выставить `ROOMS_JSON_FALLBACK=0` и перезапустить:
    JSON больше не будет подстраховывать комнаты, источник — Postgres.
 
-### Cloudflare R2 (медиа)
+### Медиа на локальном диске (бесплатно)
 
-R2 хранит файлы, загруженные с ПК, а не в состоянии комнаты. Нужен только для
-production; локально без переменных всё работает как раньше (base64).
+Файлы лежат на VDS, nginx отдаёт их по `/media/`. Внешние сервисы и карты не
+нужны; состояние комнаты всё равно хранит только URL.
+
+1. Создайте каталог и права (nginx читает как `www-data`, приложение пишет как `ovrly`):
+
+```bash
+mkdir -p /var/www/ovrly-media/media
+chown -R ovrly:www-data /var/www/ovrly-media
+chmod 755 /var/www/ovrly-media /var/www/ovrly-media/media
+```
+
+2. Добавьте в `.env.local`:
+
+```
+MEDIA_DIR=/var/www/ovrly-media/media
+```
+
+3. В nginx (server-блок `ovrly.ru`, до `location /`) добавьте:
+
+```nginx
+location ^~ /media/ {
+    root /var/www/ovrly-media;
+    try_files $uri =404;
+    access_log off;
+    add_header Cache-Control "public, max-age=31536000, immutable";
+    add_header X-Content-Type-Options nosniff;
+}
+```
+
+4. Примените конфиг и перезапустите приложение:
+
+```bash
+nginx -t && systemctl reload nginx
+systemctl restart ovrly
+```
+
+5. Проверка: `curl -s https://ovrly.ru/api/media` должно вернуть
+   `"enabled":true,"storage":"local"`. Файлы появляются в
+   `/var/www/ovrly-media/media/`, а ссылки в комнатах выглядят как
+   `/media/<hash>.<ext>`.
+
+Медиа отдаётся с того же домена, поэтому CORS не нужен. В бэкап добавляйте
+`/var/www/ovrly-media` вместе с `data/`.
+
+### Cloudflare R2 (опционально)
+
+Если позже захочется снять трафик и хранение с VDS, можно включить R2. Если
+заданы и R2, и `MEDIA_DIR`, приоритет у R2.
 
 1. Cloudflare → **R2** → создайте bucket (например, `ovrly-media`).
 2. **Manage R2 API Tokens** → токен с правами Object Read & Write на этот bucket.
@@ -214,13 +260,18 @@ R2_PUBLIC_URL=https://media.ovrly.ru
 ```
 
 После `git pull && npm install && npm run build` и рестарта новые файлы с ПК
-уходят в R2. Старые base64-медиа переносятся отдельно (при остановленном
-приложении, чтобы оно не перезаписало комнаты из памяти):
+уходят в выбранное хранилище.
+
+### Перенос старых base64-медиа
+
+Работает одинаково для локального диска и R2. Приложение на время переноса
+остановите, чтобы оно не перезаписало комнаты из памяти. Перед запуском сделайте
+свежий `pg_dump`.
 
 ```bash
 systemctl stop ovrly
-su - ovrly -c 'cd ~/ovrly && node --max-old-space-size=1500 --env-file=.env.local scripts/migrate-media-to-r2.mjs --dry-run'
-su - ovrly -c 'cd ~/ovrly && node --max-old-space-size=1500 --env-file=.env.local scripts/migrate-media-to-r2.mjs'
+su - ovrly -c 'cd ~/ovrly && node --max-old-space-size=1500 --env-file=.env.local scripts/migrate-media.mjs --dry-run'
+su - ovrly -c 'cd ~/ovrly && node --max-old-space-size=1500 --env-file=.env.local scripts/migrate-media.mjs'
 systemctl start ovrly
 ```
 
