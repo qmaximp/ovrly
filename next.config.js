@@ -44,7 +44,22 @@ const nextConfig = {
 	// открывают панель и по localhost, и по 127.0.0.1 — разрешаем оба.
 	allowedDevOrigins: ['127.0.0.1', 'localhost'],
 	async headers() {
-		return [{ source: '/:path*', headers: securityHeaders }]
+		// Приватные страницы не индексируются даже если бот проигнорирует meta robots
+		const noindex = { key: 'X-Robots-Tag', value: 'noindex, nofollow' }
+		const privatePaths = [
+			'/panel',
+			'/panel/:path*',
+			'/overlay',
+			'/overlay/:path*',
+			'/cabinet',
+			'/cabinet/:path*',
+			'/admin',
+			'/admin/:path*',
+		]
+		return [
+			{ source: '/:path*', headers: securityHeaders },
+			...privatePaths.map(source => ({ source, headers: [noindex] })),
+		]
 	},
 }
 

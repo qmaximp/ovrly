@@ -23,9 +23,13 @@ export async function generateMetadata({
 }: {
   searchParams?: Promise<{ room?: string }>;
 }): Promise<Metadata> {
-  const room = (await searchParams)?.room;
-  const owner = room ? findOwnerByToken(room) : null;
-  return { title: { absolute: owner ? `Ovrly · ${owner}` : "Ovrly" } };
+	const room = (await searchParams)?.room;
+	const owner = room ? findOwnerByToken(room) : null;
+	// панель открывается только по личной ссылке с токеном — в поиске ей не место
+	return {
+		title: { absolute: owner ? `Ovrly · ${owner}` : "Ovrly" },
+		robots: { index: false, follow: false },
+	};
 }
 
 // Next 16: cookies() и searchParams асинхронные — их нужно дожидаться

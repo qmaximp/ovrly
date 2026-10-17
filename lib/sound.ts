@@ -127,6 +127,20 @@ export type SoundAnalysis = {
 	peaks: number[]
 }
 
+// Волна одного и того же файла не меняется. Держим последние 4 разбора, чтобы
+// повторное открытие таймера не декодировало аудио заново. Ключ — короткий
+// отпечаток, а не весь data-URL: иначе кэш удерживал бы мегабайты base64.
+const ANALYSIS_CACHE_MAX = 4
+const analysisCache = new Map<string, SoundAnalysis>()
+
+function analysisKey(src: string): string {
+	let hash = 0
+	for (let i = 0; i < src.length; i += 1024) {
+		hash = (hash * 31 + src.charCodeAt(i)) | 0
+	}
+	return `${src.length}:${hash}:${src.slice(0, 48)}`
+}
+
 // data-URL разбираем сами: fetch(data:) поддерживается не везде (в некоторых
 // встроенных браузерах он падает с «Failed to fetch»), а atob есть всегда
 function dataUrlToBuffer(src: string): ArrayBuffer {
@@ -148,6 +162,10 @@ export async function analyzeSound(
 	src: string,
 	buckets = 160,
 ): Promise<SoundAnalysis> {
+	const key = analysisKey(src)
+	const cached = analysisCache.get(key)
+	if (cached) return cached
+
 	const audio = getAudioContext()
 	if (!audio) throw new Error('AudioContext недоступен')
 	let buf: ArrayBuffer
@@ -182,8 +200,14 @@ export async function analyzeSound(
 		if (peak > max) max = peak
 	}
 	const k = max > 1e-4 ? 1 / max : 0
-	return {
+	const result: SoundAnalysis = {
 		duration: decoded.duration,
 		peaks: peaks.map(p => Math.min(1, p * k)),
 	}
+	if (analysisCache.size >= ANALYSIS_CACHE_MAX) {
+		const oldest = analysisCache.keys().next().value
+		if (oldest !== undefined) analysisCache.delete(oldest)
+	}
+	analysisCache.set(key, result)
+	return result
 }

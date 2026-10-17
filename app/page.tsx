@@ -1,7 +1,13 @@
 import LogoMark from '@/components/LogoMark'
 import { verifySession } from '@/lib/session'
+import { siteUrl } from '@/lib/site'
+import type { Metadata } from 'next'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
+
+export const metadata: Metadata = {
+	alternates: { canonical: '/' },
+}
 
 // Next 16: cookies() и searchParams асинхронные — их нужно дожидаться
 export default async function Home({
@@ -14,15 +20,34 @@ export default async function Home({
 	const error = (await searchParams)?.error
 
 	// структурированные данные для поиска: что это за приложение
+	const site = siteUrl()
 	const jsonLd = {
 		'@context': 'https://schema.org',
 		'@type': 'SoftwareApplication',
 		name: 'Ovrly',
+		url: site,
 		applicationCategory: 'MultimediaApplication',
 		operatingSystem: 'Windows, macOS, Linux (OBS Studio)',
 		inLanguage: 'ru',
 		description:
 			'Панель управления оверлеем OBS: картинки, видео, сайты, YouTube и Twitch, текст и таймеры с перетаскиванием в реальном времени и доступами для модераторов.',
+		softwareVersion: '1.6',
+		isAccessibleForFree: true,
+		license: 'https://github.com/qmaximp/ovrly/blob/main/LICENSE',
+		author: [
+			{
+				'@type': 'Person',
+				name: 'jettle_',
+				url: 'https://www.twitch.tv/jettle_',
+			},
+			{
+				'@type': 'Person',
+				name: 'nezory_1',
+				url: 'https://www.twitch.tv/nezory_1',
+			},
+		],
+		publisher: { '@type': 'Organization', name: 'Ovrly', url: site },
+		sameAs: ['https://github.com/qmaximp/ovrly', 'https://t.me/ovrly_control'],
 		offers: { '@type': 'Offer', price: '0', priceCurrency: 'RUB' },
 	}
 

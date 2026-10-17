@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { cookies, headers } from "next/headers";
 import { notRegisteredScreen, isValidRoomToken } from "@/lib/links";
 import { tokenForLogin, verifySession } from "@/lib/session";
@@ -5,6 +6,12 @@ import CabinetClient from "@/components/CabinetClient";
 import { isAdminLogin } from "@/lib/admin";
 
 export const dynamic = "force-dynamic";
+
+// Личный кабинет — не для поисковиков: контент зависит от сессии
+export const metadata: Metadata = {
+  title: { absolute: "Ovrly · кабинет" },
+  robots: { index: false, follow: false },
+};
 
 export default async function Cabinet({
   searchParams,

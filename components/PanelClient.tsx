@@ -7,7 +7,6 @@ import {
 	type ChromeCtl,
 	type MediaSt,
 } from '@/components/MediaPlayer'
-import ObsPanel from '@/components/ObsPanel'
 import TextStyleControls from '@/components/TextStyleControls'
 import { NumberField } from '@/components/fields'
 import { noteServerClock, serverClockLag } from '@/lib/clock'
@@ -26,6 +25,15 @@ import { ensureFontLoaded, textBoxStyle } from '@/lib/textStyle'
 import type { RoomUser, StreamElement, SyncState } from '@/lib/types'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { io as ioInit, Socket } from 'socket.io-client'
+import dynamic from 'next/dynamic'
+
+// obs-websocket-js — тяжёлая зависимость; грузим её только когда впервые открыли OBS
+const ObsPanel = dynamic(() => import('@/components/ObsPanel'), {
+	ssr: false,
+	loading: () => (
+		<p className='p-4 text-sm text-gray-500'>Загрузка панели OBS…</p>
+	),
+})
 
 const CANVAS_W = 1920
 const CANVAS_H = 1080
@@ -62,6 +70,12 @@ export default function PanelClient({
 	// сервер не увидел валидную сессию: панель открыта, но правки не сохраняются
 	const [readOnly, setReadOnly] = useState(false)
 	const [tab, setTab] = useState<'elements' | 'obs'>('elements')
+	// ObsPanel монтируем при первом открытии вкладки и больше не размонтируем:
+	// так соединение с OBS не рвётся при переключении, а чанк не грузится зря
+	const [obsMounted, setObsMounted] = useState(false)
+	useEffect(() => {
+		if (tab === 'obs') setObsMounted(true)
+	}, [tab])
 	const [theme, setTheme] = useState<'dark' | 'light'>('dark')
 	const [previewOn, setPreviewOn] = useState(false)
 	const [previewKey, setPreviewKey] = useState(0)
@@ -3932,7 +3946,7 @@ export default function PanelClient({
 			</div>
 
 			<div className={`flex-1 overflow-auto ${tab === 'obs' ? '' : 'hidden'}`}>
-				<ObsPanel />
+				{obsMounted && <ObsPanel />}
 			</div>
 
 			{/* бургер-меню: вкладки, тема, статус */}
@@ -4528,6 +4542,8 @@ function MonitorIcon({ size = 15 }: { size?: number }) {
 // длиннее 10 с — риск залить эфир длинным треком
 const TRIM_MAX = 10
 const TRIM_MIN = 0.2
+// 2 МБ хватает на короткий MP3; весь файл всё равно уходит в стейт как base64
+const MAX_SOUND_FILE = 2 * 1024 * 1024
 
 function fmtSoundTime(sec: number): string {
 	const m = Math.floor(sec / 60)
@@ -4775,9 +4791,11 @@ function TimerSoundControls({
 				drop()
 				return
 			}
-			// 4 МБ: звук уходит в состояние комнаты (base64) и на оверлей
-			if (f.size > 4 * 1024 * 1024) {
-				alert('Файл больше 4 МБ. Возьмите файл покороче или сожмите его.')
+			// звук уходит в состояние комнаты (base64) и на оверлей — не раздуваем его
+			if (f.size > MAX_SOUND_FILE) {
+				alert(
+					'Файл больше 2 МБ. Для таймера достаточно короткого MP3 — фрагмент всё равно обрезается до 10 секунд.',
+				)
 				drop()
 				return
 			}

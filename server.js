@@ -50,11 +50,23 @@ const READ_ONLY_EVENTS = new Set(['cursor:move', 'overlay:hello'])
 // предел числа комнат: имя комнаты приходит из query и может быть любым, без лимита
 // карта rooms росла бы бесконечно (каждая комната держит элементы своего стейта).
 // При вытеснении комната сначала сохраняется на диск — вернётся, когда в неё зайдут снова
-const MAX_ROOMS = 200
+const MAX_ROOMS = 100
 
 // предохранитель по памяти: медиа «с ПК» лежат в памяти как base64, одна комната
 // не должна занять всю RAM сервера
-const MAX_ROOM_BYTES = 150 * 1024 * 1024
+const MAX_ROOM_BYTES = 64 * 1024 * 1024
+
+// общий предел памяти на все комнаты: при превышении выгружаем самые давние
+// комнаты без подключений (их состояние остаётся на диске)
+const MAX_TOTAL_ROOM_BYTES = 192 * 1024 * 1024
+
+// свой звук таймера хранится в стейте как base64; 3 МБ base64 — примерно 2,2 МБ файла.
+// Клиент ограничивает файл 2 МБ, сервер дополнительно не даёт залить больше
+const MAX_SOUND_DATA = 3 * 1024 * 1024
+
+// комната без подключений столько не держится в памяти: сохраняем на диск и выгружаем.
+// При следующем входе сервер поднимет её из файла
+const ROOM_IDLE_EVICT_MS = 15 * 60 * 1000
 
 // события, меняющие состояние комнаты: по ним помечаем комнату «грязной» и раз в
 // несколько секунд пишем её на диск (перетаскивание не пишет файл на каждое движение)
@@ -188,6 +200,30 @@ app.prepare().then(() => {
 		}
 	}
 
+	// сколько примерно занимают все комнаты в памяти
+	function totalRoomBytes() {
+		let total = 0
+		for (const r of rooms.values()) total += roomStore.roomBytes(r.state)
+		return total
+	}
+
+	// общий предохранитель: если все комнаты вместе превысили лимит, выгружаем
+	// самые давние из тех, где нет подключений. Активные комнаты не трогаем
+	function trimMemory() {
+		let total = totalRoomBytes()
+		if (total <= MAX_TOTAL_ROOM_BYTES) return
+		const idle = [...rooms.entries()]
+			.filter(([key]) => liveSockets(key) === 0)
+			.sort((a, b) => a[1].lastActivity - b[1].lastActivity)
+		for (const [key, r] of idle) {
+			if (total <= MAX_TOTAL_ROOM_BYTES) break
+			persist(r)
+			total -= roomStore.roomBytes(r.state)
+			rooms.delete(key)
+			console.log('[ovrly] комната выгружена из памяти (общий лимит):', key.slice(0, 12))
+		}
+	}
+
 	function getRoom(key) {
 		let r = rooms.get(key)
 		if (r) return r
@@ -214,17 +250,23 @@ app.prepare().then(() => {
 		return r
 	}
 
-	// периодика: чистим просроченные локи и пустые комнаты. Элементы больше НЕ стираются
-	// по времени — они хранятся, пока их не удалят (или пока комнату не вытеснит лимит)
+	// периодика: чистим просроченные локи и пустые комнаты. Комнаты с элементами
+	// не теряются: сначала сохраняются на диск, потом выгружаются из памяти
 	setInterval(() => {
 		const now = Date.now()
 		for (const [key, r] of rooms) {
 			for (const [id, lock] of r.locks) if (lock.until < now) r.locks.delete(id)
-			if (liveSockets(key) === 0 && r.state.elements.length === 0) {
+			if (liveSockets(key) !== 0) continue
+			if (r.state.elements.length === 0) {
 				rooms.delete(key)
 				roomStore.deleteRoom(roomsDir(), key)
+			} else if (now - r.lastActivity > ROOM_IDLE_EVICT_MS) {
+				persist(r)
+				rooms.delete(key)
+				console.log('[ovrly] комната выгружена из памяти (простой):', key.slice(0, 12))
 			}
 		}
+		trimMemory()
 	}, 60 * 1000)
 
 	// сброс изменений комнат на диск (не чаще раза в ROOM_FLUSH_MS на комнату)
@@ -582,14 +624,23 @@ app.prepare().then(() => {
 		})
 
 		socket.on('element:add', el => {
+			if (!el || typeof el !== 'object') return
+			// свой звук таймера не должен разрастаться сверх лимита
+			if (el.soundSrc && String(el.soundSrc).length > MAX_SOUND_DATA) {
+				console.log('[io] звук больше лимита, элемент не добавлен:', room.slice(0, 12))
+				return
+			}
 			// предохранитель по памяти: комната с тяжёлыми base64-файлами не должна
-			// разрастись до OOM (это убило бы и её саму, и соседние комнаты)
-			if (roomStore.roomBytes(state) > MAX_ROOM_BYTES) {
+			// разрастись до OOM (это убило бы и её саму, и соседние комнаты).
+			// Считаем с учётом нового элемента, а не только текущего размера
+			const current = roomStore.roomBytes(state)
+			const withNew = current + roomStore.roomBytes({ elements: [el] })
+			if (withNew > MAX_ROOM_BYTES) {
 				console.log(
 					'[io] комната переполнена, элемент не добавлен:',
 					room.slice(0, 12),
 					'~',
-					Math.round(roomStore.roomBytes(state) / 1024 / 1024),
+					Math.round(withNew / 1024 / 1024),
 					'МБ',
 				)
 				return
@@ -599,14 +650,29 @@ app.prepare().then(() => {
 			el.visible = el.visible ?? true
 			state.elements.push(el)
 			io.to(room).emit('element:added', el)
+			trimMemory()
 		})
 
 		socket.on('element:update', partial => {
+			if (!partial || typeof partial.id !== 'string') return
 			const idx = state.elements.findIndex(e => e.id === partial.id)
-			if (idx >= 0) {
-				state.elements[idx] = { ...state.elements[idx], ...partial }
-				socket.broadcast.to(room).emit('element:updated', state.elements[idx])
+			if (idx < 0) return
+			if (partial.soundSrc && String(partial.soundSrc).length > MAX_SOUND_DATA) {
+				console.log('[io] звук больше лимита, обновление отклонено:', room.slice(0, 12))
+				return
 			}
+			const oldEl = state.elements[idx]
+			// медиа можно менять и через update: проверяем, что комната не переполнится
+			if (partial.src !== undefined || partial.soundSrc !== undefined) {
+				const before = roomStore.roomBytes({ elements: [oldEl] })
+				const after = roomStore.roomBytes({ elements: [{ ...oldEl, ...partial }] })
+				if (roomStore.roomBytes(state) - before + after > MAX_ROOM_BYTES) {
+					console.log('[io] комната переполнена, обновление отклонено:', room.slice(0, 12))
+					return
+				}
+			}
+			state.elements[idx] = { ...oldEl, ...partial }
+			socket.broadcast.to(room).emit('element:updated', state.elements[idx])
 		})
 
 		socket.on('element:move', data => {

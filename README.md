@@ -104,6 +104,17 @@ DATA_DIR=/data
 
 Каталог используется и API-роутами, и сокет-сервером (файлы читаются/пишутся атомарно).
 
+### Домен для SEO
+В production задайте публичный адрес сайта — от него строятся canonical, `sitemap.xml`,
+`robots.txt` и Open Graph:
+
+```
+NEXT_PUBLIC_SITE_URL=https://ваш-домен
+```
+
+Для Railway и Render есть автоматический fallback на их публичный домен. Без переменной
+на других хостингах в индекс может попасть `http://localhost:3000`.
+
 ### Vercel — только если переделать архитектуру:
 1. Вынести Socket.io-сервер на отдельный хостинг (Railway/Render) и прописать его URL в PanelClient/OverlayClient.
 2. Либо переписать синхронизацию на REST API + базу (например, Upstash Redis / Supabase) с поллингом — тогда Vercel заработает, но это рефакторинг.

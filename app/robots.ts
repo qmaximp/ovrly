@@ -1,9 +1,10 @@
 import type { MetadataRoute } from 'next'
+import { siteUrl } from '@/lib/site'
 
 // Закрытые от индексации разделы: панель/оверлей/кабинет работают только по ссылке
 // с токеном комнаты и по сессии, в поиске им делать нечего
 export default function robots(): MetadataRoute.Robots {
-	const base = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
+	const base = siteUrl()
 	return {
 		rules: [
 			{
