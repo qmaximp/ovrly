@@ -560,8 +560,19 @@ export default function PanelClient({
 		socket.on('state:init', (s: SyncState) => setState(s))
 		// кто сейчас на странице комнаты (ник + роль)
 		socket.on('room:users', (list: RoomUser[]) => setUsers(list ?? []))
+		// Отмена/повтор сначала добавляет элемент локально, а затем сервер присылает
+		// эхо element:added. Без проверки id это давало второй такой же элемент
+		// в списке и на холсте (Ctrl+Z «дублировал» картинки).
 		socket.on('element:added', (el: StreamElement) =>
-			setState(p => ({ ...p, elements: [...p.elements, el] })),
+			setState(p => {
+				const exists = p.elements.some(e => e.id === el.id)
+				return {
+					...p,
+					elements: exists
+						? p.elements.map(e => (e.id === el.id ? { ...e, ...el } : e))
+						: [...p.elements, el],
+				}
+			}),
 		)
 		socket.on('element:updated', (el: StreamElement) => {
 			noteServerClock(el)
@@ -4001,17 +4012,41 @@ export default function PanelClient({
 					</div>
 				</div>
 
-				{selected && (
-					<aside
-						className={`w-72 shrink-0 bg-panel border-l border-border p-4 overflow-y-auto ${isMobile ? 'hidden' : ''}`}
-					>
-						<PropertyEditor
-							el={selected}
-							update={partial => updateElement(selected.id, partial)}
-							emit={emit}
-						/>
-					</aside>
-				)}
+					{selected && (
+						<aside
+							className={`w-72 shrink-0 bg-panel border-l border-border p-4 overflow-y-auto ${isMobile ? 'hidden' : ''}`}
+						>
+							{/* Удаление всегда под рукой: у длинного списка карточка с крестиком
+							    может уйти за пределы видимой области, а у ghost-элемента её
+							    легко не найти */}
+							<div className='flex items-center justify-between mb-2'>
+								<span className='text-[10px] uppercase tracking-wide text-gray-600'>
+									Элемент
+								</span>
+								<button
+									onClick={() => {
+										remember()
+										emit('element:delete', selected.id)
+										setSelectedId(null)
+										setSelectedIds(prev => {
+											const n = new Set(prev)
+											n.delete(selected.id)
+											return n
+										})
+									}}
+									title='Удалить элемент'
+									className='px-1.5 py-0.5 text-xs text-red-400 border border-red-900/50 rounded-md hover:bg-red-950/40 transition-colors'
+								>
+									✕
+								</button>
+							</div>
+							<PropertyEditor
+								el={selected}
+								update={partial => updateElement(selected.id, partial)}
+								emit={emit}
+							/>
+						</aside>
+					)}
 			</div>
 
 			<div className={`flex-1 overflow-auto ${tab === 'obs' ? '' : 'hidden'}`}>

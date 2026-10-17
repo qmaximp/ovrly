@@ -683,9 +683,16 @@ app.prepare().then(() => {
 			}
 			// предохранитель по памяти: комната с тяжёлыми base64-файлами не должна
 			// разрастись до OOM (это убило бы и её саму, и соседние комнаты).
-			// Считаем с учётом нового элемента, а не только текущего размера
+			// Считаем с учётом нового элемента, а не только текущего размера.
+			// Если id уже есть (отмена удаления), заменяем элемент, а не добавляем
+			// второй: иначе Ctrl+Z раздувал комнату дублями.
+			el.id = el.id || Date.now() + '-' + Math.random().toString(36).slice(2, 9)
+			const existing = state.elements.findIndex(e => e.id === el.id)
 			const current = roomStore.roomBytes(state)
-			const withNew = current + roomStore.roomBytes({ elements: [el] })
+			const withNew =
+				current -
+				(existing >= 0 ? roomStore.roomBytes({ elements: [state.elements[existing]] }) : 0) +
+				roomStore.roomBytes({ elements: [el] })
 			if (withNew > MAX_ROOM_BYTES) {
 				console.log(
 					'[io] комната переполнена, элемент не добавлен:',
@@ -696,10 +703,10 @@ app.prepare().then(() => {
 				)
 				return
 			}
-			el.id = el.id || Date.now() + '-' + Math.random().toString(36).slice(2, 9)
 			el.zIndex = el.zIndex ?? state.elements.length
 			el.visible = el.visible ?? true
-			state.elements.push(el)
+			if (existing >= 0) state.elements[existing] = el
+			else state.elements.push(el)
 			io.to(room).emit('element:added', el)
 			void trimMemory()
 		})
