@@ -17,6 +17,9 @@ import { createRequire } from 'node:module'
 import postgres from 'postgres'
 
 const require = createRequire(import.meta.url)
+// Старые медиа могли быть больше интерактивных лимитов панели — разрешаем
+// писать до абсолютного MEDIA_MAX_BYTES (64 МБ по умолчанию).
+process.env.MEDIA_MIGRATE = '1'
 const { mediaConfig, putDataUrl } = require('../lib/mediaStore.js')
 
 const url = process.env.DATABASE_URL
