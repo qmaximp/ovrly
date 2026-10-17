@@ -36,7 +36,7 @@ const sql = postgres(url, { max: 1, onnotice: () => {} })
 try {
 	await sql`
 		UPDATE rooms
-		SET state = ${JSON.stringify(data.state)}::jsonb, updated_at = now()
+		SET state = ${sql.json(data.state)}, updated_at = now()
 		WHERE key = ${key}
 	`
 	console.log('восстановлено:', key.slice(0, 12), 'элементов:', data.state.elements.length)
