@@ -1,11 +1,76 @@
 'use client'
 
+import LogoMark from '@/components/LogoMark'
+import ThemeToggle from '@/components/ThemeToggle'
 import { useCallback, useEffect, useState } from 'react'
 
 function TwitchIcon({ size = 20 }: { size?: number }) {
 	return (
 		<svg viewBox='0 0 24 24' fill='#fff' width={size} height={size}>
 			<path d='M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714H20.57z' />
+		</svg>
+	)
+}
+
+// аватар участника: картинка из Twitch, а если её нет — кружок с первой буквой ника
+function PersonAvatar({
+	login,
+	avatar,
+}: {
+	login: string
+	avatar?: string | null
+}) {
+	if (avatar)
+		return (
+			<img
+				src={avatar}
+				alt=''
+				loading='lazy'
+				referrerPolicy='no-referrer'
+				className='cabinet-avatar-sm'
+			/>
+		)
+	return (
+		<span className='cabinet-avatar-sm cabinet-avatar-initial'>
+			{login.slice(0, 1).toUpperCase()}
+		</span>
+	)
+}
+
+function PanelIcon() {
+	return (
+		<svg
+			width='21'
+			height='21'
+			viewBox='0 0 24 24'
+			fill='none'
+			stroke='currentColor'
+			strokeWidth='1.8'
+			strokeLinecap='round'
+			strokeLinejoin='round'
+			aria-hidden='true'
+		>
+			<rect x='3' y='4' width='18' height='13' rx='2' />
+			<path d='M8 21h8M12 17v4' />
+		</svg>
+	)
+}
+
+function BroadcastIcon() {
+	return (
+		<svg
+			width='21'
+			height='21'
+			viewBox='0 0 24 24'
+			fill='none'
+			stroke='currentColor'
+			strokeWidth='1.8'
+			strokeLinecap='round'
+			strokeLinejoin='round'
+			aria-hidden='true'
+		>
+			<rect x='3' y='5' width='18' height='14' rx='2' />
+			<path d='m10 9 5 3-5 3zM7 2h10' />
 		</svg>
 	)
 }
@@ -17,6 +82,7 @@ type Invite = {
 	status: InviteStatus
 	suspended: boolean
 	token: string | null
+	avatar?: string | null
 }
 
 type Moderator = {
@@ -26,6 +92,7 @@ type Moderator = {
 	invitedAt: string
 	visitedAt?: string
 	acceptedAt?: string
+	avatar?: string | null
 }
 
 type InvitesPayload = {
@@ -33,6 +100,34 @@ type InvitesPayload = {
 	moderators: Moderator[]
 	roomToken: string | null
 }
+
+// пошаговая инструкция по добавлению оверлея в OBS: картинки лежат в public/guide
+const GUIDE_STEPS = [
+	{
+		title: 'Скопируй ссылку',
+		text: 'Открой вкладку «Мои ссылки» и нажми «Копировать» на карточке «Оверлей для OBS».',
+		image: '/guide/step-1-copy.svg',
+		alt: 'Карточка оверлея в кабинете с выделенной кнопкой «Копировать»',
+	},
+	{
+		title: 'Добавь Browser Source',
+		text: 'В OBS открой панель «Источники», нажми «+» и выбери «Браузер».',
+		image: '/guide/step-2-source.svg',
+		alt: 'Окно OBS: кнопка плюс в источниках и пункт «Браузер» в меню',
+	},
+	{
+		title: 'Вставь ссылку',
+		text: 'Вставь ссылку в поле URL. Ширину и высоту выставь по размеру своего экрана. И включи управление аудио через OBS.',
+		image: '/guide/step-3-url.svg?v=2',
+		alt: 'Свойства Browser Source: поле URL, ширина и высота',
+	},
+	{
+		title: 'Готово',
+		text: 'Нажми «ОК» — оверлей появится на сцене. Двигай его мышью, а содержимое меняй в панели.',
+		image: '/guide/step-4-ready.svg',
+		alt: 'Оверлей появился на сцене OBS',
+	},
+] as const
 
 interface CabinetClientProps {
 	login: string
@@ -60,8 +155,8 @@ export default function CabinetClient({
 	const [copied, setCopied] = useState<string | null>(null)
 	const [busy, setBusy] = useState(false)
 
-	// вкладки кабинета: ссылки / доступ к панели (инвайты)
-	const [tab, setTab] = useState<'links' | 'access'>(defaultTab)
+	// вкладки кабинета: ссылки / доступ к панели (инвайты) / инструкция
+	const [tab, setTab] = useState<'links' | 'access' | 'guide'>(defaultTab)
 	const [inv, setInv] = useState<InvitesPayload | null>(null)
 	const [invError, setInvError] = useState('')
 	const [inviteNick, setInviteNick] = useState('')
@@ -156,39 +251,44 @@ export default function CabinetClient({
 			}
 		: null
 
-	const linkBlock = (title: string, url: string, key: string) => (
-		<div>
-			<div className='flex items-center justify-between mb-2'>
-				<span className='text-sm text-gray-500 uppercase tracking-wide'>
-					{title}
+	const linkBlock = (
+		title: string,
+		description: string,
+		url: string,
+		key: string,
+		kind: 'panel' | 'overlay',
+	) => (
+		<article className='glass-card cabinet-link-card'>
+			<div className='flex items-start gap-3'>
+				<span className='feature-icon cabinet-link-icon'>
+					{kind === 'panel' ? <PanelIcon /> : <BroadcastIcon />}
 				</span>
-				<div className='flex items-center gap-1'>
-					<a
-						href={url}
-						target='_blank'
-						rel='noopener noreferrer'
-						className='text-xs px-2 py-1 bg-border hover:bg-gray-600 text-gray-300 rounded-sm transition-colors'
-					>
-						Перейти ↗
-					</a>
-					<button
-						onClick={() => copy(url, key)}
-						className='text-xs px-2 py-1 bg-border hover:bg-gray-600 text-gray-300 rounded-sm transition-colors'
-					>
-						{copied === key ? 'Скопировано ✓' : 'Копировать'}
-					</button>
+				<div className='min-w-0'>
+					<h3 className='cabinet-card-title'>{title}</h3>
+					<p className='cabinet-card-text'>{description}</p>
 				</div>
 			</div>
-			<pre className='bg-panel border border-border rounded-lg p-3 text-sm text-gray-300 overflow-x-auto whitespace-pre-wrap break-all'>
-				{url}
-			</pre>
-		</div>
+			<div className='cabinet-url'>{url}</div>
+			<div className='flex flex-wrap gap-2'>
+				<a
+					href={url}
+					target='_blank'
+					rel='noopener noreferrer'
+					className='btn btn-primary btn-sm'
+				>
+					Перейти ↗
+				</a>
+				<button onClick={() => copy(url, key)} className='btn btn-ghost btn-sm'>
+					{copied === key ? 'Скопировано ✓' : 'Копировать'}
+				</button>
+			</div>
+		</article>
 	)
 
-	const tabBtn = (id: 'links' | 'access', label: string) => (
+	const tabBtn = (id: 'links' | 'access' | 'guide', label: string) => (
 		<button
 			onClick={() => setTab(id)}
-			className={`px-4 py-2 text-sm rounded-lg transition-colors ${tab === id ? 'bg-accent text-white' : 'bg-border text-gray-300 hover:bg-gray-600'}`}
+			className={`cabinet-tab ${tab === id ? 'is-active' : ''}`}
 		>
 			{label}
 		</button>
@@ -211,317 +311,472 @@ export default function CabinetClient({
 				: 'Доступ открыт'
 
 	return (
-		<main className='min-h-screen bg-bg flex flex-col'>
-			<header className='flex items-center justify-between px-5 py-3 bg-panel border-b border-border'>
-				<div className='flex items-center gap-3'>
-					<span className='text-sm text-gray-200 font-medium'>
-						{displayName}
-					</span>
-					{avatar ? (
-						<img
-							src={avatar}
-							alt=''
-							className='w-10 h-10 rounded-full shrink-0'
-						/>
-					) : (
-						<span className='w-10 h-10 rounded-full bg-[#9146FF] flex items-center justify-center shrink-0'>
-							<TwitchIcon size={22} />
-						</span>
-					)}
-				</div>
-				<a
-					href='/api/auth/logout'
-					className='px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-sm rounded-lg transition-colors'
-				>
-					Выйти
-				</a>
-			</header>
-
-			<div className='max-w-3xl mx-auto px-6 pt-10 pb-8 w-full flex-1'>
-				<h1 className='text-2xl font-semibold text-[color:var(--c-on-bg)] mb-2'>
-					Личный кабинет
-				</h1>
-				<p className='text-base text-gray-400 mb-6'>
-					Аккаунт Twitch: <span className='text-gray-200'>{login}</span>
-				</p>
-
-				<div className='flex gap-2 mb-8'>
-					{tabBtn('links', 'Мои ссылки')}
-					{tabBtn('access', 'Доступ к панели')}
-					{/* Вход в админ-панель: только отсюда, отдельной вкладкой — кабинет остаётся на месте */}
-					{isAdmin && (
-						<a
-							href='/admin'
-							target='_blank'
-							rel='noopener noreferrer'
-							title='Админ-панель откроется отдельной вкладкой'
-							className='px-4 py-2 text-sm rounded-lg bg-accent hover:bg-violet-700 text-white transition-colors'
-						>
-							⚙ Админ-панель
+		<main className='landing cabinet-page'>
+			<div className='landing-bg' aria-hidden='true'>
+				<div className='aurora aurora-a' />
+				<div className='aurora aurora-b' />
+				<div className='landing-grid' />
+			</div>
+			<div className='landing-content'>
+				<header className='site-header'>
+					<div className='container header-inner'>
+						<a className='brand' href='/'>
+							<span className='brand-mark'>
+								<LogoMark size={30} />
+							</span>
+							Ovrly
 						</a>
-					)}
-				</div>
-
-				{tab === 'links' && (
-					<>
-						{!loaded ? null : !links ? (
-							<button
-								onClick={generate}
-								disabled={busy}
-								className='px-4 py-2.5 bg-accent hover:bg-violet-700 text-white rounded-lg text-base transition-colors disabled:opacity-50'
-							>
-								{busy ? 'Генерация…' : 'Сгенерировать ссылки'}
-							</button>
-						) : (
-							<div className='space-y-5'>
-								<p className='text-xs text-gray-600'>
-									Ссылки привязаны к аккаунту{' '}
-									<span className='text-gray-400'>{login}</span>.
-								</p>
-								{linkBlock('Панель для модераторов', links.panel, 'panel')}
-								{linkBlock('Оверлей для OBS', links.overlay, 'overlay')}
-								<button
-									onClick={generate}
-									disabled={busy}
-									className='text-xs text-gray-500 hover:text-gray-300 transition-colors underline disabled:opacity-50'
-								>
-									{busy
-										? 'Генерация…'
-										: 'Сгенерировать заново (старые ссылки перестанут работать, ссылки у модераторов обновятся автоматически)'}
-								</button>
-							</div>
-						)}
-					</>
-				)}
-
-				{tab === 'access' && (
-					<>
-						{/* приглашения, выданные этому аккаунту другими стримерами */}
-						<h2 className='text-sm text-gray-500 uppercase tracking-wide mb-3'>
-							Приглашения
-						</h2>
-						{invError && (
-							<p className='text-xs text-red-400 mb-3'>{invError}</p>
-						)}
-						{inv && inv.invites.length === 0 && (
-							<p className='text-sm text-gray-500 mb-8'>
-								Пока нет приглашений. Стример выдаёт доступ по нику Twitch:
-								попросите его пригласить вас во вкладке «Доступ к панели» его
-								кабинета — приглашение появится здесь.
-							</p>
-						)}
-						<div className='space-y-3 mb-10'>
-							{inv?.invites.map(i => (
-								<div
-									key={i.owner}
-									className='bg-panel border border-border rounded-xl p-4'
-								>
-									<div className='flex items-center justify-between gap-3 flex-wrap'>
-										<div>
-											<p className='text-sm text-gray-200'>
-												Стример: <span className='font-medium'>{i.owner}</span>
-											</p>
-											<p
-												className={`text-xs mt-1 ${i.status === 'pending' ? 'text-amber-400' : i.suspended ? 'text-red-400' : 'text-green-400'}`}
-											>
-												{i.status === 'pending'
-													? 'Ждёт твоего подтверждения'
-													: i.suspended
-														? 'Доступ временно отключён стримером'
-														: 'Доступ открыт'}
-											</p>
-										</div>
-										{i.status === 'pending' && (
-											<div className='flex items-center gap-2'>
-												<button
-													onClick={() =>
-														act({ action: 'accept', owner: i.owner })
-													}
-													disabled={busy}
-													className='px-4 py-2 bg-accent hover:bg-violet-700 text-white text-sm rounded-lg transition-colors disabled:opacity-50'
-												>
-													Принять приглашение
-												</button>
-												<button
-													onClick={() =>
-														act({ action: 'decline', owner: i.owner })
-													}
-													disabled={busy}
-													className='px-3 py-2 text-xs text-red-400 border border-red-900/50 rounded-lg hover:bg-red-950/40 transition-colors disabled:opacity-50'
-												>
-													Отклонить
-												</button>
-											</div>
-										)}
-										{i.status === 'accepted' && !i.suspended && i.token && (
-											<div className='flex items-center gap-2'>
-												<a
-													href={`${origin}/panel?room=${i.token}`}
-													target='_blank'
-													rel='noopener noreferrer'
-													className='px-4 py-2 bg-accent hover:bg-violet-700 text-white text-sm rounded-lg transition-colors'
-												>
-													Открыть панель ↗
-												</a>
-												<button
-													onClick={() =>
-														act({ action: 'decline', owner: i.owner })
-													}
-													disabled={busy}
-													className='px-3 py-2 text-xs text-red-400 border border-red-900/50 rounded-lg hover:bg-red-950/40 transition-colors disabled:opacity-50'
-												>
-													Отклонить
-												</button>
-											</div>
-										)}
-									</div>
-								</div>
-							))}
-						</div>
-
-						{/* модераторы собственной панели этого аккаунта */}
-						<h2 className='text-sm text-gray-500 uppercase tracking-wide mb-3'>
-							Модераторы моей панели
-						</h2>
-						{!inv?.roomToken ? (
-							<p className='text-sm text-gray-500'>
-								Сначала сгенерируйте ссылки во вкладке «Мои ссылки» — панель
-								должна существовать.
-							</p>
-						) : (
-							<>
-								<p className='text-xs text-gray-600 mb-3 break-all'>
-									Ссылка для приглашённых:{' '}
-									<span className='text-gray-400'>
-										{origin}/panel?room={inv.roomToken}
+						<div className='header-actions'>
+							<span className='cabinet-header-user'>
+								{avatar ? (
+									<img src={avatar} alt='' className='cabinet-avatar-sm' />
+								) : (
+									<span className='cabinet-avatar-sm cabinet-avatar-fallback'>
+										<TwitchIcon size={15} />
 									</span>
-								</p>
-								<div className='flex gap-2 mb-2'>
-									<input
-										value={inviteNick}
-										onChange={e => setInviteNick(e.target.value)}
-										onKeyDown={e => {
-											if (e.key === 'Enter') doInvite()
-										}}
-										placeholder='Ник Twitch (например, jettle_)'
-										className='flex-1 px-3 py-2 bg-bg border border-border rounded-lg text-sm'
-									/>
+								)}
+								<span className='hidden sm:inline'>{displayName}</span>
+							</span>
+							<ThemeToggle />
+							<a href='/api/auth/logout' className='btn btn-sm cabinet-logout'>
+								Выйти
+							</a>
+						</div>
+					</div>
+				</header>
+
+				<div className='container cabinet-body'>
+					<section className='cabinet-hero'>
+						<div>
+							<span className='eyebrow'>
+								<span className='eyebrow-dot' /> личный кабинет
+							</span>
+							<h1 className='cabinet-title'>
+								Личный <span className='accent'>кабинет</span>
+							</h1>
+							<p className='cabinet-sub'>
+								Ссылки, доступы и команда — всё для твоего эфира в одном месте.
+							</p>
+						</div>
+						<aside className='cabinet-account'>
+							<span className='cabinet-account-label'>Аккаунт Twitch</span>
+							<div className='cabinet-account-row'>
+								<span className='cabinet-avatar'>
+									{avatar ? (
+										<img src={avatar} alt='' />
+									) : (
+										<TwitchIcon size={22} />
+									)}
+								</span>
+								<div className='min-w-0'>
+									<p className='cabinet-account-name'>{displayName}</p>
+									<p className='cabinet-account-login'>@{login}</p>
+								</div>
+							</div>
+							<a
+								href={`https://www.twitch.tv/${login}`}
+								target='_blank'
+								rel='noopener noreferrer'
+								className='btn btn-ghost btn-sm w-full'
+							>
+								Открыть Twitch ↗
+							</a>
+						</aside>
+					</section>
+
+					<nav className='cabinet-tabs'>
+						{tabBtn('links', 'Мои ссылки')}
+						{tabBtn('access', 'Доступ к панели')}
+						{tabBtn('guide', 'Как настроить')}
+						{isAdmin && (
+							<a
+								href='/admin'
+								target='_blank'
+								rel='noopener noreferrer'
+								title='Админ-панель откроется отдельной вкладкой'
+								className='btn btn-primary btn-sm cabinet-admin-link'
+							>
+								⚙ Админ-панель
+							</a>
+						)}
+					</nav>
+
+					{tab === 'links' && (
+						<section className='cabinet-section'>
+							{!loaded ? (
+								<p className='cabinet-muted'>Загружаю ссылки…</p>
+							) : !links ? (
+								<div className='glass-card cabinet-empty'>
+									<div className='feature-icon'>
+										<PanelIcon />
+									</div>
+									<h2 className='cabinet-section-title'>Ссылок пока нет</h2>
+									<p className='cabinet-muted'>
+										Сгенерируйте ссылки — панель и оверлей будут привязаны к
+										аккаунту {login}.
+									</p>
 									<button
-										onClick={doInvite}
-										disabled={busy || !inviteNick.trim()}
-										className='px-4 py-2 bg-accent hover:bg-violet-700 text-white text-sm rounded-lg transition-colors disabled:opacity-50'
+										onClick={generate}
+										disabled={busy}
+										className='btn btn-primary'
 									>
-										Пригласить
+										{busy ? 'Генерация…' : 'Сгенерировать ссылки'}
 									</button>
 								</div>
-								{invError && (
-									<p className='text-xs text-red-400 mb-3'>{invError}</p>
-								)}
-								<div className='space-y-2'>
-									{inv.moderators.length === 0 && (
-										<p className='text-sm text-gray-500'>
-											Модераторов ещё нет. Пригласите по нику или отправьте
-											ссылку — приглашение появится, когда модератор войдёт.
+							) : (
+								<>
+									<p className='cabinet-note'>
+										Ссылки привязаны к аккаунту <span>{login}</span>.
+									</p>
+									<div className='cabinet-links-grid'>
+										{linkBlock(
+											'Панель для модераторов',
+											'Управление оверлеем и элементами',
+											links.panel,
+											'panel',
+											'panel',
+										)}
+										{linkBlock(
+											'Оверлей для OBS',
+											'Browser Source',
+											links.overlay,
+											'overlay',
+											'overlay',
+										)}
+									</div>
+									<button
+										onClick={generate}
+										disabled={busy}
+										className='cabinet-regenerate'
+									>
+										{busy
+											? 'Генерация…'
+											: 'Сгенерировать заново (старые ссылки перестанут работать, ссылки у модераторов обновятся автоматически)'}
+									</button>
+								</>
+							)}
+						</section>
+					)}
+
+					{tab === 'access' && (
+						<section className='cabinet-section'>
+							<div className='cabinet-section-head'>
+								<div>
+									<span className='kicker'>Команда</span>
+									<h2 className='cabinet-section-title'>Доступ к панели</h2>
+								</div>
+								<p className='cabinet-muted'>
+									Приглашайте модераторов по Twitch-нику — без паролей и лишних
+									аккаунтов.
+								</p>
+							</div>
+							{invError && <p className='alert'>{invError}</p>}
+							<div className='cabinet-access-grid'>
+								<div className='glass-card cabinet-access-card'>
+									<h3 className='cabinet-card-title'>Приглашения</h3>
+									<p className='cabinet-card-text'>
+										Приглашения от других стримеров.
+									</p>
+									{!inv || inv.invites.length === 0 ? (
+										<p className='cabinet-muted mt-4'>
+											Пока нет приглашений. Стример выдаёт доступ по нику
+											Twitch.
 										</p>
+									) : (
+										<div className='mt-3 space-y-2'>
+											{inv.invites.map(i => (
+												<div key={i.owner} className='cabinet-invite-card'>
+													<div className='flex min-w-0 flex-1 items-center gap-2.5'>
+														<PersonAvatar login={i.owner} avatar={i.avatar} />
+														<div className='min-w-0'>
+															<a
+																href={`https://www.twitch.tv/${i.owner}`}
+																target='_blank'
+																rel='noopener noreferrer'
+																className='cabinet-mod-name'
+															>
+																{i.owner} ↗
+															</a>
+															<p
+																className={`cabinet-mod-status ${i.status === 'pending' ? 'text-amber-400' : i.suspended ? 'text-red-400' : 'text-green-400'}`}
+															>
+																{i.status === 'pending'
+																	? 'Ждёт подтверждения'
+																	: i.suspended
+																		? 'Доступ временно отключён'
+																		: 'Доступ открыт'}
+															</p>
+														</div>
+													</div>
+													<div className='flex flex-wrap gap-1.5'>
+														{i.status === 'pending' && (
+															<button
+																onClick={() =>
+																	act({ action: 'accept', owner: i.owner })
+																}
+																disabled={busy}
+																className='btn btn-primary btn-sm'
+															>
+																Принять
+															</button>
+														)}
+														{i.status === 'accepted' &&
+															!i.suspended &&
+															i.token && (
+																<a
+																	href={`${origin}/panel?room=${i.token}`}
+																	target='_blank'
+																	rel='noopener noreferrer'
+																	className='btn btn-ghost btn-sm'
+																>
+																	Открыть панель ↗
+																</a>
+															)}
+														<button
+															onClick={() =>
+																act({ action: 'decline', owner: i.owner })
+															}
+															disabled={busy}
+															className='btn btn-danger btn-sm'
+														>
+															Отклонить
+														</button>
+													</div>
+												</div>
+											))}
+										</div>
 									)}
-									{inv.moderators.map(m => (
-										<div
-											key={m.login}
-											className='flex items-center justify-between gap-3 bg-panel border border-border rounded-lg px-3 py-2 flex-wrap'
-										>
-											<div>
-												<p className='text-sm text-gray-200'>{m.login}</p>
-												<p className={`text-xs ${statusCls(m)}`}>
-													{statusText(m)}
-												</p>
-											</div>
-											<div className='flex items-center gap-2'>
-												{m.status === 'accepted' && (
-													<button
-														onClick={() =>
-															act({
-																action: m.suspended ? 'resume' : 'suspend',
-																login: m.login,
-															})
-														}
-														disabled={busy}
-														className='px-3 py-1.5 text-xs bg-border hover:bg-gray-600 text-gray-300 rounded-lg transition-colors disabled:opacity-50'
-													>
-														{m.suspended ? 'Включить' : 'Отключить временно'}
-													</button>
-												)}
+								</div>
+
+								<div className='glass-card cabinet-access-card'>
+									<h3 className='cabinet-card-title'>Модераторы моей панели</h3>
+									<p className='cabinet-card-text'>
+										Люди, которым можно доверить оверлей.
+									</p>
+									{!inv?.roomToken ? (
+										<p className='cabinet-muted mt-4'>
+											Сначала сгенерируйте ссылки во вкладке «Мои ссылки».
+										</p>
+									) : (
+										<>
+											<div className='cabinet-invite-row'>
+												<input
+													value={inviteNick}
+													onChange={e => setInviteNick(e.target.value)}
+													onKeyDown={e => {
+														if (e.key === 'Enter') doInvite()
+													}}
+													placeholder='Ник Twitch (например, jettle_)'
+													className='cabinet-input'
+												/>
 												<button
-													onClick={() =>
-														act({ action: 'revoke', login: m.login })
-													}
-													disabled={busy}
-													className='px-3 py-1.5 text-xs text-red-400 border border-red-900/50 rounded-lg hover:bg-red-950/40 transition-colors disabled:opacity-50'
+													onClick={doInvite}
+													disabled={busy || !inviteNick.trim()}
+													className='btn btn-primary'
 												>
-													Забрать доступ
+													Пригласить
 												</button>
 											</div>
-										</div>
-									))}
+											<div className='mt-3 space-y-2'>
+												{inv.moderators.length === 0 ? (
+													<p className='cabinet-muted'>
+														Модераторов ещё нет. Пригласите по нику.
+													</p>
+												) : (
+													inv.moderators.map(m => (
+														<div key={m.login} className='cabinet-mod-row'>
+															<PersonAvatar login={m.login} avatar={m.avatar} />
+															<div className='min-w-0 flex-1'>
+																<a
+																	href={`https://www.twitch.tv/${m.login}`}
+																	target='_blank'
+																	rel='noopener noreferrer'
+																	className='cabinet-mod-name'
+																>
+																	{m.login} ↗
+																</a>
+																<p
+																	className={`cabinet-mod-status ${statusCls(m)}`}
+																>
+																	{statusText(m)}
+																</p>
+															</div>
+															<div className='flex flex-wrap gap-1.5 justify-end'>
+																{m.status === 'accepted' && (
+																	<button
+																		onClick={() =>
+																			act({
+																				action: m.suspended
+																					? 'resume'
+																					: 'suspend',
+																				login: m.login,
+																			})
+																		}
+																		disabled={busy}
+																		className='btn btn-ghost btn-sm'
+																	>
+																		{m.suspended ? 'Включить' : 'Отключить'}
+																	</button>
+																)}
+																<button
+																	onClick={() =>
+																		act({ action: 'revoke', login: m.login })
+																	}
+																	disabled={busy}
+																	className='btn btn-danger btn-sm'
+																>
+																	Забрать
+																</button>
+															</div>
+														</div>
+													))
+												)}
+											</div>
+										</>
+									)}
 								</div>
-							</>
-						)}
-					</>
-				)}
-			</div>
+							</div>
+						</section>
+					)}
+					{tab === 'guide' && (
+						<section className='cabinet-section'>
+							<div className='cabinet-section-head'>
+								<div>
+									<span className='kicker'>Инструкция</span>
+									<h2 className='cabinet-section-title'>
+										Как настроить оверлей
+									</h2>
+								</div>
+								<p className='cabinet-muted'>
+									Четыре шага — от ссылки в кабинете до оверлея на сцене.
+								</p>
+							</div>
 
-			<footer className='max-w-3xl mx-auto px-6 pb-12 text-center'>
-				<a
-					href='https://dalink.to/jettle_'
-					target='_blank'
-					rel='noopener noreferrer'
-					className='inline-flex items-center gap-2 px-6 py-3 rounded-full border border-border bg-panel hover:bg-border text-gray-200 text-sm font-medium transition-all hover:-translate-y-0.5'
-				>
-					💜 Поддержать проект
-				</a>
-				<p className='text-[11px] text-gray-600 mt-3'>
-					Ovrly развивается бесплатно — поддержка очень помогает
-				</p>
-				<p className='text-[11px] text-gray-600 mt-2'>
-					<a
-						href='https://t.me/ovrly_control'
-						target='_blank'
-						rel='noopener noreferrer'
-						className='text-accent2 hover:underline'
-					>
-						Telegram
-					</a>
-					{' новости и тех. поддержка | '}
-					<a
-						href='https://github.com/qmaximp/ovrly'
-						target='_blank'
-						rel='noopener noreferrer'
-						className='text-accent2 hover:underline'
-					>
-						github
-					</a>
-					{' проекта | '}
-					<a
-						href='https://github.com/qmaximp/ovrly/blob/main/LICENSE'
-						target='_blank'
-						rel='noopener noreferrer'
-						className='text-accent2 hover:underline'
-						title='GNU Affero General Public License v3.0'
-					>
-						AGPL-3.0
-					</a>
-					{' · '}
-					<a
-						href='https://github.com/qmaximp/ovrly'
-						target='_blank'
-						rel='noopener noreferrer'
-						className='hover:text-gray-400 transition-colors'
-						title='Авторы: jettle_, nezory_1'
-					>
-						© 2026 jettle_, nezory_1
-					</a>
-					{' | Версия 1.6'}
-				</p>
-			</footer>
+							{loaded && !links && (
+								<div className='glass-card cabinet-guide-callout'>
+									<span className='cabinet-guide-callout-icon'>🔗</span>
+									<div className='min-w-0'>
+										<p className='cabinet-card-title'>Сначала нужна ссылка</p>
+										<p className='cabinet-card-text'>
+											Сгенерируй её во вкладке «Мои ссылки» — без неё оверлей
+											некуда вставлять.
+										</p>
+									</div>
+									<button
+										onClick={() => setTab('links')}
+										className='btn btn-primary btn-sm'
+									>
+										К ссылкам
+									</button>
+								</div>
+							)}
+
+							<div className='cabinet-guide-grid'>
+								{GUIDE_STEPS.map((s, i) => (
+									<article
+										key={s.title}
+										className='glass-card cabinet-guide-card'
+									>
+										<div className='cabinet-guide-head'>
+											<span className='cabinet-guide-num'>{i + 1}</span>
+											<h3 className='cabinet-card-title'>{s.title}</h3>
+										</div>
+										<p className='cabinet-card-text'>{s.text}</p>
+										<div className='cabinet-guide-shot'>
+											<img
+												src={s.image}
+												alt={s.alt}
+												width={720}
+												height={420}
+												loading='lazy'
+											/>
+										</div>
+									</article>
+								))}
+							</div>
+
+							<div className='glass-card cabinet-guide-tips'>
+								<h3 className='cabinet-card-title'>Что ещё стоит знать</h3>
+								<ul className='cabinet-tips-list'>
+									<li>
+										<span aria-hidden='true'>📐</span>
+										<p>
+											<strong>Размер — любой.</strong> 1920×1080 просто удобный
+											старт: OBS сам масштабирует картинку под твой холст.
+										</p>
+									</li>
+									<li>
+										<span aria-hidden='true'>♻️</span>
+										<p>
+											<strong>Не отставай от сцен.</strong> Включи «Обновить
+											браузер, когда сцена становится активной».
+										</p>
+									</li>
+									<li>
+										<span aria-hidden='true'>⚡</span>
+										<p>
+											<strong>Правки — на лету.</strong> Меняй элементы в
+											панели, оверлей обновится в эфире сразу.
+										</p>
+									</li>
+									<li>
+										<span aria-hidden='true'>🔑</span>
+										<p>
+											<strong>Ссылка сломалась?</strong> Сгенерируй новую в
+											кабинете — у модераторов она обновится автоматически.
+										</p>
+									</li>
+								</ul>
+								<button
+									onClick={() => setTab('links')}
+									className='btn btn-ghost btn-sm cabinet-guide-back'
+								>
+									← Мои ссылки
+								</button>
+							</div>
+						</section>
+					)}
+				</div>
+
+				<footer className='container site-footer cabinet-footer'>
+					<div className='flex items-center gap-2 flex-wrap'>
+						<a
+							href='https://dalink.to/jettle_'
+							target='_blank'
+							rel='noopener noreferrer'
+							className='btn btn-ghost btn-sm'
+						>
+							💜 Поддержать проект
+						</a>
+						<span>Ovrly развивается бесплатно — поддержка очень помогает</span>
+					</div>
+					<div className='footer-links'>
+						<a
+							href='https://t.me/ovrly_control'
+							target='_blank'
+							rel='noopener noreferrer'
+						>
+							Telegram
+						</a>
+						<a
+							href='https://github.com/qmaximp/ovrly'
+							target='_blank'
+							rel='noopener noreferrer'
+						>
+							GitHub
+						</a>
+						<a
+							href='https://github.com/qmaximp/ovrly/blob/main/LICENSE'
+							target='_blank'
+							rel='noopener noreferrer'
+							title='GNU Affero General Public License v3.0'
+						>
+							AGPL-3.0
+						</a>
+						<span>© 2026 jettle_, nezory_1 · Версия 2.0</span>
+					</div>
+				</footer>
+			</div>
 		</main>
 	)
 }

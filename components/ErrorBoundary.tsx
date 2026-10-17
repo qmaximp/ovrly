@@ -27,7 +27,7 @@ export default class ErrorBoundary extends React.Component<
 					</p>
 					<button
 						onClick={() => location.reload()}
-						className='px-6 py-3 rounded-lg bg-accent hover:bg-violet-700 text-white text-sm transition-colors'
+						className='px-6 py-3 rounded-lg bg-accent hover:bg-accent-hover text-white text-sm transition-colors'
 					>
 						Обновить страницу
 					</button>

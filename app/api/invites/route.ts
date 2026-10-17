@@ -8,7 +8,7 @@ import {
   removeModerator,
   setModeratorSuspended,
 } from "@/lib/invites";
-import { safe, twitchUserId } from "@/lib/twitch";
+import { getTwitchAvatars, safe, twitchUserId } from "@/lib/twitch";
 import { verifySession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -33,10 +33,21 @@ export async function GET(req: Request) {
     // ссылка строится из АКТУАЛЬНОГО токена владельца — после регенерации она меняется сама
     token: links[owner]?.token ?? null,
   }));
+  const moderators = await listModerators(session.login);
+
+  // аватарки обоих списков тянем одним батчем; при сбое Helix остаются буквы
+  const avatars =
+    (await safe(() =>
+      getTwitchAvatars([
+        ...invites.map((i) => i.owner),
+        ...moderators.map((m) => m.login),
+      ]),
+    )) ?? {};
+  const avatarFor = (login: string) => avatars[login.toLowerCase()] ?? null;
 
   return json({
-    invites,
-    moderators: await listModerators(session.login),
+    invites: invites.map((i) => ({ ...i, avatar: avatarFor(i.owner) })),
+    moderators: moderators.map((m) => ({ ...m, avatar: avatarFor(m.login) })),
     roomToken: links[session.login]?.token ?? null,
   });
 }

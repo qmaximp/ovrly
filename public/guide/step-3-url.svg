@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 420" width="720" height="420" font-family="Segoe UI, Inter, Arial, sans-serif" role="img" aria-label="Свойства Browser Source: поле URL, размер и кнопка ОК">
+  <defs>
+    <linearGradient id="teal3" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5eead4"/>
+      <stop offset="1" stop-color="#0f766e"/>
+    </linearGradient>
+  </defs>
+  <rect width="720" height="420" fill="#0b1220"/>
+  <circle cx="640" cy="30" r="190" fill="#5eead4" opacity=".05"/>
+
+  <!-- фон OBS -->
+  <rect x="20" y="20" width="680" height="380" rx="14" fill="#0c1522" stroke="#223449"/>
+  <path d="M20 58h680" stroke="#223449"/>
+  <circle cx="40" cy="39" r="4" fill="#f87171"/>
+  <circle cx="54" cy="39" r="4" fill="#fbbf24"/>
+  <circle cx="68" cy="39" r="4" fill="#34d399"/>
+  <text x="360" y="43" font-size="10.5" fill="#8fa3b8" text-anchor="middle">OBS Studio — Профиль: стрим</text>
+  <rect x="20" y="58" width="680" height="342" fill="#070b12" opacity=".55"/>
+
+  <!-- диалог -->
+  <rect x="108" y="44" width="504" height="332" rx="14" fill="#101c2b" stroke="#2b4055"/>
+  <rect x="108" y="44" width="504" height="42" rx="14" fill="#132234"/>
+  <path d="M108 72h504" stroke="#2b4055"/>
+  <text x="132" y="70" font-size="12.5" font-weight="600" fill="#eefaf8">Свойства — Браузер</text>
+  <text x="586" y="70" font-size="12" fill="#7f93a8" text-anchor="middle">✕</text>
+
+  <text x="132" y="116" font-size="9.5" fill="#8fa3b8">URL</text>
+  <rect x="132" y="124" width="456" height="34" rx="8" fill="#0a111b" stroke="#5eead4" stroke-opacity=".5"/>
+  <text x="146" y="146" font-size="10" fill="#dbe9e6" font-family="Consolas, monospace">ovrly.ru/overlay?room=…</text>
+  <path d="M414 132v18" stroke="#5eead4" stroke-width="1.4"/>
+
+  <text x="132" y="190" font-size="9.5" fill="#8fa3b8">Ширина</text>
+  <rect x="132" y="198" width="120" height="32" rx="8" fill="#0a111b" stroke="#1c2b3b"/>
+  <text x="192" y="219" font-size="11" fill="#dbe9e6" text-anchor="middle" font-family="Consolas, monospace">1920</text>
+
+  <text x="274" y="190" font-size="9.5" fill="#8fa3b8">Высота</text>
+  <rect x="274" y="198" width="120" height="32" rx="8" fill="#0a111b" stroke="#1c2b3b"/>
+  <text x="334" y="219" font-size="11" fill="#dbe9e6" text-anchor="middle" font-family="Consolas, monospace">1080</text>
+
+  <rect x="410" y="198" width="178" height="32" rx="8" fill="#0f2b2a" stroke="#5eead4" stroke-opacity=".35"/>
+  <text x="499" y="218" font-size="9.5" fill="#5eead4" text-anchor="middle">можно поставить любой</text>
+
+  <!-- чекбоксы -->
+  <rect x="132" y="252" width="16" height="16" rx="4" fill="#0f766e" stroke="#5eead4" stroke-opacity=".6"/>
+  <path d="M136 260l3 3 5-6" stroke="#eefaf8" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="158" y="264" font-size="9.5" fill="#a9bcc9">Обновить браузер, когда сцена становится активной</text>
+
+  <rect x="132" y="280" width="16" height="16" rx="4" fill="#0a111b" stroke="#2b4055"/>
+  <text x="158" y="292" font-size="9.5" fill="#7f93a8">Выключить источник, когда он не виден</text>
+
+  <rect x="132" y="300" width="16" height="16" rx="4" fill="#0f766e" stroke="#5eead4" stroke-opacity=".6"/>
+  <path d="M136 308l3 3 5-6" stroke="#eefaf8" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="158" y="312" font-size="9.5" fill="#a9bcc9">Управление аудио через OBS</text>
+
+  <!-- кнопки -->
+  <rect x="392" y="330" width="86" height="34" rx="8" fill="#132234" stroke="#2b4055"/>
+  <text x="435" y="351" font-size="10" fill="#a9bcc9" text-anchor="middle">Отмена</text>
+  <rect x="490" y="330" width="98" height="34" rx="8" fill="url(#teal3)"/>
+  <text x="539" y="351" font-size="10.5" font-weight="700" fill="#04110f" text-anchor="middle">ОК</text>
+
+  <!-- номер шага -->
+  <circle cx="668" cy="88" r="15" fill="url(#teal3)"/>
+  <text x="668" y="93" font-size="13" font-weight="700" fill="#04110f" text-anchor="middle">3</text>
+</svg>

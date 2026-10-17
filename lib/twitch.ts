@@ -36,6 +36,69 @@ export async function helix(path: string): Promise<any | null> {
   return res.json();
 }
 
+// логин -> аватар профиля Twitch. Кабинет опрашивает доступы каждые 5 секунд,
+// поэтому кэшируем ответы Helix: успешные — на час, промахи — на 10 минут.
+// null аватара означает «показывай букву», картинка не обязательна для работы.
+const avatarCache = new Map<string, { url: string | null; expires: number }>();
+const AVATAR_TTL_MS = 60 * 60 * 1000;
+const AVATAR_MISS_TTL_MS = 10 * 60 * 1000;
+const AVATAR_ERROR_TTL_MS = 60 * 1000;
+
+export async function getTwitchAvatars(
+  logins: string[],
+): Promise<Record<string, string>> {
+  const unique = Array.from(
+    new Set(
+      logins
+        .map((login) => String(login || "").trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  );
+  const result: Record<string, string> = {};
+  const missing: string[] = [];
+  const now = Date.now();
+
+  for (const login of unique) {
+    const cached = avatarCache.get(login);
+    if (cached && cached.expires > now) {
+      if (cached.url) result[login] = cached.url;
+    } else {
+      missing.push(login);
+    }
+  }
+
+  // Helix отдаёт до 100 логинов за запрос; берём 50, чтобы не упереться в длину URL
+  for (let i = 0; i < missing.length; i += 50) {
+    const chunk = missing.slice(i, i + 50);
+    const params = new URLSearchParams();
+    for (const login of chunk) params.append("login", login);
+    const data = await helix(`users?${params.toString()}`);
+    if (!data) {
+      // временная ошибка Helix/токена: не долбим API каждые 5 секунд
+      for (const login of chunk) {
+        avatarCache.set(login, { url: null, expires: now + AVATAR_ERROR_TTL_MS });
+      }
+      continue;
+    }
+    const found = new Map<string, string>();
+    for (const user of Array.isArray(data.data) ? data.data : []) {
+      if (user?.login && user?.profile_image_url) {
+        found.set(String(user.login).toLowerCase(), String(user.profile_image_url));
+      }
+    }
+    for (const login of chunk) {
+      const url = found.get(login) ?? null;
+      if (url) result[login] = url;
+      avatarCache.set(login, {
+        url,
+        expires: now + (url ? AVATAR_TTL_MS : AVATAR_MISS_TTL_MS),
+      });
+    }
+  }
+
+  return result;
+}
+
 // логин -> id канала (Helix, при отсутствии ключей — публичный ivr.fi).
 // Промахи тоже кэшируем: без этого несуществующий/непривязанный канал заново
 // дёргал Helix и ivr.fi на каждый запрос смайликов

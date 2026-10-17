@@ -10,8 +10,8 @@ export default function manifest(): MetadataRoute.Manifest {
 			'Управление оверлеем OBS: картинки, видео, сайты, YouTube и Twitch, текст и таймеры.',
 		start_url: '/cabinet',
 		display: 'standalone',
-		background_color: '#0f0f14',
-		theme_color: '#0f0f14',
+		background_color: '#070b12',
+		theme_color: '#070b12',
 		lang: 'ru',
 		icons: [
 			{ src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },

@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 420" width="720" height="420" font-family="Segoe UI, Inter, Arial, sans-serif" role="img" aria-label="Карточка оверлея в кабинете с кнопкой Копировать">
+  <defs>
+    <linearGradient id="bg1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="1" stop-color="#0e1b2b"/>
+    </linearGradient>
+    <linearGradient id="teal1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5eead4"/>
+      <stop offset="1" stop-color="#0f766e"/>
+    </linearGradient>
+    <filter id="glow1" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="10" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="720" height="420" fill="url(#bg1)"/>
+  <circle cx="650" cy="30" r="190" fill="#5eead4" opacity=".05"/>
+  <circle cx="30" cy="410" r="160" fill="#f97316" opacity=".04"/>
+
+  <!-- окно браузера -->
+  <rect x="24" y="24" width="672" height="372" rx="18" fill="#0c1522" stroke="#223449"/>
+  <path d="M24 68h672" stroke="#223449"/>
+  <circle cx="48" cy="46" r="4" fill="#f87171"/>
+  <circle cx="62" cy="46" r="4" fill="#fbbf24"/>
+  <circle cx="76" cy="46" r="4" fill="#34d399"/>
+  <rect x="94" y="35" width="298" height="22" rx="11" fill="#0a111b" stroke="#1c2b3b"/>
+  <text x="108" y="50" font-size="11" fill="#8fa3b8">ovrly.ru/cabinet</text>
+
+  <!-- заголовок страницы -->
+  <text x="52" y="100" font-size="9.5" letter-spacing="2" fill="#5eead4">МОИ ССЫЛКИ</text>
+  <text x="52" y="126" font-size="21" font-weight="700" fill="#eefaf8">Ссылки для эфира</text>
+  <text x="52" y="146" font-size="11" fill="#8fa3b8">Привязаны к аккаунту jettle_.</text>
+
+  <!-- карточка панели -->
+  <rect x="52" y="166" width="300" height="186" rx="14" fill="#0a111b" stroke="#1c2b3b"/>
+  <rect x="70" y="182" width="30" height="30" rx="9" fill="#12202f" stroke="#223449"/>
+  <path d="M79 199h12M85 194v10" stroke="#8fa3b8" stroke-width="1.6" stroke-linecap="round"/>
+  <text x="110" y="195" font-size="12" font-weight="600" fill="#dbe9e6">Панель для модераторов</text>
+  <text x="110" y="211" font-size="9.5" fill="#7f93a8">Управление оверлеем</text>
+  <rect x="70" y="228" width="264" height="30" rx="8" fill="#070d16" stroke="#1c2b3b"/>
+  <text x="82" y="247" font-size="9" fill="#7f93a8" font-family="Consolas, monospace">ovrly.ru/panel?room=…</text>
+  <rect x="70" y="272" width="82" height="26" rx="7" fill="#12202f" stroke="#223449"/>
+  <text x="111" y="289" font-size="9.5" fill="#a9bcc9" text-anchor="middle">Перейти ↗</text>
+  <rect x="160" y="272" width="92" height="26" rx="7" fill="#12202f" stroke="#223449"/>
+  <text x="206" y="289" font-size="9.5" fill="#a9bcc9" text-anchor="middle">Копировать</text>
+
+  <!-- карточка оверлея (акцент) -->
+  <rect x="368" y="166" width="300" height="186" rx="14" fill="#0a111b" stroke="#5eead4" stroke-opacity=".55"/>
+  <rect x="368" y="166" width="300" height="186" rx="14" fill="#5eead4" opacity=".035"/>
+  <rect x="386" y="182" width="30" height="30" rx="9" fill="#0f2b2a" stroke="#5eead4" stroke-opacity=".45"/>
+  <rect x="395" y="191" width="12" height="10" rx="2" stroke="#5eead4" stroke-width="1.6" fill="none"/>
+  <path d="M399 204h4M401 201v3" stroke="#5eead4" stroke-width="1.6" stroke-linecap="round"/>
+  <text x="426" y="195" font-size="12" font-weight="600" fill="#eefaf8">Оверлей для OBS</text>
+  <text x="426" y="211" font-size="9.5" fill="#8fa3b8">Browser Source · любой размер</text>
+  <rect x="386" y="228" width="264" height="30" rx="8" fill="#070d16" stroke="#5eead4" stroke-opacity=".32"/>
+  <text x="398" y="247" font-size="9" fill="#c6d7d4" font-family="Consolas, monospace">ovrly.ru/overlay?room=…</text>
+  <rect x="386" y="272" width="82" height="26" rx="7" fill="#12202f" stroke="#223449"/>
+  <text x="427" y="289" font-size="9.5" fill="#a9bcc9" text-anchor="middle">Перейти ↗</text>
+  <rect x="478" y="272" width="92" height="26" rx="7" fill="url(#teal1)"/>
+  <text x="524" y="289" font-size="9.5" font-weight="600" fill="#04110f" text-anchor="middle">Копировать</text>
+
+  <!-- курсор на кнопке -->
+  <path d="M523 290l0 16 4-4 3 7 3-2-3-6h6z" fill="#eefaf8" stroke="#0b1220" stroke-width="1.4" filter="url(#glow1)"/>
+
+  <!-- номер шага -->
+  <circle cx="668" cy="88" r="15" fill="url(#teal1)"/>
+  <text x="668" y="93" font-size="13" font-weight="700" fill="#04110f" text-anchor="middle">1</text>
+</svg>

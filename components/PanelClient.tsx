@@ -1178,9 +1178,14 @@ export default function PanelClient({
 	// играет ли превью прямо сейчас: пока нет — бокс кликабельный, чтобы можно было
 	// нажать встроенную кнопку Twitch (автозапуск браузер может заблокировать)
 	const [previewPlaying, setPreviewPlaying] = useState(false)
+	// оффлайн/неизвестный статус — не держим превью поверх элементов и не показываем
+	// встроенную карточку Twitch «не в сети»: вместо неё будет своя заглушка
+	useEffect(() => {
+		if (twitchLive !== true) setPreviewPlaying(false)
+	}, [twitchLive])
 
 	useEffect(() => {
-		if (!previewOn || !channel || !mounted) return
+		if (!previewOn || !channel || !mounted || twitchLive !== true) return
 		const target = twitchPreviewRef.current
 		if (!target) return
 		let cancelled = false
@@ -1309,7 +1314,7 @@ export default function PanelClient({
 			twitchPlayerRef.current = null
 			if (twitchPreviewRef.current) twitchPreviewRef.current.innerHTML = ''
 		}
-	}, [previewOn, channel, mounted, previewKey, parentHost])
+	}, [previewOn, channel, mounted, previewKey, parentHost, twitchLive])
 
 	// статус эфира: пока показан плейсхолдер «не в эфире» — опрашиваем каждые 15 секунд,
 	// когда стрим играется — раз в минуту. Значение меняется только на точно известное
@@ -1362,6 +1367,13 @@ export default function PanelClient({
 		})
 
 	const selected = state.elements.find(e => e.id === selectedId) || null
+
+	// одиночное выделение всегда снимает мультивыделение: иначе одновременно
+	// рисуются ручки элемента и бокс группы, и они перехватывают друг друга
+	const selectOnly = useCallback((id: string) => {
+		setSelectedIds(new Set())
+		setSelectedId(id)
+	}, [])
 
 	const rotateRef = useRef<{
 		el: StreamElement
@@ -1844,6 +1856,7 @@ export default function PanelClient({
 			if (isLockedByOther(el.id)) return
 			e.preventDefault()
 			e.stopPropagation()
+			setSelectedId(null)
 			const items: { id: string; x: number; y: number }[] = []
 			for (const id of selectedIdsRef.current) {
 				if (isLockedByOther(id)) continue // заблокированные другими пропускаем
@@ -1925,8 +1938,6 @@ export default function PanelClient({
 		bw: number
 		bh: number
 		corner: string
-		// пропорциональный масштаб: только для групп с разными углами поворота
-		uniform: boolean
 		// поворот бокса (град) и его pivot: масштаб считаем в этой системе координат
 		rot: number
 		pivot: { x: number; y: number }
@@ -2014,9 +2025,9 @@ export default function PanelClient({
 				if (gs.corner.includes('n')) fy = (gs.bh - gs.dy) / gs.bh
 				fx = Math.max(0.05, Math.min(20, fx))
 				fy = Math.max(0.05, Math.min(20, fy))
-				// Shift — пропорционально; для групп с РАЗНЫМИ углами пропорции обязательны
-				// (иначе рамка и картинки расходятся) — там масштаб всегда пропорциональный
-				if (e.shiftKey || gs.uniform) {
+				// Shift — пропорционально; без Shift масштаб свободный по обеим
+				// осям, даже если элементы в группе повёрнуты на разные углы
+				if (e.shiftKey) {
 					const k = Math.max(fx, fy)
 					fx = k
 					fy = k
@@ -2191,10 +2202,10 @@ export default function PanelClient({
 	}, [emit, mediaToggle])
 
 	// Групповой бокс — в собственной системе координат выбранных элементов (как в pogly):
-	// если у всех совпадает угол поворота, бокс берём в их повёрнутой рамке, и он крутится
-	// вместе с контентом, не «дыша» при вращении; ручки прикреплены к боксу и следуют за ним.
-	// Если углы разные — бокс строим по «прямым» прямоугольникам (x/y/w/h): поворот этих
-	// полей не меняет, поэтому бокс стабилен.
+	// ориентируем его по первому элементу и при повороте группы сохраняем этот угол,
+	// чтобы рамка вращалась вместе с контентом и не «дышала» при вращении;
+	// ручки прикреплены к боксу и следуют за ним. Даже при разных углах элементов
+	// рамка остаётся повёрнутой вместе с группой, а не осевой.
 	// Pivot (центр вращения) — центроид центров элементов: он инвариантен относительно
 	// вращения группы, поэтому бокс не съезжает во время поворота
 	const groupBox = useMemo(() => {
@@ -2203,10 +2214,6 @@ export default function PanelClient({
 		if (items.length < 2) return null
 		const norm = (r?: number) => (((r ?? 0) % 360) + 360) % 360
 		const rot0 = norm(items[0].rotation)
-		const sameRot = items.every(e => {
-			const d = Math.abs(norm(e.rotation) - rot0)
-			return d < 0.5 || Math.abs(d - 360) < 0.5
-		})
 		// pivot: центроид центров — при вращении группы он остаётся на месте
 		let gx = 0
 		let gy = 0
@@ -2216,8 +2223,8 @@ export default function PanelClient({
 		}
 		gx /= items.length
 		gy /= items.length
-		// локальная система: сдвиг в pivot и разворот на -rot (когда углы совпадают)
-		const th = (sameRot ? rot0 : 0) * (Math.PI / 180)
+		// локальная система: сдвиг в pivot и разворот на -rot0
+		const th = (rot0 * Math.PI) / 180
 		const cos = Math.cos(th)
 		const sin = Math.sin(th)
 		let x1 = Infinity
@@ -2228,7 +2235,7 @@ export default function PanelClient({
 			const ecx = e.x + e.width / 2
 			const ecy = e.y + e.height / 2
 			// угол элемента относительно рамки группы
-			const dth = ((norm(e.rotation) - (sameRot ? rot0 : 0)) * Math.PI) / 180
+			const dth = ((norm(e.rotation) - rot0) * Math.PI) / 180
 			const c2 = Math.cos(dth)
 			const s2 = Math.sin(dth)
 			const hw = e.width / 2
@@ -2242,8 +2249,7 @@ export default function PanelClient({
 				[hw, hh],
 				[-hw, hh],
 			]) {
-				// смещение угла вращаем только на относительный угол элемента:
-				// при совпадающих углах оно остаётся осевым и размер рамки не «дышит»
+				// смещение угла вращаем на относительный угол элемента
 				const lx = ccx + dx * c2 - dy * s2
 				const ly = ccy + dx * s2 + dy * c2
 				if (lx < x1) x1 = lx
@@ -2262,8 +2268,7 @@ export default function PanelClient({
 			cy: gy + lcx * sin + lcy * cos,
 			w,
 			h,
-			rot: sameRot ? rot0 : 0,
-			sameRot,
+			rot: rot0,
 			pivot: { x: gx, y: gy },
 		}
 	}, [state, selectedIds])
@@ -2274,6 +2279,7 @@ export default function PanelClient({
 			if (e.button !== 0) return
 			e.preventDefault()
 			e.stopPropagation()
+			setSelectedId(null)
 			const items: { id: string; x: number; y: number }[] = []
 			for (const id of selectedIdsRef.current) {
 				const it = stateRef.current.elements.find(x => x.id === id)
@@ -2303,6 +2309,7 @@ export default function PanelClient({
 			if (e.button !== 0 || !groupBox || !viewportRef.current) return
 			e.preventDefault()
 			e.stopPropagation()
+			setSelectedId(null)
 			const { x: vx, y: vy, s } = viewRef.current
 			const rect = viewportRef.current.getBoundingClientRect()
 			const px = (e.clientX - rect.left - vx) / s
@@ -2348,6 +2355,7 @@ export default function PanelClient({
 			if (e.button !== 0 || !groupBox) return
 			e.preventDefault()
 			e.stopPropagation()
+			setSelectedId(null)
 			const items: {
 				id: string
 				x: number
@@ -2363,10 +2371,9 @@ export default function PanelClient({
 			if (items.length < 2) return
 			items.forEach(it => emit('element:grab', { id: it.id }))
 			remember()
-			// Масштаб считаем в СИСТЕМЕ БОКСА: если у всей группы один угол поворота,
-			// бокс идёт вдоль контента, и растяжение по его осям точное (как в pogly) —
-			// свободно тяни за любой угол, рамка не «уползает». Если углы разные,
-			// непропорциональный ресайз оставляем только через Shift
+			// Масштаб считаем в СИСТЕМЕ БОКСА: ручка точно следует за курсором.
+			// Без Shift обе оси свободные, даже если элементы повёрнуты на разные
+			// углы; Shift включает пропорциональное масштабирование.
 			const rot = (groupBox.rot * Math.PI) / 180
 			const cos = Math.cos(rot)
 			const sin = Math.sin(rot)
@@ -2390,7 +2397,6 @@ export default function PanelClient({
 				bw: groupBox.w,
 				bh: groupBox.h,
 				corner,
-				uniform: !groupBox.sameRot,
 				rot: groupBox.rot,
 				pivot: groupBox.pivot,
 				startLocal: start,
@@ -2966,7 +2972,7 @@ export default function PanelClient({
 	)
 
 	return (
-		<div className='h-[100dvh] overflow-hidden flex flex-col bg-bg'>
+		<div className='h-[100dvh] overflow-hidden flex flex-col bg-bg app-shell'>
 			{accessRevoked && (
 				<div className='fixed inset-0 z-[200] bg-bg flex flex-col items-center justify-center text-center px-4'>
 					<div className='text-5xl mb-4'>🚫</div>
@@ -2984,13 +2990,13 @@ export default function PanelClient({
 			)}
 			{/* предупреждение от админа (например, о скором обновлении) */}
 			{notice && (
-				<div className='px-4 py-2 text-xs text-sky-200 bg-sky-950/50 border-b border-sky-900/50 flex items-center gap-3'>
+				<div className='panel-notice'>
 					<span className='shrink-0'>📢</span>
 					<span className='flex-1'>{notice}</span>
 					<button
 						onClick={() => setNotice(null)}
 						title='Скрыть'
-						className='shrink-0 w-6 h-6 rounded-md hover:bg-sky-900/60 text-sky-300'
+						className='panel-notice-close'
 					>
 						✕
 					</button>
@@ -3004,7 +3010,7 @@ export default function PanelClient({
 				</div>
 			)}
 			<header
-				className={`flex items-center gap-3 bg-panel border-b border-border ${isMobile ? 'px-3 py-2' : 'px-5 py-3'}`}
+				className={`flex items-center gap-3 bg-panel border-b border-border panel-header ${isMobile ? 'px-3 py-2' : 'px-5 py-3'}`}
 			>
 				{isMobile && (
 					<button
@@ -3175,7 +3181,7 @@ export default function PanelClient({
 								<div className='flex gap-2'>
 									<button
 										onClick={addImagePC}
-										className='flex-1 px-3 py-2 bg-accent hover:bg-violet-700 text-white text-sm rounded-lg transition-colors'
+										className='flex-1 px-3 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
 									>
 										🖼 С ПК
 									</button>
@@ -3189,7 +3195,7 @@ export default function PanelClient({
 								<div className='flex gap-2'>
 									<button
 										onClick={addVideoPC}
-										className='flex-1 px-3 py-2 bg-accent hover:bg-violet-700 text-white text-sm rounded-lg transition-colors'
+										className='flex-1 px-3 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
 									>
 										🎬 С ПК
 									</button>
@@ -3202,25 +3208,25 @@ export default function PanelClient({
 								</div>
 								<button
 									onClick={() => openEmotePicker()}
-									className='w-full px-3 py-2 bg-accent hover:bg-violet-700 text-white text-sm rounded-lg transition-colors'
+									className='w-full px-3 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
 								>
 									😀 Добавить смайлик
 								</button>
 								<button
 									onClick={addIframeEl}
-									className='w-full px-3 py-2 bg-accent hover:bg-violet-700 text-white text-sm rounded-lg transition-colors'
+									className='w-full px-3 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
 								>
 									🌐 Сайт
 								</button>
 								<button
 									onClick={addTextEl}
-									className='w-full px-3 py-2 bg-accent hover:bg-violet-700 text-white text-sm rounded-lg transition-colors'
+									className='w-full px-3 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
 								>
 									✏️ Текст
 								</button>
 								<button
 									onClick={addTimerEl}
-									className='w-full px-3 py-2 bg-accent hover:bg-violet-700 text-white text-sm rounded-lg transition-colors'
+									className='w-full px-3 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
 								>
 									⏱ Таймер
 								</button>
@@ -3254,7 +3260,7 @@ export default function PanelClient({
 							{state.elements.map(el => (
 								<div
 									key={el.id}
-									onClick={() => setSelectedId(el.id)}
+									onClick={() => selectOnly(el.id)}
 									className={`group relative rounded-lg border overflow-hidden cursor-pointer transition-colors ${
 										selectedId === el.id
 											? 'border-accent2'
@@ -3329,7 +3335,7 @@ export default function PanelClient({
 				<div className='flex-1 flex flex-col bg-bg overflow-hidden'>
 					<div
 						ref={setViewportEl}
-						className={`flex-1 relative overflow-hidden ${panning ? 'cursor-grabbing' : ''}`}
+						className={`flex-1 relative overflow-clip ${panning ? 'cursor-grabbing' : ''}`}
 						style={{
 							touchAction: 'none',
 							background: 'var(--c-canvas)',
@@ -3406,27 +3412,27 @@ export default function PanelClient({
 								height: state.canvasH * view.s,
 							}}
 						>
-							{mounted && previewOn && channel && previewBox && (
-									<div
-										style={{
-											position: 'relative',
-											width: previewBox.w,
-											height: previewBox.h,
-											// Пока превью на паузе, клики должны доходить до самого
-											// Twitch-плеера: браузер разрешает запуск только по жесту
-											// внутри iframe, программный play() блокируется. На паузе
-											// поднимаем плеер над элементами (но ниже ручек группы),
-											// чтобы его кнопка Play не была перекрыта картинкой. Как
-											// только пошло воспроизведение — слой снова прозрачен для
-											// мыши и уходит под элементы.
-											pointerEvents: previewPlaying ? 'none' : 'auto',
-											zIndex: previewPlaying ? undefined : 1500,
-											// масштаб считаем от текущего размера бокса: превью всегда
-											// ровно в размер холста (на телефоне — тоже), без пересоздания iframe
-											transform: `scale(${(state.canvasW * view.s) / previewBox.w})`,
-											transformOrigin: '0 0',
-										}}
-									>
+							{mounted && previewOn && channel && previewBox && twitchLive === true && (
+								<div
+									style={{
+										position: 'relative',
+										width: previewBox.w,
+										height: previewBox.h,
+										// Пока превью на паузе, клики должны доходить до самого
+										// Twitch-плеера: браузер разрешает запуск только по жесту
+										// внутри iframe, программный play() блокируется. На паузе
+										// поднимаем плеер над элементами (но ниже ручек группы),
+										// чтобы его кнопка Play не была перекрыта картинкой. Как
+										// только пошло воспроизведение — слой снова прозрачен для
+										// мыши и уходит под элементы.
+										pointerEvents: previewPlaying ? 'none' : 'auto',
+										zIndex: previewPlaying ? undefined : 1500,
+										// масштаб считаем от текущего размера бокса: превью всегда
+										// ровно в размер холста (на телефоне — тоже), без пересоздания iframe
+										transform: `scale(${(state.canvasW * view.s) / previewBox.w})`,
+										transformOrigin: '0 0',
+									}}
+								>
 									<div
 										key={previewKey}
 										ref={twitchPreviewRef}
@@ -3435,28 +3441,53 @@ export default function PanelClient({
 									/>
 								</div>
 							)}
+							{/* оффлайн/неизвестный статус: своя аккуратная заглушка вместо
+							    белой карточки Twitch. Слой не перехватывает мышь, поэтому
+							    элементы под ним остаются доступными */}
+							{mounted && previewOn && channel && previewBox && twitchLive !== true && (
+								<div className='preview-offline' aria-hidden='true'>
+									<div className='preview-offline-card'>
+										<span
+											className={`preview-offline-dot ${twitchLive === null ? 'checking' : 'offline'}`}
+										/>
+										<div>
+											<p className='preview-offline-title'>
+												{twitchLive === null
+													? 'Проверяем эфир…'
+													: `${channel} сейчас не в сети`}
+											</p>
+											<p className='preview-offline-text'>
+												{twitchLive === null
+													? 'Как только статус станет известен, превью включится само.'
+													: 'Превью появится автоматически, когда стрим начнётся.'}
+											</p>
+										</div>
+									</div>
+								</div>
+							)}
 							{/* пока превью не заиграло (браузер ждёт клика) — подсказка поверх кадра */}
 							{mounted &&
 								previewOn &&
 								channel &&
 								previewBox &&
+								twitchLive === true &&
 								!previewPlaying && (
-									<div
-										className='absolute left-1/2 -translate-x-1/2 flex items-center gap-2 rounded-full px-3 py-1.5 pointer-events-none'
-										style={{
-											top: 'calc(50% - 14px)',
-											background: 'rgba(0,0,0,.72)',
-											color: '#fff',
-											fontSize: 12,
-											whiteSpace: 'nowrap',
-										}}
-									>
-										<span>▶</span>
-										<span>
-											Нажмите на плеер, чтобы запустить трансляцию
-										</span>
-									</div>
-								)}
+								<div
+									className='absolute left-1/2 -translate-x-1/2 flex items-center gap-2 rounded-full px-3 py-1.5 pointer-events-none'
+									style={{
+										top: 'calc(50% - 14px)',
+										background: 'rgba(0,0,0,.72)',
+										color: '#fff',
+										fontSize: 12,
+										whiteSpace: 'nowrap',
+									}}
+								>
+									<span>▶</span>
+									<span>
+										Нажмите на плеер, чтобы запустить трансляцию
+									</span>
+								</div>
+							)}
 							{!(mounted && previewOn && channel) && (
 								<div
 									className='absolute inset-0 opacity-10'
@@ -3534,6 +3565,10 @@ export default function PanelClient({
 								const isMedia =
 									el.type === 'video' ||
 									(el.type === 'iframe' && !!parseMediaUrl(el.src || ''))
+								// при мультивыделении ручки отдельных элементов не показываем:
+								// ими управляет общий бокс группы, иначе над ним появляется
+								// вторая «крутилка» и перехватывает мышь
+								const multiSelect = selectedIds.size > 1
 								return (
 									<div
 										key={el.id}
@@ -3545,7 +3580,10 @@ export default function PanelClient({
 											top: el.y,
 											width: el.width,
 											height: el.height,
-											zIndex: el.zIndex,
+											// выделенный элемент поднимаем над остальными: иначе
+											// чужая картинка выше по z-index перекрывает его ручки.
+											// Ниже превью Twitch (1500), чтобы клик по плееру работал
+											zIndex: selectedId === el.id ? 1400 : el.zIndex,
 											opacity: el.visible
 												? Math.max(el.opacity ?? 1, 0.08)
 												: 0.35,
@@ -3584,7 +3622,7 @@ export default function PanelClient({
 											mediaSt={mediaStates.get(el.id)}
 											chromeRegister={registerChromeCtl}
 											mediaToggle={mediaToggle}
-											mediaSelect={setSelectedId}
+											mediaSelect={selectOnly}
 											mediaCommand={mediaCommand}
 											onMediaState={applyMediaState}
 											onTwitchPlayer={onTwitchPlayer}
@@ -3704,11 +3742,11 @@ export default function PanelClient({
 														</svg>
 													</div>
 												)}
-											{!el.locked && (
+											{!el.locked && !multiSelect && (
 												<div
 													onPointerDown={e => handleRotateStart(e, el)}
 													title='Повернуть (Shift — шаг 15°)'
-													className={`absolute rounded-full flex items-center justify-center transition-opacity pointer-events-auto ${selectedId === el.id ? '' : 'opacity-0 group-hover:opacity-100'}`}
+													className={`absolute rounded-full flex items-center justify-center transition-opacity ${selectedId === el.id ? 'pointer-events-auto' : 'pointer-events-none group-hover:pointer-events-auto opacity-0 group-hover:opacity-100'}`}
 													style={{
 														left: `calc(50% - ${11 / view.s}px)`,
 														top: -32 / view.s,
@@ -3769,10 +3807,10 @@ export default function PanelClient({
 									/>
 									{(
 										[
-											['n', groupBox.w / 2 - 30, -5, 60, 10],
-											['s', groupBox.w / 2 - 30, groupBox.h - 5, 60, 10],
-											['w', -5, groupBox.h / 2 - 30, 10, 60],
-											['e', groupBox.w - 5, groupBox.h / 2 - 30, 10, 60],
+											['n', groupBox.w / 2 - 30, -7, 60, 14],
+											['s', groupBox.w / 2 - 30, groupBox.h - 7, 60, 14],
+											['w', -7, groupBox.h / 2 - 30, 14, 60],
+											['e', groupBox.w - 7, groupBox.h / 2 - 30, 14, 60],
 										] as const
 									).map(([k, left, top, w, h]) => (
 										<div
@@ -3803,10 +3841,10 @@ export default function PanelClient({
 											className='absolute pointer-events-auto'
 											data-nopan='1'
 											style={{
-												left: left - 5 / view.s,
-												top: top - 5 / view.s,
-												width: 10 / view.s,
-												height: 10 / view.s,
+												left: left - 7 / view.s,
+												top: top - 7 / view.s,
+												width: 14 / view.s,
+												height: 14 / view.s,
 												background: 'rgb(var(--c-accent2))',
 												border: `${2 / view.s}px solid #fff`,
 												borderRadius: 2,
@@ -4202,7 +4240,7 @@ export default function PanelClient({
 								if (kind === 'image') addImagePC()
 								else addVideoPC()
 							}}
-							className='w-full px-3 py-2.5 bg-accent hover:bg-violet-700 text-white text-sm rounded-xl transition-colors'
+							className='w-full px-3 py-2.5 bg-accent hover:bg-accent-hover text-white text-sm rounded-xl transition-colors'
 						>
 							📱 Файл с устройства
 						</button>

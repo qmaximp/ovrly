@@ -151,7 +151,7 @@ export default function ObsPanel() {
             <div className="mt-3"><label className="text-xs text-gray-500 block mb-1">Пароль</label>
               <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="пароль OBS WebSocket" className="w-full px-3 py-2 bg-bg border border-border rounded-lg text-sm" /></div>
             {error && <p className="text-sm text-red-400 mt-2">{error}</p>}
-            <button onClick={connect} disabled={connecting} className="w-full mt-4 px-4 py-2.5 bg-accent hover:bg-violet-700 disabled:opacity-50 text-white rounded-lg font-medium transition-colors">
+            <button onClick={connect} disabled={connecting} className="w-full mt-4 px-4 py-2.5 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white rounded-lg font-medium transition-colors">
               {connecting ? "Подключение…" : "Подключиться"}
             </button>
           </>

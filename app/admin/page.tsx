@@ -28,7 +28,7 @@ function noAccessScreen(login: string): React.ReactNode {
 				</p>
 				<a
 					href='/cabinet'
-					className='inline-block px-6 py-3 rounded-lg bg-accent hover:bg-violet-700 text-white text-sm transition-colors'
+					className='inline-block px-6 py-3 rounded-lg bg-accent hover:bg-accent-hover text-white text-sm transition-colors'
 				>
 					В личный кабинет
 				</a>

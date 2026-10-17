@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 420" width="720" height="420" font-family="Segoe UI, Inter, Arial, sans-serif" role="img" aria-label="Оверлей появился на сцене OBS">
+  <defs>
+    <linearGradient id="teal4" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5eead4"/>
+      <stop offset="1" stop-color="#0f766e"/>
+    </linearGradient>
+    <linearGradient id="scene4" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1b2a4a"/>
+      <stop offset=".55" stop-color="#3b1f4d"/>
+      <stop offset="1" stop-color="#0d2233"/>
+    </linearGradient>
+  </defs>
+  <rect width="720" height="420" fill="#0b1220"/>
+  <circle cx="660" cy="20" r="180" fill="#5eead4" opacity=".05"/>
+
+  <!-- окно OBS -->
+  <rect x="20" y="20" width="680" height="380" rx="14" fill="#0c1522" stroke="#223449"/>
+  <path d="M20 58h680" stroke="#223449"/>
+  <circle cx="40" cy="39" r="4" fill="#f87171"/>
+  <circle cx="54" cy="39" r="4" fill="#fbbf24"/>
+  <circle cx="68" cy="39" r="4" fill="#34d399"/>
+  <text x="360" y="43" font-size="10.5" fill="#8fa3b8" text-anchor="middle">OBS Studio — Профиль: стрим</text>
+
+  <!-- сцены -->
+  <rect x="20" y="82" width="188" height="148" rx="8" fill="#0a111b" stroke="#1c2b3b"/>
+  <text x="34" y="101" font-size="8.5" letter-spacing="1.6" fill="#7f93a8">СЦЕНЫ</text>
+  <rect x="32" y="110" width="164" height="30" rx="6" fill="#0f2b2a" stroke="#5eead4" stroke-opacity=".5"/>
+  <text x="44" y="129" font-size="10" fill="#dbe9e6">Главная</text>
+
+  <!-- источники -->
+  <rect x="20" y="238" width="188" height="162" rx="8" fill="#0a111b" stroke="#1c2b3b"/>
+  <text x="34" y="257" font-size="8.5" letter-spacing="1.6" fill="#7f93a8">ИСТОЧНИКИ</text>
+  <rect x="164" y="245" width="26" height="22" rx="6" fill="#12202f" stroke="#2b4055"/>
+  <path d="M177 251v10M172 256h10" stroke="#8fa3b8" stroke-width="2" stroke-linecap="round"/>
+  <rect x="32" y="276" width="164" height="28" rx="6" fill="#0f2b2a" stroke="#5eead4" stroke-opacity=".55"/>
+  <circle cx="44" cy="290" r="3" fill="#5eead4"/>
+  <text x="54" y="294" font-size="9.5" font-weight="600" fill="#eefaf8">Оверлей</text>
+  <circle cx="182" cy="290" r="6" fill="none" stroke="#5eead4" stroke-opacity=".5"/>
+  <circle cx="182" cy="290" r="2.2" fill="#5eead4"/>
+  <rect x="32" y="310" width="164" height="28" rx="6" fill="#0d1826"/>
+  <text x="44" y="328" font-size="9.5" fill="#8fa3b8">Веб-камера</text>
+  <rect x="32" y="344" width="164" height="28" rx="6" fill="#0d1826"/>
+  <text x="44" y="362" font-size="9.5" fill="#8fa3b8">Микрофон</text>
+
+  <!-- превью со сценой -->
+  <rect x="220" y="82" width="464" height="318" rx="8" fill="url(#scene4)" stroke="#1c2b3b"/>
+  <rect x="220" y="82" width="464" height="22" rx="8" fill="#0d1826"/>
+  <text x="234" y="97" font-size="8.5" letter-spacing="1.4" fill="#7f93a8">ПРЕДПРОСМОТР</text>
+  <circle cx="676" cy="93" r="4" fill="#f87171" opacity=".8"/>
+
+  <!-- игровая сцена (абстрактно) -->
+  <path d="M220 400l150-180 90 95 80-60 144 145z" fill="#0a1320" opacity=".55"/>
+  <circle cx="560" cy="170" r="46" fill="#5eead4" opacity=".07"/>
+  <circle cx="560" cy="170" r="24" fill="#fbbf24" opacity=".08"/>
+
+  <!-- оверлей: LIVE -->
+  <rect x="244" y="128" width="62" height="24" rx="6" fill="#7f1d1d" stroke="#f87171" stroke-opacity=".6"/>
+  <circle cx="256" cy="140" r="3.2" fill="#f87171"/>
+  <text x="265" y="144" font-size="9" font-weight="700" letter-spacing="1" fill="#fecaca">LIVE</text>
+
+  <!-- оверлей: таймер -->
+  <rect x="244" y="164" width="96" height="34" rx="8" fill="#04110f" opacity=".8" stroke="#5eead4" stroke-opacity=".45"/>
+  <text x="292" y="186" font-size="14" font-family="Consolas, monospace" fill="#eefaf8" text-anchor="middle">12:34</text>
+
+  <!-- оверлей: чат -->
+  <rect x="540" y="252" width="124" height="112" rx="10" fill="#07121c" opacity=".78" stroke="#5eead4" stroke-opacity=".35"/>
+  <text x="552" y="271" font-size="8" letter-spacing="1.2" fill="#5eead4">ЧАТ</text>
+  <rect x="552" y="282" width="90" height="7" rx="3.5" fill="#2f4a58"/>
+  <rect x="552" y="297" width="100" height="7" rx="3.5" fill="#2f4a58"/>
+  <rect x="552" y="312" width="72" height="7" rx="3.5" fill="#2f4a58"/>
+  <rect x="552" y="327" width="94" height="7" rx="3.5" fill="#2f4a58"/>
+  <rect x="552" y="342" width="60" height="7" rx="3.5" fill="#2f4a58"/>
+
+  <!-- рамка выбранного источника -->
+  <rect x="238" y="122" width="438" height="250" rx="8" fill="none" stroke="#5eead4" stroke-width="1.4" stroke-dasharray="6 5" opacity=".65"/>
+  <rect x="238" y="104" width="128" height="18" rx="4" fill="#0f2b2a" stroke="#5eead4" stroke-opacity=".5"/>
+  <text x="302" y="117" font-size="8.5" fill="#5eead4" text-anchor="middle">Browser Source</text>
+
+  <!-- номер шага с галочкой -->
+  <circle cx="668" cy="88" r="15" fill="url(#teal4)"/>
+  <path d="M661 88l5 5 9-11" stroke="#04110f" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
