@@ -23,9 +23,9 @@ import {
 import { analyzeSound, playTimerSound, type SoundAnalysis } from '@/lib/sound'
 import { ensureFontLoaded, textBoxStyle } from '@/lib/textStyle'
 import type { RoomUser, StreamElement, SyncState } from '@/lib/types'
+import dynamic from 'next/dynamic'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { io as ioInit, Socket } from 'socket.io-client'
-import dynamic from 'next/dynamic'
 
 // obs-websocket-js — тяжёлая зависимость; грузим её только когда впервые открыли OBS
 const ObsPanel = dynamic(() => import('@/components/ObsPanel'), {
@@ -464,7 +464,9 @@ export default function PanelClient({
 					if (gd && gd.items.some(it => it.id === id)) {
 						groupDragRef.current = null
 						document.body.classList.remove('dragging')
-						restoreElements(gd.items.map(it => ({ id: it.id, x: it.x, y: it.y })))
+						restoreElements(
+							gd.items.map(it => ({ id: it.id, x: it.x, y: it.y })),
+						)
 					}
 					const gsc = groupScaleRef.current
 					if (gsc && gsc.items.some(it => it.id === id)) {
@@ -542,7 +544,11 @@ export default function PanelClient({
 					id: sel,
 					cmd: st.muted ? 'mute' : 'unmute',
 				})
-				socket.emit('element:command', { id: sel, cmd: 'volume', value: st.vol })
+				socket.emit('element:command', {
+					id: sel,
+					cmd: 'volume',
+					value: st.vol,
+				})
 				if (st.kind === 'youtube')
 					socket.emit('element:command', {
 						id: sel,
@@ -718,7 +724,10 @@ export default function PanelClient({
 	// ===== история правок (Ctrl+Z / Ctrl+Y) =====
 	// Снимки набора элементов: перед каждым действием пользователя. Копим не чаще
 	// раза в 700мс, чтобы перетаскивание и вращение не забивали стек
-	const historyRef = useRef<{ past: StreamElement[][]; future: StreamElement[][] }>({
+	const historyRef = useRef<{
+		past: StreamElement[][]
+		future: StreamElement[][]
+	}>({
 		past: [],
 		future: [],
 	})
@@ -856,10 +865,11 @@ export default function PanelClient({
 			const clean: Partial<MediaSt> = {}
 			for (const [k, v] of Object.entries(patch))
 				if (v !== undefined) (clean as any)[k] = v
-		const next: MediaSt = { ...base, ...clean }
-		// позиция + время отчёта: по ним панель догоняет оверлей после возврата на вкладку
-		if (next.st === 1) lastPosRef.current.set(id, { t: next.t, at: Date.now() })
-		if (
+			const next: MediaSt = { ...base, ...clean }
+			// позиция + время отчёта: по ним панель догоняет оверлей после возврата на вкладку
+			if (next.st === 1)
+				lastPosRef.current.set(id, { t: next.t, at: Date.now() })
+			if (
 				cur &&
 				cur.vid === next.vid &&
 				cur.st === next.st &&
@@ -918,7 +928,11 @@ export default function PanelClient({
 					ccStatesRef.current.get(id) !== 1
 				)
 					f.contentWindow.postMessage(
-						JSON.stringify({ event: 'command', func: 'unloadModule', args: ['captions'] }),
+						JSON.stringify({
+							event: 'command',
+							func: 'unloadModule',
+							args: ['captions'],
+						}),
 						'*',
 					)
 				return
@@ -1084,7 +1098,8 @@ export default function PanelClient({
 			// Подтверждаем только выключение: если навязывать состояние, субтитры
 			// «включаются постоянно» и их нельзя выключить
 			for (const [id, mst] of mediaStatesRef.current) {
-				if (mst.kind !== 'youtube' || ccStatesRef.current.get(id) === 1) continue
+				if (mst.kind !== 'youtube' || ccStatesRef.current.get(id) === 1)
+					continue
 				localMediaCommand(id, 'cc', 0)
 			}
 			if (!sel) return
@@ -1146,7 +1161,9 @@ export default function PanelClient({
 	// а под текущий размер холста подгоняется CSS-трансформом. Считаем от размера бокса
 	// на экране, но не меньше 640px по ширине: на телефоне бокс маленький, и плеер
 	// в натуральную величину был бы нечитаемым
-	const [previewBox, setPreviewBox] = useState<{ w: number; h: number } | null>(null)
+	const [previewBox, setPreviewBox] = useState<{ w: number; h: number } | null>(
+		null,
+	)
 	// играет ли превью прямо сейчас: пока нет — бокс кликабельный, чтобы можно было
 	// нажать встроенную кнопку Twitch (автозапуск браузер может заблокировать)
 	const [previewPlaying, setPreviewPlaying] = useState(false)
@@ -1187,13 +1204,17 @@ export default function PanelClient({
 				twitchPlayerRef.current = player
 
 				// «разбудить» плеер: сначала гарантированно mute (без него браузер
-				// блокирует запуск), затем play()
-				const resume = async () => {
+				// блокирует запуск), затем play(). Оба вызова — синхронно, в том же
+				// пользовательском жесте: если сначала await setMuted, play() теряет
+				// user activation и браузер оставляет плеер на паузе.
+				const resume = () => {
 					if (cancelled) return
 					try {
-						await unwrap(player.setMuted?.(true))
+						player.setMuted?.(true)
 					} catch {}
-					await unwrap(player.play?.())
+					try {
+						player.play?.()
+					} catch {}
 				}
 				resumeRef.current = resume
 				const isPaused = async () => {
@@ -1217,30 +1238,45 @@ export default function PanelClient({
 						timers.push(setTimeout(() => void resume(), 900))
 					})
 
-				// первые быстрые попытки — чтобы стрим поднялся сразу, дальше сторож
+					// первые быстрые попытки — чтобы стрим поднялся сразу, дальше сторож
 				;[250, 800, 1600, 3000, 6000].forEach(d =>
 					timers.push(setTimeout(() => void resume(), d)),
 				)
 
 				// состояние берём из getPlayerState().playback: isPaused() возвращает false
-				// даже когда трансляция ещё не стартовала (playback: 'Ready')
+				// даже когда трансляция ещё не стартовала (playback: 'Ready').
+				// ВАЖНО: Twitch иногда отдаёт 'Idle', хотя видео уже играет, поэтому
+				// «играет» определяем ещё и по ненулевому currentTime.
 				const playbackState = async () => {
 					try {
 						const st = await unwrap(player.getPlayerState?.())
-						return typeof st?.playback === 'string' ? st.playback : null
+						return st && typeof st === 'object' ? st : null
 					} catch {
 						return null
 					}
 				}
-				watchdog = setInterval(async () => {
+				let lastTime = 0
+				const syncPlayback = async () => {
 					if (cancelled) return
 					const p = twitchPlayerRef.current
 					if (!p) return
-					const state = await playbackState()
-					const playing = state === 'Playing'
+					const st = await playbackState()
+					const playback = typeof st?.playback === 'string' ? st.playback : ''
+					const time = Number(st?.currentTime)
+					// Twitch иногда отдаёт 'Idle', хотя видео уже играет. Считаем
+					// играющим, если время реально продвинулось между проверками:
+					// так пауза на середине не принимается за воспроизведение.
+					const advanced = Number.isFinite(time) && time > lastTime + 0.05
+					const playing =
+						playback === 'Playing' ||
+						(playback !== 'Paused' &&
+							playback !== 'Ready' &&
+							advanced)
+					if (Number.isFinite(time)) lastTime = time
 					setPreviewPlaying(playing)
 					if (!playing) await resume()
-				}, 3000)
+				}
+				watchdog = setInterval(() => void syncPlayback(), 1500)
 			} catch {}
 		})()
 
@@ -1897,7 +1933,8 @@ export default function PanelClient({
 				// вращение группы: все выбранные элементы вращаются вокруг центра группы
 				const px = (e.clientX - rect.left - vx) / s
 				const py = (e.clientY - rect.top - vy) / s
-				let ang = (Math.atan2(py - gr.cy, px - gr.cx) * 180) / Math.PI - gr.startAngle
+				let ang =
+					(Math.atan2(py - gr.cy, px - gr.cx) * 180) / Math.PI - gr.startAngle
 				if (e.shiftKey) ang = Math.round(ang / 15) * 15 // шаг 15° с зажатым Shift
 				const rad = (ang * Math.PI) / 180
 				const c = Math.cos(rad)
@@ -1914,7 +1951,9 @@ export default function PanelClient({
 						const dy = it.cy - gr.cy
 						const ncx = gr.cx + dx * c - dy * sn
 						const ncy = gr.cy + dx * sn + dy * c
-						const rotation = Math.round((((it.rotation + ang) % 360) + 360) % 360)
+						const rotation = Math.round(
+							(((it.rotation + ang) % 360) + 360) % 360,
+						)
 						return {
 							...el,
 							x: Math.round(ncx - el.width / 2),
@@ -1928,9 +1967,7 @@ export default function PanelClient({
 					gr.lastTick = now
 					gr.items.forEach(
 						(it: { id: string; cx: number; cy: number; rotation: number }) => {
-							const el = stateRef.current.elements.find(
-								x => x.id === it.id,
-							)
+							const el = stateRef.current.elements.find(x => x.id === it.id)
 							if (el)
 								updateElement(it.id, {
 									x: el.x,
@@ -2099,8 +2136,7 @@ export default function PanelClient({
 			// движения могли не доехать до сервера и оверлей показывал бы другой угол
 			grt.items.forEach(it => {
 				const el = stateRef.current.elements.find(x => x.id === it.id)
-				if (el)
-					flushUpdate(it.id, { x: el.x, y: el.y, rotation: el.rotation })
+				if (el) flushUpdate(it.id, { x: el.x, y: el.y, rotation: el.rotation })
 			})
 			groupRotateRef.current = null
 			document.body.classList.remove('dragging')
@@ -2509,8 +2545,10 @@ export default function PanelClient({
 			const signY = dir.includes('n') ? -1 : dir.includes('s') ? 1 : 0
 			if (dir.length === 2 && e.shiftKey) {
 				// пропорционально: фиксированный угол — противоположный тянемому
-				const fixX = cx0 - axX * (orig.width / 2) * signX - ayX * (orig.height / 2) * signY
-				const fixY = cy0 - axY * (orig.width / 2) * signX - ayY * (orig.height / 2) * signY
+				const fixX =
+					cx0 - axX * (orig.width / 2) * signX - ayX * (orig.height / 2) * signY
+				const fixY =
+					cy0 - axY * (orig.width / 2) * signX - ayY * (orig.height / 2) * signY
 				const dvx = (px - fixX) * axX + (py - fixY) * axY
 				const dvy = (px - fixX) * ayX + (py - fixY) * ayY
 				const k = Math.max(
@@ -2522,8 +2560,10 @@ export default function PanelClient({
 				width = Math.max(30, Math.round(orig.width * k))
 				height = Math.max(20, Math.round(orig.height * k))
 				// центр относительно фиксированного угла
-				const ncx = fixX + axX * (width / 2) * signX + ayX * (height / 2) * signY
-				const ncy = fixY + axY * (width / 2) * signX + ayY * (height / 2) * signY
+				const ncx =
+					fixX + axX * (width / 2) * signX + ayX * (height / 2) * signY
+				const ncy =
+					fixY + axY * (width / 2) * signX + ayY * (height / 2) * signY
 				x = Math.round(ncx - width / 2)
 				y = Math.round(ncy - height / 2)
 			} else {
@@ -2535,8 +2575,10 @@ export default function PanelClient({
 				height = Math.max(20, Math.round(orig.height + dH))
 				const appliedW = width - orig.width
 				const appliedH = height - orig.height
-				const ncx = cx0 + axX * (appliedW / 2) * signX + ayX * (appliedH / 2) * signY
-				const ncy = cy0 + axY * (appliedW / 2) * signX + ayY * (appliedH / 2) * signY
+				const ncx =
+					cx0 + axX * (appliedW / 2) * signX + ayX * (appliedH / 2) * signY
+				const ncy =
+					cy0 + axY * (appliedW / 2) * signX + ayY * (appliedH / 2) * signY
 				x = Math.round(ncx - width / 2)
 				y = Math.round(ncy - height / 2)
 			}
@@ -2769,7 +2811,10 @@ export default function PanelClient({
 				const rect = vp.getBoundingClientRect()
 				const mx = (a.x + b.x) / 2 - rect.left
 				const my = (a.y + b.y) / 2 - rect.top
-				const ns = Math.min(200, Math.max(minScale(), pinch.s0 * (d / pinch.d0)))
+				const ns = Math.min(
+					200,
+					Math.max(minScale(), pinch.s0 * (d / pinch.d0)),
+				)
 				setView({
 					s: ns,
 					x: mx - ((mx - pinch.vx) / pinch.s0) * ns,
@@ -2870,28 +2915,30 @@ export default function PanelClient({
 	const previewPill = (
 		<div
 			className='absolute right-4 bottom-3 z-10 flex items-center gap-2 bg-panel border border-border rounded-full pl-3 pr-3 py-1.5 pointer-events-auto'
-			style={{ boxShadow: '0 2px 10px rgba(0,0,0,.25)' }}
+			style={{ boxShadow: '0 2px 10px rgba(0,0,0,.25)', zIndex: 3000 }}
 			data-nopan='1'
 			onPointerDown={e => e.stopPropagation()}
 		>
 			<span className='text-xs text-gray-300 select-none'>Превью</span>
-      <button
-        onClick={() => {
-          if (!previewOn) {
-            // размер плеера задаём один раз при включении: от текущего размера бокса,
-            // но не меньше 640px по ширине — иначе на телефоне плеер был бы нечитаемым
-            const boxW = Math.round(
-              stateRef.current.canvasW * (viewRef.current.s || 0.3),
-            )
-            const w = Math.min(1920, Math.max(640, boxW))
-            setPreviewBox({
-              w,
-              h: Math.round((w * stateRef.current.canvasH) / stateRef.current.canvasW),
-            })
-          }
-          setPreviewOn(v => !v)
-        }}
-        disabled={!channel}
+			<button
+				onClick={() => {
+					if (!previewOn) {
+						// размер плеера задаём один раз при включении: от текущего размера бокса,
+						// но не меньше 640px по ширине — иначе на телефоне плеер был бы нечитаемым
+						const boxW = Math.round(
+							stateRef.current.canvasW * (viewRef.current.s || 0.3),
+						)
+						const w = Math.min(1920, Math.max(640, boxW))
+						setPreviewBox({
+							w,
+							h: Math.round(
+								(w * stateRef.current.canvasH) / stateRef.current.canvasW,
+							),
+						})
+					}
+					setPreviewOn(v => !v)
+				}}
+				disabled={!channel}
 				title={
 					channel
 						? 'Стрим Twitch в превью холста'
@@ -2941,8 +2988,8 @@ export default function PanelClient({
 			{/* сервер не подтвердил сессию: правки не сохраняются — говорим об этом явно */}
 			{readOnly && !accessRevoked && (
 				<div className='px-5 py-2 text-xs text-amber-300 bg-amber-950/40 border-b border-amber-900/40'>
-					Сессия Twitch не подтверждена — изменения не сохраняются. Обновите страницу
-					и войдите заново.
+					Сессия Twitch не подтверждена — изменения не сохраняются. Обновите
+					страницу и войдите заново.
 				</div>
 			)}
 			<header
@@ -3030,11 +3077,7 @@ export default function PanelClient({
 						)}
 					</button>
 				)}
-				{isMobile && (
-					<span className='text-right text-[10px] text-gray-500 leading-tight max-w-[40vw]'>
-						Элементы сохраняются на сервере
-					</span>
-				)}
+
 				<div className={`flex items-center gap-3 ${isMobile ? 'hidden' : ''}`}>
 					{/* кто сейчас на странице: ники и роли (камера — автор панели, меч — модератор) */}
 					<button
@@ -3077,15 +3120,6 @@ export default function PanelClient({
 						className='text-sm text-accent2 hover:underline'
 					>
 						Поддержать проект ❤️
-					</a>
-					<a
-						href='https://github.com/qmaximp/ovrly/blob/main/LICENSE'
-						target='_blank'
-						rel='noopener noreferrer'
-						title='Ovrly · AGPL-3.0 · авторы jettle_, nezory_1'
-						className='text-xs text-gray-500 hover:text-accent2 transition-colors'
-					>
-						AGPL-3.0
 					</a>
 				</div>
 			</header>
@@ -3362,21 +3396,26 @@ export default function PanelClient({
 							}}
 						>
 							{mounted && previewOn && channel && previewBox && (
-								<div
-									style={{
-										position: 'relative',
-										width: previewBox.w,
-										height: previewBox.h,
-										// превью — чисто визуальный слой и НИКОГДА не перехватывает клики,
-										// иначе под ним нельзя ни тащить холст, ни менять размер элемента.
-										// Запуск (если автозапуск заблокирован) ловит window-pointerdown ниже
-										pointerEvents: 'none',
-										// масштаб считаем от текущего размера бокса: превью всегда
-										// ровно в размер холста (на телефоне — тоже), без пересоздания iframe
-										transform: `scale(${(state.canvasW * view.s) / previewBox.w})`,
-										transformOrigin: '0 0',
-									}}
-								>
+									<div
+										style={{
+											position: 'relative',
+											width: previewBox.w,
+											height: previewBox.h,
+											// Пока превью на паузе, клики должны доходить до самого
+											// Twitch-плеера: браузер разрешает запуск только по жесту
+											// внутри iframe, программный play() блокируется. На паузе
+											// поднимаем плеер над элементами (но ниже ручек группы),
+											// чтобы его кнопка Play не была перекрыта картинкой. Как
+											// только пошло воспроизведение — слой снова прозрачен для
+											// мыши и уходит под элементы.
+											pointerEvents: previewPlaying ? 'none' : 'auto',
+											zIndex: previewPlaying ? undefined : 1500,
+											// масштаб считаем от текущего размера бокса: превью всегда
+											// ровно в размер холста (на телефоне — тоже), без пересоздания iframe
+											transform: `scale(${(state.canvasW * view.s) / previewBox.w})`,
+											transformOrigin: '0 0',
+										}}
+									>
 									<div
 										key={previewKey}
 										ref={twitchPreviewRef}
@@ -3386,21 +3425,27 @@ export default function PanelClient({
 								</div>
 							)}
 							{/* пока превью не заиграло (браузер ждёт клика) — подсказка поверх кадра */}
-							{mounted && previewOn && channel && previewBox && !previewPlaying && (
-								<div
-									className='absolute left-1/2 -translate-x-1/2 flex items-center gap-2 rounded-full px-3 py-1.5 pointer-events-none'
-									style={{
-										top: 'calc(50% - 14px)',
-										background: 'rgba(0,0,0,.72)',
-										color: '#fff',
-										fontSize: 12,
-										whiteSpace: 'nowrap',
-									}}
-								>
-									<span>▶</span>
-									<span>Нажмите в любом месте, чтобы запустить трансляцию</span>
-								</div>
-							)}
+							{mounted &&
+								previewOn &&
+								channel &&
+								previewBox &&
+								!previewPlaying && (
+									<div
+										className='absolute left-1/2 -translate-x-1/2 flex items-center gap-2 rounded-full px-3 py-1.5 pointer-events-none'
+										style={{
+											top: 'calc(50% - 14px)',
+											background: 'rgba(0,0,0,.72)',
+											color: '#fff',
+											fontSize: 12,
+											whiteSpace: 'nowrap',
+										}}
+									>
+										<span>▶</span>
+										<span>
+											Нажмите на плеер, чтобы запустить трансляцию
+										</span>
+									</div>
+								)}
 							{!(mounted && previewOn && channel) && (
 								<div
 									className='absolute inset-0 opacity-10'
@@ -3412,8 +3457,8 @@ export default function PanelClient({
 								/>
 							)}
 						</div>
-							<div
-								className='absolute left-0 top-0'
+						<div
+							className='absolute left-0 top-0'
 							style={{
 								transform: `translate(${view.x}px, ${view.y}px) scale(${view.s})`,
 								transformOrigin: '0 0',
@@ -3533,14 +3578,14 @@ export default function PanelClient({
 											onMediaState={applyMediaState}
 											onTwitchPlayer={onTwitchPlayer}
 										/>
-											{(() => {
-												// невидимка лок не показывает: он всё равно может забрать
-												// элемент, а ник владельца лока ему не нужен
-												const l = elementLocks[el.id]
-												return !ghost &&
-													l &&
-													l.until > Date.now() &&
-													l.by !== (userLogin ?? '') ? (
+										{(() => {
+											// невидимка лок не показывает: он всё равно может забрать
+											// элемент, а ник владельца лока ему не нужен
+											const l = elementLocks[el.id]
+											return !ghost &&
+												l &&
+												l.until > Date.now() &&
+												l.by !== (userLogin ?? '') ? (
 												<div
 													className='absolute pointer-events-none select-none'
 													style={{
@@ -3556,9 +3601,9 @@ export default function PanelClient({
 															background: 'rgb(var(--c-accent))',
 															boxShadow: '0 1px 4px rgba(0,0,0,.4)',
 														}}
-														>
-															✋ {l.by || 'занято'}
-														</span>
+													>
+														✋ {l.by || 'занято'}
+													</span>
 												</div>
 											) : null
 										})()}
@@ -3698,6 +3743,13 @@ export default function PanelClient({
 										height: groupBox.h,
 										transform: `translate(-50%, -50%) rotate(${groupBox.rot}deg)`,
 										transformOrigin: 'center',
+										// Корень бокса не должен перехватывать клики: иначе элементы
+										// внутри рамки нельзя ни выделить, ни тащить (работает только
+										// тот, что оказался выше по z-index). Интерактивны только ручки.
+										pointerEvents: 'none',
+										// Выше элементов (у них zIndex 0..N), но ниже курсоров других
+										// участников (3000): ручки не прячутся под картинками и при 3+ элементах
+										zIndex: 2000,
 									}}
 								>
 									<div
@@ -3782,8 +3834,8 @@ export default function PanelClient({
 												transform: `rotate(${-groupBox.rot}deg)`,
 											}}
 										>
-											<path d="M21 12a9 9 0 1 1-2.64-6.36" />
-											<path d="M21 3v6h-6" />
+											<path d='M21 12a9 9 0 1 1-2.64-6.36' />
+											<path d='M21 3v6h-6' />
 										</svg>
 									</div>
 								</div>
@@ -3944,12 +3996,6 @@ export default function PanelClient({
 										Сбросить
 									</button>
 								</div>
-								<span
-									className='pl-0.5 text-[10px] text-gray-500'
-									style={{ textShadow: '0 1px 3px rgba(0,0,0,.6)' }}
-								>
-									Элементы сохраняются на сервере
-								</span>
 							</div>
 						)}
 					</div>
@@ -4030,15 +4076,6 @@ export default function PanelClient({
 							className='block px-3 py-1.5 text-sm text-accent2 hover:bg-border rounded-lg'
 						>
 							Поддержать проект ❤️
-						</a>
-						<a
-							href='https://github.com/qmaximp/ovrly/blob/main/LICENSE'
-							target='_blank'
-							rel='noopener noreferrer'
-							title='Ovrly · AGPL-3.0 · авторы jettle_, nezory_1'
-							className='block px-3 py-1.5 text-[11px] text-gray-500 hover:bg-border rounded-lg'
-						>
-							AGPL-3.0 · © 2026 jettle_, nezory_1
 						</a>
 					</div>
 				</>
@@ -4437,20 +4474,21 @@ function ElementThumb({ el }: { el: StreamElement }) {
 		// на светлой теме белый текст на светлом фоне был бы невидим
 		return (
 			<span className='absolute inset-0 flex items-center justify-center bg-[#14141c]'>
-			<span
-				className='px-1 text-center leading-tight'
-				style={{
-					color: el.color || '#fff',
-					fontFamily: el.fontFamily || undefined,
-					fontWeight: (el.fontWeight as React.CSSProperties['fontWeight']) || 'normal',
-					fontStyle: el.italic ? 'italic' : 'normal',
-					textDecoration: el.underline ? 'underline' : 'none',
-					fontSize: 10,
-					display: '-webkit-box',
-					WebkitLineClamp: 3,
-					WebkitBoxOrient: 'vertical',
-					overflow: 'hidden',
-				}}
+				<span
+					className='px-1 text-center leading-tight'
+					style={{
+						color: el.color || '#fff',
+						fontFamily: el.fontFamily || undefined,
+						fontWeight:
+							(el.fontWeight as React.CSSProperties['fontWeight']) || 'normal',
+						fontStyle: el.italic ? 'italic' : 'normal',
+						textDecoration: el.underline ? 'underline' : 'none',
+						fontSize: 10,
+						display: '-webkit-box',
+						WebkitLineClamp: 3,
+						WebkitBoxOrient: 'vertical',
+						overflow: 'hidden',
+					}}
 				>
 					{el.text || 'Текст'}
 				</span>
@@ -4463,7 +4501,10 @@ function ElementThumb({ el }: { el: StreamElement }) {
 			</span>
 		)
 	const info = parseMediaUrl(el.src || '')
-	if (info) return <span className='text-lg'>{info.kind === 'youtube' ? '▶️' : '🟣'}</span>
+	if (info)
+		return (
+			<span className='text-lg'>{info.kind === 'youtube' ? '▶️' : '🟣'}</span>
+		)
 	let host = ''
 	try {
 		host = new URL(el.src || '').hostname.replace(/^www\./, '')
@@ -4471,7 +4512,11 @@ function ElementThumb({ el }: { el: StreamElement }) {
 	return (
 		<span className='flex flex-col items-center gap-0.5 min-w-0'>
 			<span className='text-lg'>🌐</span>
-			{host && <span className='text-[9px] text-gray-500 truncate max-w-full'>{host}</span>}
+			{host && (
+				<span className='text-[9px] text-gray-500 truncate max-w-full'>
+					{host}
+				</span>
+			)}
 		</span>
 	)
 }
@@ -4593,7 +4638,9 @@ function SoundTrim({
 	onChange: (start: number, duration: number) => void
 }) {
 	const trackRef = useRef<HTMLDivElement | null>(null)
-	const [draft, setDraft] = useState<{ start: number; end: number } | null>(null)
+	const [draft, setDraft] = useState<{ start: number; end: number } | null>(
+		null,
+	)
 	const total = analysis.duration
 	const maxLen = Math.min(TRIM_MAX, total)
 	const minLen = Math.min(TRIM_MIN, maxLen)
@@ -4755,7 +4802,9 @@ function TimerSoundControls({
 			})
 			.catch(() => {
 				if (alive)
-					setWaveError('Не удалось построить волну. Попробуйте MP3, WAV или OGG.')
+					setWaveError(
+						'Не удалось построить волну. Попробуйте MP3, WAV или OGG.',
+					)
 			})
 		return () => {
 			alive = false
@@ -4942,15 +4991,16 @@ function TimerSoundControls({
 			)}
 			{hasSound && analysis && (
 				<p className='text-[10px] text-gray-600 leading-tight'>
-					Края — точные границы, середину можно перетаскивать по волне.
-					Максимум 10 с.
+					Края — точные границы, середину можно перетаскивать по волне. Максимум
+					10 с.
 				</p>
 			)}
 		</div>
 	)
 }
 
-function SunIcon() {	return (
+function SunIcon() {
+	return (
 		<svg
 			width='14'
 			height='14'
@@ -5035,13 +5085,16 @@ function PreviewElement({
 		// обычное видео (файл с ПК или прямая ссылка): свой плеер в превью + плашка
 		// управления, как у YouTube/Twitch — раньше видео нельзя было даже поставить
 		// на паузу или включить звук
-		if (chromeRegister && mediaToggle && mediaSelect && mediaCommand && onMediaState)
+		if (
+			chromeRegister &&
+			mediaToggle &&
+			mediaSelect &&
+			mediaCommand &&
+			onMediaState
+		)
 			return (
 				<>
-					<VideoPreview
-						el={el}
-						onState={patch => onMediaState(el.id, patch)}
-					/>
+					<VideoPreview el={el} onState={patch => onMediaState(el.id, patch)} />
 					<MediaChrome
 						el={el}
 						kind='video'
@@ -5127,8 +5180,8 @@ function PreviewElement({
 				    (Twitch-страница, YouTube-страница и т.п.) — говорим об этом прямо */}
 				{!interactive && cannotBeFramed(el.src || '') && (
 					<div className='absolute left-1 top-1 max-w-[92%] rounded-md bg-black/75 px-2 py-1 text-[10px] leading-tight text-amber-300 pointer-events-none'>
-						⚠️ Сайт запрещает встраивание — в рамке он не откроется. Для Twitch нужна
-						ссылка на канал, видео или клип, для YouTube — на видео
+						⚠️ Сайт запрещает встраивание — в рамке он не откроется. Для Twitch
+						нужна ссылка на канал, видео или клип, для YouTube — на видео
 					</div>
 				)}
 			</>
