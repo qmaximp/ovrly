@@ -505,7 +505,7 @@ app.prepare().then(() => {
 				lastSeen: Date.now(),
 			})
 		}
-		const broadcastUsers = () => {
+		const buildUsers = () => {
 			const byKey = new Map()
 			for (const u of roomRec.users.values()) {
 				// одинаковые ники (несколько вкладок одного человека) схлопываем со счётчиком
@@ -514,12 +514,19 @@ app.prepare().then(() => {
 				cur.connections += 1
 				byKey.set(key, cur)
 			}
-			const list = [...byKey.values()].sort(
+			return [...byKey.values()].sort(
 				(a, b) => ROLE_RANK[a.role] - ROLE_RANK[b.role] || a.login.localeCompare(b.login),
 			)
-			io.to(room).emit('room:users', list)
 		}
-		if (!isGhost) broadcastUsers()
+		const broadcastUsers = () => {
+			io.to(room).emit('room:users', buildUsers())
+		}
+		if (isGhost) {
+			// невидимка не входит в roomRec.users, но должен видеть остальных
+			socket.emit('room:users', buildUsers())
+		} else {
+			broadcastUsers()
+		}
 
 		console.log(
 			'[io] connect:',
