@@ -486,7 +486,7 @@ export default function CabinetClient({
 										<div className='mt-3 space-y-2'>
 											{inv.invites.map(i => (
 												<div key={i.owner} className='cabinet-invite-card'>
-													<div className='flex min-w-0 flex-1 items-center gap-2.5'>
+													<div className='cabinet-person flex min-w-0 flex-1 items-center gap-2.5'>
 														<PersonAvatar login={i.owner} avatar={i.avatar} />
 														<div className='min-w-0'>
 															<a
@@ -508,7 +508,7 @@ export default function CabinetClient({
 															</p>
 														</div>
 													</div>
-													<div className='flex flex-wrap gap-1.5'>
+													<div className='cabinet-card-actions flex flex-wrap gap-1.5'>
 														{i.status === 'pending' && (
 															<button
 																onClick={() =>
@@ -586,7 +586,7 @@ export default function CabinetClient({
 													inv.moderators.map(m => (
 														<div key={m.login} className='cabinet-mod-row'>
 															<PersonAvatar login={m.login} avatar={m.avatar} />
-															<div className='min-w-0 flex-1'>
+															<div className='cabinet-person min-w-0 flex-1'>
 																<a
 																	href={`https://www.twitch.tv/${m.login}`}
 																	target='_blank'
@@ -601,7 +601,7 @@ export default function CabinetClient({
 																	{statusText(m)}
 																</p>
 															</div>
-															<div className='flex flex-wrap gap-1.5 justify-end'>
+															<div className='cabinet-card-actions flex flex-wrap gap-1.5 justify-end'>
 																{m.status === 'accepted' && (
 																	<button
 																		onClick={() =>

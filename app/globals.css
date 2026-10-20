@@ -1399,6 +1399,8 @@ html.light .cabinet-tab.is-active { color: #fff; }
   border: 1px solid rgb(var(--c-border) / 0.6);
   background: rgb(var(--c-bg) / 0.28);
 }
+.cabinet-person { min-width: 0; }
+.cabinet-card-actions { flex: 0 1 auto; }
 .cabinet-invite-row { display: flex; gap: 0.55rem; margin-top: 1rem; flex-wrap: wrap; }
 .cabinet-input {
   flex: 1 1 170px;
@@ -1714,4 +1716,33 @@ html.light .admin-room-badge.dirty { color: #b45309; }
   .cabinet-admin-link { margin-left: 0; }
   .cabinet-guide-card { padding: 1rem; }
   .cabinet-tips-list { grid-template-columns: 1fr; }
+
+  /* Доступы на телефоне: ник и статус занимают свободное место слева,
+     кнопки стоят отдельной колонкой справа и больше не наезжают на текст */
+  .cabinet-invite-card,
+  .cabinet-mod-row {
+    flex-wrap: nowrap;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+  .cabinet-person {
+    flex: 1 1 auto;
+    min-width: 0;
+    gap: 0.4rem;
+  }
+  .cabinet-person .cabinet-mod-name {
+    overflow-wrap: anywhere;
+  }
+  .cabinet-card-actions {
+    flex: 0 0 auto;
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    margin-left: auto;
+  }
+  .cabinet-card-actions .btn-sm {
+    padding: 0.48rem 0.68rem;
+    font-size: 0.76rem;
+  }
 }
