@@ -146,6 +146,12 @@ html.light .border-red-900\/50 { border-color: rgba(220, 38, 38, 0.3); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 .pop-in { animation: pop-in .18s cubic-bezier(.2, .8, .3, 1) both; }
+/* привычная панель: окно выезжает справа от левого меню, а не снизу */
+@keyframes sheet-slide-in {
+  from { opacity: 0; transform: translateX(-12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.sheet-slide-in { animation: sheet-slide-in .2s cubic-bezier(.2, .8, .3, 1) both; }
 @keyframes fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -1680,6 +1686,90 @@ html.light .admin-alert.is-ok { color: #15803d; }
 html.light .admin-room-badge.ok { color: #15803d; }
 html.light .admin-room-badge.dirty { color: #b45309; }
 .admin-room-edit { font-size: 0.65rem; color: rgb(var(--c-text) / 0.4); white-space: nowrap; }
+
+/* Публичные виджеты в админке */
+.admin-widget-table {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  max-height: 420px;
+  overflow-y: auto;
+}
+.admin-widget-head,
+.admin-widget-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(0, 0.9fr) 88px 96px 100px 64px;
+  gap: 0.55rem;
+  align-items: center;
+  padding: 0.5rem 0.6rem;
+}
+.admin-widget-head {
+  padding-top: 0.15rem;
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgb(var(--c-text) / 0.4);
+}
+.admin-widget-item { border-radius: 10px; }
+.admin-widget-row {
+  border-radius: 10px;
+  font-size: 0.78rem;
+}
+.admin-widget-row:hover { background: rgb(var(--c-accent2) / 0.05); }
+.admin-widget-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 650;
+  color: rgb(var(--c-on-bg));
+}
+.admin-widget-cell {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.7rem;
+  color: rgb(var(--c-text) / 0.55);
+  text-decoration: none;
+}
+.admin-widget-author:hover { color: rgb(var(--c-accent2)); }
+.admin-widget-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+.admin-widget-mobile-meta { display: none; }
+.admin-widget-preview {
+  margin: 0.1rem 0.6rem 0.7rem;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid rgb(var(--c-border));
+  border-radius: 10px;
+  background: #0e1017;
+}
+@media (max-width: 760px) {
+  .admin-widget-head { display: none; }
+  .admin-widget-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 0.2rem;
+  }
+  .admin-widget-author,
+  .admin-widget-size,
+  .admin-widget-vars,
+  .admin-widget-date { display: none; }
+  .admin-widget-mobile-meta {
+    display: block;
+    margin-top: 0.12rem;
+    font-size: 0.65rem;
+    font-weight: 400;
+    color: rgb(var(--c-text) / 0.45);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
 .admin-empty { padding: 1.2rem 0.8rem; font-size: 0.8rem; color: rgb(var(--c-text) / 0.45); }
 .admin-input {
   flex: 1 1 220px;

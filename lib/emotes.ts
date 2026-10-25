@@ -10,7 +10,7 @@
 //   3. Если личного токена нет (автор ни разу не входил или отозвал доступ) —
 //      отдаём всё, что доступно публично, и пишем об этом в notes.
 //
-// Результат кэшируется на 5 минут: пикер открывается часто, а платформы
+// Результат кэшируется на 30 минут: пикер открывается часто, а платформы
 // ограничивают частоту запросов.
 
 import { readLinks, writeLinks } from './links'
@@ -31,7 +31,7 @@ export type EmotesResult = {
 	notes: string[]
 }
 
-const CACHE_TTL_MS = 5 * 60 * 1000
+const CACHE_TTL_MS = 30 * 60 * 1000
 const cache = new Map<string, { at: number; data: EmotesResult }>()
 
 // Helix-запрос конкретным токеном (app- или user-). Возвращает null при любой ошибке:
@@ -115,34 +115,24 @@ async function twitchEmotes(
 		return out
 	}
 
-	// 1) личный набор автора: его подписки и награды канала (только его токеном)
-	if (ownerToken && broadcasterId) {
-		const own = await helix(
-			`chat/emotes/user?user_id=${broadcasterId}`,
-			ownerToken,
-		)
-		for (const e of own?.data ?? []) push(e, 'personal')
-	}
-
-	// 2) смайлики самого канала. Важно: публичный эндпоинт — старый
-	//    /chat/emotes?broadcaster_id=... (работает с app-токеном), а новый
-	//    /chat/emotes/channel требует user-токен и с app-токеном отдаёт 404.
-	//    Поэтому базовый набор берём старым запросом, а «новый» добавляем, если
-	//    есть токен автора (там полнее метаданные)
-	if (broadcasterId) {
-		const ch = await helix(`chat/emotes?broadcaster_id=${broadcasterId}`, appToken)
-		for (const e of ch?.data ?? []) push(e, 'channel')
-		if (ownerToken) {
-			const chNew = await helix(
-				`chat/emotes/channel?broadcaster_id=${broadcasterId}`,
-				ownerToken,
-			)
-			for (const e of chNew?.data ?? []) push(e, 'channel')
-		}
-	}
-
-	// 3) глобальные смайлики Twitch
-	const glob = await helix('chat/emotes/global', appToken)
+	// 1) личный набор автора, 2) канал, 3) глобальные — запросы независимы,
+	// поэтому идём параллельно; порядок вставки в out сохраняем прежним
+	const [own, ch, chNew, glob] = await Promise.all([
+		ownerToken && broadcasterId
+			? helix(`chat/emotes/user?user_id=${broadcasterId}`, ownerToken)
+			: Promise.resolve(null),
+		broadcasterId
+			? helix(`chat/emotes?broadcaster_id=${broadcasterId}`, appToken)
+			: Promise.resolve(null),
+		ownerToken && broadcasterId
+			? helix(`chat/emotes/channel?broadcaster_id=${broadcasterId}`, ownerToken)
+			: Promise.resolve(null),
+		helix('chat/emotes/global', appToken),
+	])
+	for (const e of own?.data ?? []) push(e, 'personal')
+	// старый /chat/emotes отдаёт основной набор, новый дополняет метаданные
+	for (const e of ch?.data ?? []) push(e, 'channel')
+	for (const e of chNew?.data ?? []) push(e, 'channel')
 	for (const e of glob?.data ?? []) push(e, 'global')
 
 	return out
@@ -280,8 +270,11 @@ export async function loadEmotes(channel: string, refresh = false): Promise<Emot
 	}
 
 	const notes: string[] = []
-	const broadcasterId = channel ? await twitchUserId(channel) : null
-	const ownerToken = channel ? await ownerUserToken(channel) : null
+	// id канала и user-токен не зависят друг от друга — тянем параллельно
+	const [broadcasterId, ownerToken] = await Promise.all([
+		channel ? twitchUserId(channel) : Promise.resolve(null),
+		channel ? ownerUserToken(channel) : Promise.resolve(null),
+	])
 	if (channel && !ownerToken)
 		notes.push(
 			'Полный набор автора недоступен: чтобы подтянулись его подписки и награды канала, автор должен войти в панель через Twitch',

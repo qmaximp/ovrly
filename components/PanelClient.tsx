@@ -8,9 +8,12 @@ import {
 	type MediaSt,
 } from '@/components/MediaPlayer'
 import TextStyleControls from '@/components/TextStyleControls'
+import WidgetVariableControl from '@/components/WidgetControls'
+import WidgetFrame from '@/components/WidgetFrame'
 import { NumberField } from '@/components/fields'
 import { noteServerClock, serverClockLag } from '@/lib/clock'
-import { toEmbedUrl } from '@/lib/embed'
+import { colorWithOpacity } from '@/lib/color'
+import { toEmbedUrl, youtubePlaylistId } from '@/lib/embed'
 import {
 	cannotBeFramed,
 	isLiveLink,
@@ -22,9 +25,46 @@ import {
 } from '@/lib/media'
 import { analyzeSound, playTimerSound, type SoundAnalysis } from '@/lib/sound'
 import { ensureFontLoaded, textBoxStyle } from '@/lib/textStyle'
-import type { RoomUser, StreamElement, SyncState } from '@/lib/types'
+import type {
+	RoomUser,
+	StreamElement,
+	SyncState,
+	WidgetDefinition,
+} from '@/lib/types'
+import {
+	Blocks,
+	ChevronDown,
+	ChevronUp,
+	Eye,
+	EyeOff,
+	Film,
+	Globe,
+	ImagePlus,
+	Layers,
+	Link2,
+	ListVideo,
+	Lock,
+	MessageCircle,
+	Monitor,
+	Package,
+	Pencil,
+	Play,
+	Plus,
+	Settings,
+	SlidersHorizontal,
+	Smile,
+	Square,
+	Timer,
+	Trash2,
+	Type,
+	Upload,
+	Volume2,
+	X,
+} from 'lucide-react'
 import dynamic from 'next/dynamic'
+import type { ReactNode } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { io as ioInit, Socket } from 'socket.io-client'
 
 // obs-websocket-js — тяжёлая зависимость; грузим её только когда впервые открыли OBS
@@ -32,6 +72,14 @@ const ObsPanel = dynamic(() => import('@/components/ObsPanel'), {
 	ssr: false,
 	loading: () => (
 		<p className='p-4 text-sm text-gray-500'>Загрузка панели OBS…</p>
+	),
+})
+
+// студия виджетов нужна не всегда: грузим чанк только при первом открытии
+const WidgetStudio = dynamic(() => import('@/components/WidgetStudio'), {
+	ssr: false,
+	loading: () => (
+		<p className='p-4 text-sm text-gray-500'>Загрузка виджетов…</p>
 	),
 })
 
@@ -76,6 +124,49 @@ type Emote = {
 	scope?: 'channel' | 'personal' | 'global'
 }
 
+// Клиентский кэш смайликов: сервер уже кэширует ответ, но повторное открытие
+// пикера не должно ждать даже его. sessionStorage переживает перезагрузку вкладки,
+// TTL короче серверного — данные успевают обновиться.
+const EMOTE_CACHE_KEY = 'panel:emotes:v1'
+const EMOTE_CACHE_TTL = 15 * 60 * 1000
+type EmoteCacheEntry = {
+	at: number
+	channel: string
+	emotes: Emote[]
+	notes: string[]
+}
+let emoteMemCache: EmoteCacheEntry | null = null
+
+function readEmoteCache(channel: string): EmoteCacheEntry | null {
+	try {
+		const raw = sessionStorage.getItem(EMOTE_CACHE_KEY)
+		const j = raw ? (JSON.parse(raw) as EmoteCacheEntry) : emoteMemCache
+		if (
+			j &&
+			j.channel === channel &&
+			Date.now() - j.at < EMOTE_CACHE_TTL &&
+			Array.isArray(j.emotes)
+		)
+			return j
+	} catch {}
+	return null
+}
+
+function writeEmoteCache(channel: string, emotes: Emote[], notes: string[]) {
+	const entry: EmoteCacheEntry = { at: Date.now(), channel, emotes, notes }
+	emoteMemCache = entry
+	try {
+		sessionStorage.setItem(EMOTE_CACHE_KEY, JSON.stringify(entry))
+	} catch {}
+}
+
+function clearEmoteCache() {
+	emoteMemCache = null
+	try {
+		sessionStorage.removeItem(EMOTE_CACHE_KEY)
+	} catch {}
+}
+
 export default function PanelClient({
 	channel,
 	room,
@@ -100,13 +191,91 @@ export default function PanelClient({
 	const [notice, setNotice] = useState<string | null>(null)
 	// сервер не увидел валидную сессию: панель открыта, но правки не сохраняются
 	const [readOnly, setReadOnly] = useState(false)
-	const [tab, setTab] = useState<'elements' | 'obs'>('elements')
+	const [tab, setTab] = useState<
+		'elements' | 'widgets' | 'obs' | 'chat' | 'settings'
+	>('elements')
 	// ObsPanel монтируем при первом открытии вкладки и больше не размонтируем:
 	// так соединение с OBS не рвётся при переключении, а чанк не грузится зря
 	const [obsMounted, setObsMounted] = useState(false)
 	useEffect(() => {
 		if (tab === 'obs') setObsMounted(true)
 	}, [tab])
+	// вкладка OBS временно скрыта по умолчанию; включается тоглом в настройках
+	const [showObsTab, setShowObsTab] = useState(false)
+	useEffect(() => {
+		try {
+			if (localStorage.getItem('panel:obs-tab') === '1') setShowObsTab(true)
+		} catch {}
+	}, [])
+	useEffect(() => {
+		if (!showObsTab) setTab(t => (t === 'obs' ? 'elements' : t))
+	}, [showObsTab])
+	const toggleObsTab = useCallback(() => {
+		setShowObsTab(v => {
+			const next = !v
+			try {
+				localStorage.setItem('panel:obs-tab', next ? '1' : '0')
+			} catch {}
+			return next
+		})
+	}, [])
+	// студия виджетов: монтируем при первом открытии, чтобы не терять черновик
+	const [widgetStudioMounted, setWidgetStudioMounted] = useState(false)
+	// мини-окно выбора виджета из «Моих виджетов» для добавления на холст
+	const [widgetPickerOpen, setWidgetPickerOpen] = useState(false)
+	// запрос из свойств элемента: открыть этот виджет в редакторе
+	const [pendingWidgetEdit, setPendingWidgetEdit] =
+		useState<WidgetDefinition | null>(null)
+	useEffect(() => {
+		if (tab === 'widgets') setWidgetStudioMounted(true)
+	}, [tab])
+	const widgetLibrary = useMemo(
+		() =>
+			Object.values(state.widgets || {}).sort((a, b) =>
+				a.name.localeCompare(b.name, 'ru'),
+			),
+		[state.widgets],
+	)
+	// чат стрима: на ПК — плавающее окно справа, на телефоне — отдельная
+	// страница из бургер-меню; chatOn управляет только окном на ПК
+	const [chatOn, setChatOn] = useState(true)
+	useEffect(() => {
+		try {
+			if (localStorage.getItem('panel:chat') === '0') setChatOn(false)
+		} catch {}
+	}, [])
+	useEffect(() => {
+		if (!chatOn) setTab(t => (t === 'chat' ? 'elements' : t))
+	}, [chatOn])
+	const toggleChat = useCallback(() => {
+		setChatOn(v => {
+			const next = !v
+			try {
+				localStorage.setItem('panel:chat', next ? '1' : '0')
+			} catch {}
+			return next
+		})
+	}, [])
+	// минималистичное меню: добавление элементов снизу, список элементов свёрнут.
+	// Выбор хранится в браузере, чтобы не сбрасывался после перезагрузки.
+	// Ключ localStorage оставлен прежним, чтобы не потерять выбор у тех, кто уже
+	// включал режим, когда он назывался «бета-интерфейс».
+	const [betaUI, setBetaUI] = useState(false)
+	const [betaElementsOpen, setBetaElementsOpen] = useState(false)
+	useEffect(() => {
+		try {
+			if (localStorage.getItem('panel:beta-ui') === '1') setBetaUI(true)
+		} catch {}
+	}, [])
+	const toggleBetaUI = useCallback(() => {
+		setBetaUI(v => {
+			const next = !v
+			try {
+				localStorage.setItem('panel:beta-ui', next ? '1' : '0')
+			} catch {}
+			return next
+		})
+	}, [])
 	const [theme, setTheme] = useState<'dark' | 'light'>('dark')
 	const [previewOn, setPreviewOn] = useState(false)
 	const [previewKey, setPreviewKey] = useState(0)
@@ -171,7 +340,17 @@ export default function PanelClient({
 	// последняя известная позиция плеера и время отчёта: по ним панель догоняет
 	// оверлей, когда возвращаешься на вкладку (в фоне браузер ставит превью на паузу)
 	const lastPosRef = useRef<Map<string, { t: number; at: number }>>(new Map())
-	const [addSheet, setAddSheet] = useState<null | 'image' | 'video'>(null)
+	// защита от повторного «ролик закончился»: YouTube присылает state 0 несколько раз
+	const playlistStepAtRef = useRef<Map<string, number>>(new Map())
+	const [addSheet, setAddSheet] = useState<null | 'image' | 'video' | 'audio'>(
+		null,
+	)
+	// модалка добавления YouTube-плейлиста
+	const [playlistOpen, setPlaylistOpen] = useState(false)
+	const [playlistText, setPlaylistText] = useState('')
+	const [playlistUrl, setPlaylistUrl] = useState('')
+	const [playlistLoopNew, setPlaylistLoopNew] = useState(true)
+	const [playlistError, setPlaylistError] = useState('')
 	// левую панель можно скрыть целиком (кнопка в её шапке) — канвас занимает всё место
 	const [sidebarOpen, setSidebarOpen] = useState(true)
 	useEffect(() => {
@@ -264,6 +443,35 @@ export default function PanelClient({
 	const [isMobile, setIsMobile] = useState(false)
 	const [sheetOpen, setSheetOpen] = useState(false)
 	const [menuOpen, setMenuOpen] = useState(false)
+	// на ПК отдельной вкладки чата нет: при повороте/расширении с телефона
+	// возвращаемся к холсту, чат останется плавающим окном
+	useEffect(() => {
+		if (!isMobile && tab === 'chat') setTab('elements')
+	}, [isMobile, tab])
+	// Twitch-чату нужен «чистый» слой: считаем верх окна от холста, но рендерим
+	// сам чат порталом в body, без клиппинга и transform-родителей
+	const [chatTop, setChatTop] = useState(168)
+	// отступ справа считаем от правого края холста, а не окна: когда открывается
+	// панель свойств элемента, холст сужается и чат должен отъехать левее неё
+	const [chatRight, setChatRight] = useState(16)
+	useEffect(() => {
+		const viewport = viewportRef.current
+		if (!viewport) return
+		const update = () => {
+			const r = viewport.getBoundingClientRect()
+			setChatTop(Math.round(r.top + 56))
+			setChatRight(Math.max(16, Math.round(window.innerWidth - r.right + 16)))
+		}
+		update()
+		window.addEventListener('resize', update)
+		const ro =
+			typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null
+		ro?.observe(viewport)
+		return () => {
+			window.removeEventListener('resize', update)
+			ro?.disconnect()
+		}
+	}, [canvasEl, chatOn, tab, isMobile, mounted, channel])
 	// плавное закрытие бургера: на время exit-анимации меню остаётся в DOM
 	const [menuClosing, setMenuClosing] = useState(false)
 	const menuCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -632,6 +840,33 @@ export default function PanelClient({
 		socket.on('elements:cleared', () => {
 			forgetAllElements()
 			setState(p => ({ ...p, elements: [] }))
+		})
+		socket.on('widget:updated', (def: WidgetDefinition) => {
+			if (!def || typeof def.id !== 'string') return
+			setState(p => ({
+				...p,
+				widgets: { ...(p.widgets || {}), [def.id]: def },
+			}))
+		})
+		socket.on('widget:deleted', (id: string) => {
+			setState(p => {
+				const widgets = { ...(p.widgets || {}) }
+				delete widgets[id]
+				return { ...p, widgets }
+			})
+		})
+		socket.on('widget:trigger', (d: any) => {
+			window.dispatchEvent(
+				new CustomEvent('ovrly:widget-trigger', { detail: d }),
+			)
+		})
+		socket.on('widget:chat', (d: any) => {
+			window.dispatchEvent(new CustomEvent('ovrly:widget-chat', { detail: d }))
+		})
+		socket.on('widget:twitch-event', (d: any) => {
+			window.dispatchEvent(
+				new CustomEvent('ovrly:widget-twitch-event', { detail: d }),
+			)
 		})
 
 		return () => {
@@ -1093,11 +1328,48 @@ export default function PanelClient({
 					muted: info.muted,
 					vol: info.volume !== undefined ? Math.round(info.volume) : undefined,
 				} as Partial<MediaSt>)
+				// ролик закончился — переключаем очередь на следующий.
+				// expected защищает от двойного переключения при двух открытых панелях
+				if (
+					info.playerState === 0 &&
+					Array.isArray(el.playlist) &&
+					el.playlist.length
+				) {
+					const now = Date.now()
+					const last = playlistStepAtRef.current.get(elId) || 0
+					if (now - last > 1500) {
+						playlistStepAtRef.current.set(elId, now)
+						socketRef.current?.emit('playlist:step', {
+							id: elId,
+							dir: 1,
+							expected: el.playlistIndex ?? 0,
+						})
+					}
+				}
 			} catch {}
 		}
 		window.addEventListener('message', onMsg)
 		return () => window.removeEventListener('message', onMsg)
 	}, [applyMediaState])
+
+	// YouTube присылает infoDelivery только после handshake. Без него панель
+	// не видела окончание ролика и плейлист не переключался на следующее видео.
+	// Держим handshake для всех YouTube-элементов, а не только после ручного play.
+	useEffect(() => {
+		const t = setInterval(() => {
+			for (const el of stateRef.current.elements) {
+				if (parseMediaUrl(el.src || '')?.kind !== 'youtube') continue
+				const f = document.querySelector(
+					`iframe[data-id="${el.id}"]`,
+				) as HTMLIFrameElement | null
+				f?.contentWindow?.postMessage(
+					JSON.stringify({ event: 'listening', id: 1, channel: 'widget' }),
+					'*',
+				)
+			}
+		}, 1500)
+		return () => clearInterval(t)
+	}, [])
 
 	// выбранный играющий элемент раз в 5с подтверждаем оверлею (закрывает рефреш
 	// оверлея / переподключение без действий пользователя)
@@ -1285,9 +1557,7 @@ export default function PanelClient({
 					const advanced = Number.isFinite(time) && time > lastTime + 0.05
 					const playing =
 						playback === 'Playing' ||
-						(playback !== 'Paused' &&
-							playback !== 'Ready' &&
-							advanced)
+						(playback !== 'Paused' && playback !== 'Ready' && advanced)
 					if (Number.isFinite(time)) lastTime = time
 					setPreviewPlaying(playing)
 					if (!playing) await resume()
@@ -1463,17 +1733,63 @@ export default function PanelClient({
 		return { x: k * 40, y: 1200 + k * 24 }
 	}
 
+	// добавить экземпляр виджета на холст: код копируется в элемент, библиотека
+	// остаётся отдельно — так оверлей получает всё через состояние комнаты
+	const addWidgetToCanvas = (def: WidgetDefinition) => {
+		const p = parkingSpot(def.width, def.height)
+		const widgetValues: Record<string, string> = {}
+		for (const v of def.variables || []) widgetValues[v.name] = v.value ?? ''
+		addElement({
+			type: 'widget',
+			widget: def,
+			widgetValues,
+			...p,
+			width: def.width,
+			height: def.height,
+			text: '',
+		})
+		setTab('elements')
+	}
+	const saveWidget = useCallback(
+		(def: WidgetDefinition) => emit('widget:save', def),
+		[emit],
+	)
+	const deleteWidget = useCallback(
+		(id: string) => emit('widget:delete', id),
+		[emit],
+	)
+	// из свойств элемента: открыть его виджет в редакторе
+	const editWidgetFromElement = useCallback((def: WidgetDefinition) => {
+		setPendingWidgetEdit(def)
+		setSheetOpen(false)
+		setTab('widgets')
+	}, [])
+
 	// refresh=true — кнопка «Обновить»: сбрасываем кэш на сервере, но сохраняем
 	// введённый поиск и выбранную платформу
 	const openEmotePicker = useCallback(
 		async (refresh = false) => {
+			const key = channel || ''
 			setEmoteOpen(true)
-			setEmoteLoading(true)
 			setEmoteError('')
 			if (!refresh) {
 				setEmoteQuery('')
 				setEmotePlatform('all')
 			}
+			// свежий кэш — показываем сразу, без запроса и спиннера
+			const cached = refresh ? null : readEmoteCache(key)
+			if (cached) {
+				setEmotes(cached.emotes)
+				setEmoteNotes(cached.notes)
+				setEmoteLoading(false)
+				if (!cached.emotes.length)
+					setEmoteError(
+						'Смайлики не найдены. Проверьте TWITCH_CLIENT_ID/SECRET в .env.local или попробуйте позже.',
+					)
+				return
+			}
+			if (refresh) clearEmoteCache()
+			setEmoteLoading(true)
 			try {
 				const params = new URLSearchParams()
 				if (channel) params.set('channel', channel)
@@ -1485,6 +1801,7 @@ export default function PanelClient({
 				if (!res.ok) throw new Error(j?.error || 'Ошибка загрузки')
 				setEmotes(j.emotes ?? [])
 				setEmoteNotes(j.notes ?? [])
+				writeEmoteCache(key, j.emotes ?? [], j.notes ?? [])
 				if (!j.emotes?.length)
 					setEmoteError(
 						'Смайлики не найдены. Проверьте TWITCH_CLIENT_ID/SECRET в .env.local или попробуйте позже.',
@@ -1497,6 +1814,26 @@ export default function PanelClient({
 		},
 		[channel],
 	)
+
+	// прогреваем кэш заранее: к моменту первого открытия пикера список уже готов
+	useEffect(() => {
+		if (!channel || readEmoteCache(channel)) return
+		let cancelled = false
+		const t = setTimeout(() => {
+			const params = new URLSearchParams({ channel })
+			fetch(`/api/emotes?${params.toString()}`)
+				.then(r => (r.ok ? r.json() : null))
+				.then(j => {
+					if (cancelled || !Array.isArray(j?.emotes)) return
+					writeEmoteCache(channel, j.emotes, j.notes ?? [])
+				})
+				.catch(() => {})
+		}, 1200)
+		return () => {
+			cancelled = true
+			clearTimeout(t)
+		}
+	}, [channel])
 
 	const addEmote = useCallback(
 		(em: Emote) => {
@@ -1623,6 +1960,174 @@ export default function PanelClient({
 			})
 	}, [addElement])
 
+	// звук добавляется так же, как картинка/видео: файл с ПК или ссылка.
+	// На оверлее он не рисуется — это звуковая кнопка, которой управляют из свойств
+	const addAudioPC = useCallback(() => {
+		void pickFile('audio/*', async f => {
+			if (f.size > 12 * 1024 * 1024) {
+				alert('Звук больше 12 МБ. Лучше использовать ссылку.')
+				return
+			}
+			const src = await fileToSrc(f)
+			if (src.startsWith('data:') && src.length > 3 * 1024 * 1024) {
+				alert(
+					'Сервер не смог сохранить звук файлом (слишком большой). Добавьте его по ссылке.',
+				)
+				return
+			}
+			const p = parkingSpot(360, 110)
+			addElement({
+				type: 'audio',
+				src,
+				...p,
+				width: 360,
+				height: 110,
+				text: '',
+				volume: 1,
+				loop: false,
+			})
+		})
+	}, [addElement, pickFile])
+
+	const addAudioUrl = useCallback(() => {
+		const url = prompt('Ссылка на звук (MP3, WAV, OGG):')
+		const p = parkingSpot(360, 110)
+		if (url)
+			addElement({
+				type: 'audio',
+				src: url,
+				...p,
+				width: 360,
+				height: 110,
+				text: '',
+				volume: 1,
+				loop: false,
+			})
+	}, [addElement])
+
+	// YouTube-плейлист: готовый list=... встраиваем нативно (YouTube сам
+	// переключает ролики), а несколько отдельных ссылок — очередью, которую
+	// переключает сервер после окончания текущего ролика
+	const addYoutubePlaylist = useCallback(() => {
+		const lines = playlistText
+			.split(/\r?\n/)
+			.map(s => s.trim())
+			.filter(Boolean)
+		if (!lines.length) {
+			setPlaylistError('Вставьте хотя бы одну ссылку YouTube.')
+			return
+		}
+		const finish = () => {
+			setPlaylistOpen(false)
+			setPlaylistText('')
+			setPlaylistError('')
+		}
+		// одна ссылка с list=... — это готовый плейлист YouTube: отдаём его
+		// самому YouTube, он сам переключит ролики даже без открытой панели
+		if (lines.length === 1) {
+			const list = youtubePlaylistId(lines[0])
+			if (list) {
+				const p = parkingSpot(640, 360)
+				addElement({
+					type: 'iframe',
+					src: lines[0],
+					...p,
+					width: 640,
+					height: 360,
+					text: '',
+					autoplay: true,
+				})
+				finish()
+				return
+			}
+		}
+		const ids: string[] = []
+		const lists: string[] = []
+		for (const line of lines) {
+			const info = parseMediaUrl(line)
+			if (info?.kind === 'youtube') {
+				if (!ids.includes(info.id)) ids.push(info.id)
+				continue
+			}
+			const list = youtubePlaylistId(line)
+			if (list) {
+				if (!lists.includes(list)) lists.push(list)
+				continue
+			}
+			setPlaylistError(`Не похоже на ссылку YouTube: ${line.slice(0, 90)}`)
+			return
+		}
+		if (ids.length && lists.length) {
+			setPlaylistError(
+				'Нельзя смешивать готовый плейлист и отдельные видео. Выберите что-то одно.',
+			)
+			return
+		}
+		if (ids.length) {
+			const p = parkingSpot(640, 360)
+			addElement({
+				type: 'iframe',
+				src: `https://www.youtube.com/watch?v=${ids[0]}`,
+				...p,
+				width: 640,
+				height: 360,
+				text: '',
+				autoplay: true,
+				playlist: ids.slice(0, 100),
+				playlistIndex: 0,
+				playlistLoop: playlistLoopNew,
+			})
+		} else if (lists.length === 1) {
+			const p = parkingSpot(640, 360)
+			addElement({
+				type: 'iframe',
+				src: `https://www.youtube.com/playlist?list=${lists[0]}`,
+				...p,
+				width: 640,
+				height: 360,
+				text: '',
+				autoplay: true,
+			})
+		} else {
+			setPlaylistError(
+				lists.length > 1
+					? 'Вставьте один готовый плейлист или несколько отдельных видео.'
+					: 'Не удалось найти видео в ссылках.',
+			)
+			return
+		}
+		finish()
+	}, [addElement, playlistText, playlistLoopNew])
+
+	// отдельное явное добавление готового плейлиста по ссылке
+	const addReadyYoutubePlaylist = useCallback(() => {
+		const url = playlistUrl.trim()
+		if (!url) {
+			setPlaylistError('Вставьте ссылку готового плейлиста YouTube.')
+			return
+		}
+		if (!youtubePlaylistId(url)) {
+			setPlaylistError(
+				'В ссылке нет list=... — это не похоже на плейлист YouTube.',
+			)
+			return
+		}
+		const p = parkingSpot(640, 360)
+		addElement({
+			type: 'iframe',
+			src: url,
+			...p,
+			width: 640,
+			height: 360,
+			text: '',
+			autoplay: true,
+		})
+		setPlaylistOpen(false)
+		setPlaylistText('')
+		setPlaylistUrl('')
+		setPlaylistError('')
+	}, [addElement, playlistUrl])
+
 	// drag&drop из проводника: брошенный файл попадает в ЗОНУ ПРЕДЗАГРУЗКИ —
 	// так же, как при добавлении через кнопки (не на сам канвас с превью)
 	const [dropHover, setDropHover] = useState(false)
@@ -1632,6 +2137,9 @@ export default function PanelClient({
 		/\.(png|jpe?g|gif|webp|bmp|avif)$/i.test(f.name)
 	const isVideoFile = (f: File) =>
 		f.type.startsWith('video/') || /\.(mp4|webm|mov|m4v|ogv)$/i.test(f.name)
+	const isAudioFile = (f: File) =>
+		f.type.startsWith('audio/') ||
+		/\.(mp3|wav|ogg|oga|aac|m4a|weba)$/i.test(f.name)
 	// форматы, которые браузер не воспроизведёт (типичные записи OBS — mkv)
 	const UNPLAYABLE_VIDEO_RE = /\.(mkv|avi|flv|ts|wmv)$/i
 	const handleDropFiles = useCallback(
@@ -1667,12 +2175,35 @@ export default function PanelClient({
 						height: 270,
 						text: '',
 					})
+				} else if (isAudioFile(f)) {
+					if (f.size > 12 * 1024 * 1024) {
+						alert(`«${f.name}» больше 12 МБ — добавьте звук по ссылке.`)
+						continue
+					}
+					const src = await fileToSrc(f)
+					if (src.startsWith('data:') && src.length > 3 * 1024 * 1024) {
+						alert(
+							`«${f.name}» слишком большой для хранения в оверлее — добавьте звук по ссылке.`,
+						)
+						continue
+					}
+					const p = parkingSpot(360, 110)
+					addElement({
+						type: 'audio',
+						src,
+						...p,
+						width: 360,
+						height: 110,
+						text: '',
+						volume: 1,
+						loop: false,
+					})
 				} else if (UNPLAYABLE_VIDEO_RE.test(f.name)) {
 					alert(
 						`«${f.name}» — браузер не воспроизводит этот формат (частый случай у записей OBS). Конвертируйте в MP4/WebM или добавьте по ссылке.`,
 					)
 				} else {
-					alert(`«${f.name}» — это не картинка и не видео.`)
+					alert(`«${f.name}» — это не картинка, не видео и не звук.`)
 				}
 			}
 		},
@@ -1682,12 +2213,25 @@ export default function PanelClient({
 	const addIframeEl = useCallback(() => {
 		const p = parkingSpot(560, 315)
 		const url = prompt(
-			'Ссылка на сайт, YouTube или Twitch (например, https://youtube.com/watch?v=...):',
+			'Ссылка на сайт, YouTube, Twitch, Vimeo или Rutube (например, https://youtube.com/watch?v=...):',
 		)
 		// обычные видео стоят на превью-заставке (как на референсе) и играют после play,
 		// а живые трансляции (канал Twitch, youtube /live/) запускаем сразу — иначе кажется,
 		// что «стрим не запускается»
-		if (url)
+		if (url) {
+			// сайты с X-Frame-Options/frame-ancestors в iframe не откроются. Для
+			// известных сервисов toEmbedUrl даёт рабочий embed-адрес; для остальных
+			// честно предупреждаем, а не оставляем пустую рамку без объяснения
+			if (
+				!parseMediaUrl(url) &&
+				cannotBeFramed(url) &&
+				toEmbedUrl(url) === (/^https?:\/\//i.test(url) ? url : `https://${url}`)
+			) {
+				const ok = confirm(
+					'Этот сайт запрещает встраивание в iframe (X-Frame-Options). В рамке он не откроется. Добавьте YouTube, Twitch, Vimeo или Rutube — либо откройте сайт отдельно. Всё равно добавить?',
+				)
+				if (!ok) return
+			}
 			addElement({
 				type: 'iframe',
 				src: url,
@@ -1697,6 +2241,7 @@ export default function PanelClient({
 				text: '',
 				autoplay: isLiveLink(url),
 			})
+		}
 	}, [addElement])
 
 	// вставка медиа из буфера (Ctrl+V): скриншоты, файлы из проводника, ссылки на картинки и YouTube
@@ -1941,6 +2486,9 @@ export default function PanelClient({
 		// поворот бокса (град) и его pivot: масштаб считаем в этой системе координат
 		rot: number
 		pivot: { x: number; y: number }
+		// центр рамки в локальной системе pivot — без него неподвижный угол
+		// смещён и группа «уезжает» при ресайзе (заметно уже на 3+ элементах)
+		centerLocal: { x: number; y: number }
 		startLocal: { x: number; y: number }
 		items: { id: string; x: number; y: number; w: number; h: number }[]
 		lastTick: number
@@ -2032,9 +2580,12 @@ export default function PanelClient({
 					fx = k
 					fy = k
 				}
-				// неподвижный угол в локальных координатах бокса (origin — pivot)
-				const oxL = (gs.corner.includes('w') ? 1 : -1) * (gs.bw / 2)
-				const oyL = (gs.corner.includes('n') ? 1 : -1) * (gs.bh / 2)
+				// неподвижный угол в локальных координатах бокса (origin — pivot);
+				// отсчёт от центра рамки, а не от pivot
+				const oxL =
+					gs.centerLocal.x + (gs.corner.includes('w') ? 1 : -1) * (gs.bw / 2)
+				const oyL =
+					gs.centerLocal.y + (gs.corner.includes('n') ? 1 : -1) * (gs.bh / 2)
 				setState(p => ({
 					...p,
 					elements: p.elements.map(el => {
@@ -2387,6 +2938,16 @@ export default function PanelClient({
 				y: -(x - groupBox.pivot.x) * sin + (y - groupBox.pivot.y) * cos,
 			})
 			const start = toLocal(px, py)
+			// центр рамки относительно pivot: именно вокруг него строится бокс,
+			// а pivot — центроид элементов, поэтому они не совпадают
+			const centerLocal = {
+				x:
+					(groupBox.cx - groupBox.pivot.x) * cos +
+					(groupBox.cy - groupBox.pivot.y) * sin,
+				y:
+					-(groupBox.cx - groupBox.pivot.x) * sin +
+					(groupBox.cy - groupBox.pivot.y) * cos,
+			}
 			groupScaleRef.current = {
 				sx: e.clientX,
 				sy: e.clientY,
@@ -2399,6 +2960,7 @@ export default function PanelClient({
 				corner,
 				rot: groupBox.rot,
 				pivot: groupBox.pivot,
+				centerLocal,
 				startLocal: start,
 				items,
 				lastTick: 0,
@@ -2932,7 +3494,9 @@ export default function PanelClient({
 	const previewPill = (
 		<div
 			className='absolute right-4 bottom-3 z-10 flex items-center gap-2 bg-panel border border-border rounded-full pl-3 pr-3 py-1.5 pointer-events-auto'
-			style={{ boxShadow: '0 2px 10px rgba(0,0,0,.25)', zIndex: 3000 }}
+			// ниже окна чата (z-30): Twitch блокирует чат владельцу/модератору,
+			// если на странице есть элементы с z-index выше iframe, даже без перекрытия
+			style={{ boxShadow: '0 2px 10px rgba(0,0,0,.25)', zIndex: 20 }}
 			data-nopan='1'
 			onPointerDown={e => e.stopPropagation()}
 		>
@@ -2966,6 +3530,37 @@ export default function PanelClient({
 				<span
 					className='absolute top-[2px] w-4 h-4 bg-white rounded-full transition-all'
 					style={{ left: previewOn ? 18 : 2 }}
+				/>
+			</button>
+		</div>
+	)
+
+	// быстрый переключатель чата в правом верхнем углу холста — как «Превью»,
+	// но сверху; сама вкладка чата остаётся отдельной
+	const chatPill = (
+		<div
+			className='absolute right-4 top-3 z-10 flex items-center gap-2 bg-panel border border-border rounded-full pl-3 pr-3 py-1.5 pointer-events-auto'
+			// ниже окна чата (z-30) — иначе Twitch считает чат перекрытым
+			style={{ boxShadow: '0 2px 10px rgba(0,0,0,.25)', zIndex: 20 }}
+			data-nopan='1'
+			onPointerDown={e => e.stopPropagation()}
+		>
+			<MessageCircle
+				size={14}
+				className={chatOn ? 'text-accent2' : 'text-gray-500'}
+			/>
+			<span className='text-xs text-gray-300 select-none'>Чат</span>
+			<button
+				role='switch'
+				aria-checked={chatOn}
+				aria-label='Чат стрима'
+				onClick={toggleChat}
+				title={chatOn ? 'Скрыть чат' : 'Показать чат'}
+				className={`w-9 h-5 rounded-full transition-colors shrink-0 relative ${chatOn ? 'bg-green-500' : 'bg-gray-600'}`}
+			>
+				<span
+					className='absolute top-[2px] w-4 h-4 bg-white rounded-full transition-all'
+					style={{ left: chatOn ? 18 : 2 }}
 				/>
 			</button>
 		</div>
@@ -3146,22 +3741,38 @@ export default function PanelClient({
 			>
 				<button
 					onClick={() => setTab('elements')}
-					className={`px-4 py-2 text-sm rounded-t-lg transition-colors ${tab === 'elements' ? 'bg-bg text-[color:var(--c-on-bg)] border-b-2 border-accent' : 'text-gray-500 hover:text-gray-300'}`}
+					className={`flex items-center gap-1.5 px-4 py-2 text-sm rounded-t-lg transition-colors ${tab === 'elements' ? 'bg-bg text-[color:var(--c-on-bg)] border-b-2 border-accent' : 'text-gray-500 hover:text-gray-300'}`}
 				>
 					Элементы оверлея
 				</button>
 				<button
-					onClick={() => setTab('obs')}
-					className={`px-4 py-2 text-sm rounded-t-lg transition-colors ${tab === 'obs' ? 'bg-bg text-[color:var(--c-on-bg)] border-b-2 border-accent' : 'text-gray-500 hover:text-gray-300'}`}
+					onClick={() => setTab('widgets')}
+					className={`flex items-center gap-1.5 px-4 py-2 text-sm rounded-t-lg transition-colors ${tab === 'widgets' ? 'bg-bg text-[color:var(--c-on-bg)] border-b-2 border-accent' : 'text-gray-500 hover:text-gray-300'}`}
 				>
-					Управление OBS
+					<Blocks size={15} />
+					Виджеты
+				</button>
+				{showObsTab && (
+					<button
+						onClick={() => setTab('obs')}
+						className={`flex items-center gap-1.5 px-4 py-2 text-sm rounded-t-lg transition-colors ${tab === 'obs' ? 'bg-bg text-[color:var(--c-on-bg)] border-b-2 border-accent' : 'text-gray-500 hover:text-gray-300'}`}
+					>
+						Управление OBS
+					</button>
+				)}
+				<button
+					onClick={() => setTab('settings')}
+					className={`flex items-center gap-1.5 px-4 py-2 text-sm rounded-t-lg transition-colors ${tab === 'settings' ? 'bg-bg text-[color:var(--c-on-bg)] border-b-2 border-accent' : 'text-gray-500 hover:text-gray-300'}`}
+				>
+					<Settings size={15} />
+					Настройки
 				</button>
 			</div>
 
 			<div
 				className={`flex-1 flex overflow-hidden ${tab === 'elements' ? '' : 'hidden'}`}
 			>
-				{!isMobile && sidebarOpen && (
+				{!isMobile && !betaUI && sidebarOpen && (
 					<aside className='w-72 shrink-0 bg-panel border-r border-border p-4 overflow-y-auto'>
 						<div className='flex items-center justify-between mb-3'>
 							<h2 className='text-sm font-semibold text-gray-400 uppercase tracking-wide'>
@@ -3171,67 +3782,87 @@ export default function PanelClient({
 							<button
 								onClick={toggleSidebar}
 								title='Скрыть панель — освободить место'
-								className='w-6 h-6 shrink-0 rounded-md bg-border hover:bg-gray-600 text-gray-300 flex items-center justify-center text-[11px] transition-colors'
+								className='w-7 h-7 shrink-0 rounded-lg bg-bg border border-border hover:bg-border text-gray-300 flex items-center justify-center text-sm transition-colors'
 							>
 								‹
 							</button>
 						</div>
-						{
-							<div className='space-y-2'>
-								<div className='flex gap-2'>
-									<button
-										onClick={addImagePC}
-										className='flex-1 px-3 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
-									>
-										🖼 С ПК
-									</button>
-									<button
-										onClick={addImageUrl}
-										className='flex-1 px-3 py-2 bg-border hover:bg-gray-600 text-white text-sm rounded-lg transition-colors'
-									>
-										🔗 URL
-									</button>
-								</div>
-								<div className='flex gap-2'>
-									<button
-										onClick={addVideoPC}
-										className='flex-1 px-3 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
-									>
-										🎬 С ПК
-									</button>
-									<button
-										onClick={addVideoUrl}
-										className='flex-1 px-3 py-2 bg-border hover:bg-gray-600 text-white text-sm rounded-lg transition-colors'
-									>
-										🔗 URL
-									</button>
-								</div>
+						<div className='space-y-2'>
+							<div className='grid grid-cols-3 gap-2'>
 								<button
-									onClick={() => openEmotePicker()}
-									className='w-full px-3 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
+									onClick={() => setAddSheet('image')}
+									title='Картинка'
+									aria-label='Картинка'
+									className='h-10 flex items-center justify-center bg-accent hover:bg-accent-hover text-white rounded-lg transition-colors'
 								>
-									😀 Добавить смайлик
+									<ImagePlus size={18} />
 								</button>
 								<button
-									onClick={addIframeEl}
-									className='w-full px-3 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
+									onClick={() => setAddSheet('video')}
+									title='Видео'
+									aria-label='Видео'
+									className='h-10 flex items-center justify-center bg-accent hover:bg-accent-hover text-white rounded-lg transition-colors'
 								>
-									🌐 Сайт
+									<Film size={18} />
+								</button>
+								<button
+									onClick={() => setAddSheet('audio')}
+									title='Звук'
+									aria-label='Звук'
+									className='h-10 flex items-center justify-center bg-accent hover:bg-accent-hover text-white rounded-lg transition-colors'
+								>
+									<Volume2 size={18} />
+								</button>
+							</div>
+							<button
+								onClick={() => openEmotePicker()}
+								className='w-full flex items-center justify-center gap-2 px-3 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
+							>
+								<Smile size={16} />
+								Добавить смайлик
+							</button>
+							<button
+								onClick={addIframeEl}
+								className='w-full flex items-center justify-center gap-2 px-3 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
+							>
+								<Globe size={16} />
+								Сайт
+							</button>
+							<button
+								onClick={() => setWidgetPickerOpen(true)}
+								title='Добавить виджет на холст'
+								className='w-full flex items-center justify-center gap-2 px-3 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
+							>
+								<Blocks size={16} />
+								Виджеты
+							</button>
+							<button
+								onClick={() => {
+									setPlaylistOpen(true)
+									setPlaylistError('')
+								}}
+								className='w-full flex items-center justify-center gap-2 px-3 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
+							>
+								<ListVideo size={16} />
+								YouTube плейлист
+							</button>
+							<div className='grid grid-cols-2 gap-2'>
+								<button
+									onClick={addTimerEl}
+									className='flex items-center justify-center gap-1.5 px-2 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
+								>
+									<Timer size={16} />
+									Таймер
 								</button>
 								<button
 									onClick={addTextEl}
-									className='w-full px-3 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
+									className='flex items-center justify-center gap-1.5 px-2 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
 								>
-									✏️ Текст
-								</button>
-								<button
-									onClick={addTimerEl}
-									className='w-full px-3 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
-								>
-									⏱ Таймер
+									<Type size={16} />
+									Текст
 								</button>
 							</div>
-						}
+						</div>
 
 						{/* «Очистить всё» — в шапке списка, а не под ним: при большом
 						    количестве элементов кнопку не приходится искать прокруткой */}
@@ -3258,70 +3889,27 @@ export default function PanelClient({
 						    а не «data:image/png;base64...» в подписи */}
 						<div className='grid grid-cols-2 gap-2'>
 							{state.elements.map(el => (
-								<div
+								<ElementCard
 									key={el.id}
-									onClick={() => selectOnly(el.id)}
-									className={`group relative rounded-lg border overflow-hidden cursor-pointer transition-colors ${
-										selectedId === el.id
-											? 'border-accent2'
-											: selectedIds.has(el.id)
-												? 'border-accent2/60'
-												: 'border-border hover:border-gray-500'
-									}`}
-								>
-									<div className='h-16 bg-bg flex items-center justify-center overflow-hidden'>
-										<ElementThumb el={el} />
-									</div>
-									<div className='flex items-center gap-0.5 px-1 py-0.5 bg-panel'>
-										<span className='flex-1 truncate text-[10px] text-gray-400'>
-											{elementLabel(el)}
-										</span>
-										<button
-											onClick={e => {
-												e.stopPropagation()
-												setState(p => ({
-													...p,
-													elements: p.elements.map(x =>
-														x.id === el.id ? { ...x, visible: !x.visible } : x,
-													),
-												}))
-												emit('element:toggle-visible', el.id)
-											}}
-											title={el.visible ? 'Скрыть' : 'Показать'}
-											className='shrink-0 text-[11px] leading-none px-0.5 hover:opacity-80'
-										>
-											{el.visible ? '👁' : '🚫'}
-										</button>
-										<button
-											onClick={e => {
-												e.stopPropagation()
-												remember()
-												emit('element:delete', el.id)
-												if (selectedId === el.id) setSelectedId(null)
-											}}
-											title='Удалить'
-											className='shrink-0 text-[11px] leading-none px-0.5 text-red-400 hover:text-red-300'
-										>
-											✕
-										</button>
-									</div>
-									{el.alwaysLoaded && (
-										<span
-											className='absolute top-0.5 right-0.5 text-[9px] opacity-80'
-											title='Всегда загружен'
-										>
-											📦
-										</span>
-									)}
-									{el.locked && (
-										<span
-											className='absolute top-0.5 left-0.5 text-[9px] opacity-80'
-											title='Заблокирован от перетаскивания'
-										>
-											🔒
-										</span>
-									)}
-								</div>
+									el={el}
+									selected={selectedId === el.id}
+									active={selectedIds.has(el.id)}
+									onSelect={() => selectOnly(el.id)}
+									onToggleVisible={() => {
+										setState(p => ({
+											...p,
+											elements: p.elements.map(x =>
+												x.id === el.id ? { ...x, visible: !x.visible } : x,
+											),
+										}))
+										emit('element:toggle-visible', el.id)
+									}}
+									onDelete={() => {
+										remember()
+										emit('element:delete', el.id)
+										if (selectedId === el.id) setSelectedId(null)
+									}}
+								/>
 							))}
 						</div>
 						{state.elements.length === 0 && (
@@ -3412,59 +4000,67 @@ export default function PanelClient({
 								height: state.canvasH * view.s,
 							}}
 						>
-							{mounted && previewOn && channel && previewBox && twitchLive === true && (
-								<div
-									style={{
-										position: 'relative',
-										width: previewBox.w,
-										height: previewBox.h,
-										// Пока превью на паузе, клики должны доходить до самого
-										// Twitch-плеера: браузер разрешает запуск только по жесту
-										// внутри iframe, программный play() блокируется. На паузе
-										// поднимаем плеер над элементами (но ниже ручек группы),
-										// чтобы его кнопка Play не была перекрыта картинкой. Как
-										// только пошло воспроизведение — слой снова прозрачен для
-										// мыши и уходит под элементы.
-										pointerEvents: previewPlaying ? 'none' : 'auto',
-										zIndex: previewPlaying ? undefined : 1500,
-										// масштаб считаем от текущего размера бокса: превью всегда
-										// ровно в размер холста (на телефоне — тоже), без пересоздания iframe
-										transform: `scale(${(state.canvasW * view.s) / previewBox.w})`,
-										transformOrigin: '0 0',
-									}}
-								>
+							{mounted &&
+								previewOn &&
+								channel &&
+								previewBox &&
+								twitchLive === true && (
 									<div
-										key={previewKey}
-										ref={twitchPreviewRef}
-										id='twitch-preview'
-										className='absolute inset-0'
-									/>
-								</div>
-							)}
+										style={{
+											position: 'relative',
+											width: previewBox.w,
+											height: previewBox.h,
+											// Пока превью на паузе, клики должны доходить до самого
+											// Twitch-плеера: браузер разрешает запуск только по жесту
+											// внутри iframe, программный play() блокируется. На паузе
+											// поднимаем плеер над элементами (но ниже ручек группы),
+											// чтобы его кнопка Play не была перекрыта картинкой. Как
+											// только пошло воспроизведение — слой снова прозрачен для
+											// мыши и уходит под элементы.
+											pointerEvents: previewPlaying ? 'none' : 'auto',
+											zIndex: previewPlaying ? undefined : 1500,
+											// масштаб считаем от текущего размера бокса: превью всегда
+											// ровно в размер холста (на телефоне — тоже), без пересоздания iframe
+											transform: `scale(${(state.canvasW * view.s) / previewBox.w})`,
+											transformOrigin: '0 0',
+										}}
+									>
+										<div
+											key={previewKey}
+											ref={twitchPreviewRef}
+											id='twitch-preview'
+											className='absolute inset-0'
+										/>
+									</div>
+								)}
 							{/* оффлайн/неизвестный статус: своя аккуратная заглушка вместо
 							    белой карточки Twitch. Слой не перехватывает мышь, поэтому
 							    элементы под ним остаются доступными */}
-							{mounted && previewOn && channel && previewBox && twitchLive !== true && (
-								<div className='preview-offline' aria-hidden='true'>
-									<div className='preview-offline-card'>
-										<span
-											className={`preview-offline-dot ${twitchLive === null ? 'checking' : 'offline'}`}
-										/>
-										<div>
-											<p className='preview-offline-title'>
-												{twitchLive === null
-													? 'Проверяем эфир…'
-													: `${channel} сейчас не в сети`}
-											</p>
-											<p className='preview-offline-text'>
-												{twitchLive === null
-													? 'Как только статус станет известен, превью включится само.'
-													: 'Превью появится автоматически, когда стрим начнётся.'}
-											</p>
+							{mounted &&
+								previewOn &&
+								channel &&
+								previewBox &&
+								twitchLive !== true && (
+									<div className='preview-offline' aria-hidden='true'>
+										<div className='preview-offline-card'>
+											<span
+												className={`preview-offline-dot ${twitchLive === null ? 'checking' : 'offline'}`}
+											/>
+											<div>
+												<p className='preview-offline-title'>
+													{twitchLive === null
+														? 'Проверяем эфир…'
+														: `${channel} сейчас не в сети`}
+												</p>
+												<p className='preview-offline-text'>
+													{twitchLive === null
+														? 'Как только статус станет известен, превью включится само.'
+														: 'Превью появится автоматически, когда стрим начнётся.'}
+												</p>
+											</div>
 										</div>
 									</div>
-								</div>
-							)}
+								)}
 							{/* пока превью не заиграло (браузер ждёт клика) — подсказка поверх кадра */}
 							{mounted &&
 								previewOn &&
@@ -3472,22 +4068,20 @@ export default function PanelClient({
 								previewBox &&
 								twitchLive === true &&
 								!previewPlaying && (
-								<div
-									className='absolute left-1/2 -translate-x-1/2 flex items-center gap-2 rounded-full px-3 py-1.5 pointer-events-none'
-									style={{
-										top: 'calc(50% - 14px)',
-										background: 'rgba(0,0,0,.72)',
-										color: '#fff',
-										fontSize: 12,
-										whiteSpace: 'nowrap',
-									}}
-								>
-									<span>▶</span>
-									<span>
-										Нажмите на плеер, чтобы запустить трансляцию
-									</span>
-								</div>
-							)}
+									<div
+										className='absolute left-1/2 -translate-x-1/2 flex items-center gap-2 rounded-full px-3 py-1.5 pointer-events-none'
+										style={{
+											top: 'calc(50% - 14px)',
+											background: 'rgba(0,0,0,.72)',
+											color: '#fff',
+											fontSize: 12,
+											whiteSpace: 'nowrap',
+										}}
+									>
+										<span>▶</span>
+										<span>Нажмите на плеер, чтобы запустить трансляцию</span>
+									</div>
+								)}
 							{!(mounted && previewOn && channel) && (
 								<div
 									className='absolute inset-0 opacity-10'
@@ -3558,6 +4152,29 @@ export default function PanelClient({
 							>
 								зона предзагрузки элементов
 							</span>
+							{/* Как в Pogly: при мультивыделении тянется не только элемент или
+							    грань, но и пустое место внутри общей рамки. Слой лежит ПОД
+							    элементами (zIndex 0), поэтому сами элементы остаются
+							    интерактивными, а клик по пустоте двигает всю группу. */}
+							{groupBox && selectedIds.size > 1 && (
+								<div
+									className='absolute'
+									data-nopan='1'
+									title='Перетащить выбранные элементы'
+									style={{
+										left: groupBox.cx,
+										top: groupBox.cy,
+										width: groupBox.w,
+										height: groupBox.h,
+										transform: `translate(-50%, -50%) rotate(${groupBox.rot}deg)`,
+										transformOrigin: 'center',
+										cursor: 'move',
+										touchAction: 'none',
+										zIndex: 0,
+									}}
+									onPointerDown={startGroupMove}
+								/>
+							)}
 							{state.elements.map(el => {
 								const hs = 10 / view.s
 								// у медиа (YouTube/Twitch/видео) плашка управления показывается
@@ -3580,19 +4197,16 @@ export default function PanelClient({
 											top: el.y,
 											width: el.width,
 											height: el.height,
-											// выделенный элемент поднимаем над остальными: иначе
-											// чужая картинка выше по z-index перекрывает его ручки.
-											// Ниже превью Twitch (1500), чтобы клик по плееру работал
-											zIndex: selectedId === el.id ? 1400 : el.zIndex,
+											// слой элемента подчиняется своему zIndex и в выделении:
+											// иначе кнопки «Вперёд/Назад» визуально ничего не меняют,
+											// пока элемент выбран. Ручки вынесены в отдельный слой выше.
+											zIndex: el.zIndex,
 											opacity: el.visible
 												? Math.max(el.opacity ?? 1, 0.08)
 												: 0.35,
-											outline:
-												selectedId === el.id
-													? `${2 / view.s}px solid rgb(var(--c-accent2))`
-													: selectedIds.has(el.id)
-														? `${1.5 / view.s}px solid rgb(var(--c-accent2) / .6)`
-														: undefined,
+											outline: selectedIds.has(el.id)
+												? `${1.5 / view.s}px solid rgb(var(--c-accent2) / .6)`
+												: undefined,
 											transform:
 												`${el.rotation ? `rotate(${el.rotation}deg)` : ''}${el.flipH || el.flipV ? ` scale(${el.flipH ? -1 : 1}, ${el.flipV ? -1 : 1})` : ''}` ||
 												undefined,
@@ -3614,6 +4228,22 @@ export default function PanelClient({
 												: undefined
 										}
 									>
+										{el.type !== 'text' &&
+											el.type !== 'timer' &&
+											el.type !== 'widget' &&
+											el.bgColor &&
+											el.bgColor !== 'transparent' && (
+												<div
+													className='absolute inset-0 pointer-events-none'
+													style={{
+														background: colorWithOpacity(
+															el.bgColor,
+															el.bgOpacity ?? 1,
+														),
+														borderRadius: el.radius ? el.radius : undefined,
+													}}
+												/>
+											)}
 										<PreviewElement
 											el={el}
 											scale={1}
@@ -3626,6 +4256,7 @@ export default function PanelClient({
 											mediaCommand={mediaCommand}
 											onMediaState={applyMediaState}
 											onTwitchPlayer={onTwitchPlayer}
+											channel={channel}
 										/>
 										{(() => {
 											// невидимка лок не показывает: он всё равно может забрать
@@ -3661,6 +4292,9 @@ export default function PanelClient({
 											className='absolute inset-0 pointer-events-none'
 											style={{
 												transform: `scale(${el.flipH ? -1 : 1}, ${el.flipV ? -1 : 1})`,
+												// у выбранного элемента ручки рисует отдельный слой
+												// поверх всех элементов — здесь остаётся только hover
+												display: selectedId === el.id ? 'none' : undefined,
 											}}
 										>
 											{selectedId === el.id &&
@@ -3779,6 +4413,158 @@ export default function PanelClient({
 									</div>
 								)
 							})}
+							{/* Ручки выбранного элемента — отдельным слоем поверх всех элементов:
+							    сам элемент остаётся на своём слое, поэтому «Вперёд/Назад»
+							    видно сразу, а ручки не прячутся под картинками выше */}
+							{selected && selectedIds.size === 0 && !selected.locked && (
+								<div
+									className='absolute'
+									style={{
+										left: selected.x,
+										top: selected.y,
+										width: selected.width,
+										height: selected.height,
+										transform:
+											`${selected.rotation ? `rotate(${selected.rotation}deg)` : ''}${
+												selected.flipH || selected.flipV
+													? ` scale(${selected.flipH ? -1 : 1}, ${selected.flipV ? -1 : 1})`
+													: ''
+											}` || undefined,
+										transformOrigin: 'center',
+										pointerEvents: 'none',
+										zIndex: 2000,
+									}}
+								>
+									<div
+										className='absolute inset-0 pointer-events-none'
+										style={{
+											outline: `${2 / view.s}px solid rgb(var(--c-accent2))`,
+										}}
+									/>
+									<div
+										className='absolute inset-0 pointer-events-none'
+										style={{
+											transform: `scale(${selected.flipH ? -1 : 1}, ${selected.flipV ? -1 : 1})`,
+										}}
+									>
+										{(
+											['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const
+										).map(dir => {
+											const cursors: Record<string, string> = {
+												n: 'ns-resize',
+												s: 'ns-resize',
+												e: 'ew-resize',
+												w: 'ew-resize',
+												ne: 'nesw-resize',
+												sw: 'nesw-resize',
+												nw: 'nwse-resize',
+												se: 'nwse-resize',
+											}
+											const hs = 10 / view.s
+											const pos: React.CSSProperties = {
+												position: 'absolute',
+												width: hs,
+												height: hs,
+												pointerEvents: 'auto',
+												background: 'rgb(var(--c-accent2))',
+												border: `${2 / view.s}px solid #fff`,
+												borderRadius: 2,
+												cursor: cursors[dir],
+												touchAction: 'none',
+											}
+											if (dir.includes('n')) pos.top = -hs / 2
+											if (dir.includes('s')) pos.bottom = -hs / 2
+											if (dir.includes('e')) pos.right = -hs / 2
+											if (dir.includes('w')) pos.left = -hs / 2
+											if (dir === 'n' || dir === 's') {
+												pos.left = '50%'
+												pos.marginLeft = -hs / 2
+											}
+											if (dir === 'e' || dir === 'w') {
+												pos.top = '50%'
+												pos.marginTop = -hs / 2
+											}
+											return (
+												<div
+													key={'sel-' + dir}
+													onPointerDown={e =>
+														handleResizeStart(e, selected, dir)
+													}
+													data-nopan='1'
+													className='handle'
+													style={pos}
+												/>
+											)
+										})}
+										{selected.type === 'iframe' && (
+											<div
+												onPointerDown={e => {
+													e.stopPropagation()
+													handleDragStart(e, selected)
+												}}
+												data-nopan='1'
+												className='absolute flex items-center justify-center rounded-full pointer-events-auto'
+												style={{
+													left: `calc(50% - ${11 / view.s}px)`,
+													top: -60 / view.s,
+													width: 22 / view.s,
+													height: 22 / view.s,
+													background: 'rgb(var(--c-accent2))',
+													border: `${2 / view.s}px solid #fff`,
+													cursor: 'move',
+													boxShadow: '0 1px 6px rgba(0,0,0,.5)',
+													touchAction: 'none',
+												}}
+											>
+												<svg
+													width={(22 / view.s) * 0.55}
+													height={(22 / view.s) * 0.55}
+													viewBox='0 0 24 24'
+													fill='#fff'
+												>
+													<path d='M12 1.5 15.5 5h-2.5v4.5h-2V5H8.5L12 1.5z' />
+													<path d='M12 22.5 8.5 19H11v-4.5h2V19h2.5L12 22.5z' />
+													<path d='M1.5 12 5 8.5V11h4.5v2H5v2.5L1.5 12z' />
+													<path d='M22.5 12 19 15.5V13h-4.5v-2H19V8.5L22.5 12z' />
+												</svg>
+											</div>
+										)}
+										<div
+											onPointerDown={e => handleRotateStart(e, selected)}
+											title='Повернуть (Shift — шаг 15°)'
+											data-nopan='1'
+											className='absolute rounded-full flex items-center justify-center pointer-events-auto'
+											style={{
+												left: `calc(50% - ${11 / view.s}px)`,
+												top: -32 / view.s,
+												width: 22 / view.s,
+												height: 22 / view.s,
+												background: 'rgb(var(--c-accent))',
+												border: `${2 / view.s}px solid #fff`,
+												cursor: 'grab',
+												boxShadow: '0 1px 6px rgba(0,0,0,.5)',
+												touchAction: 'none',
+											}}
+										>
+											<svg
+												width={12 / view.s}
+												height={12 / view.s}
+												viewBox='0 0 24 24'
+												fill='none'
+												stroke='#fff'
+												strokeWidth='2.5'
+												strokeLinecap='round'
+												style={{
+													transform: `rotate(${-(selected.rotation ?? 0)}deg)`,
+												}}
+											>
+												<path d='M21 12a9 9 0 1 1-2.64-6.36' />
+												<path d='M21 3v6h-6' />
+											</svg>
+										</div>
+									</div>
+								</div>
+							)}
 							{/* групповой бокс выделения (как в pogly): бокс повёрнут вместе с контентом,
 							    ручки прикреплены к нему; тянешь грани — двигается группа,
 							    угловые ручки — масштабируют, верхняя — вращает всю группу */}
@@ -3933,7 +4719,164 @@ export default function PanelClient({
 									</div>
 								))}
 						</div>
-						{!isMobile && !sidebarOpen && (
+						{/* минималистичное меню: окно элементов свёрнуто по умолчанию */}
+						{betaUI && (
+							<div
+								className='absolute left-3 top-3 z-20 w-72 max-w-[calc(100%-1.5rem)]'
+								data-nopan='1'
+								onPointerDown={e => e.stopPropagation()}
+							>
+								<div className='rounded-2xl border border-border bg-panel/95 backdrop-blur shadow-xl overflow-hidden'>
+									<button
+										onClick={() => setBetaElementsOpen(v => !v)}
+										aria-expanded={betaElementsOpen}
+										className='w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-border/40 transition-colors'
+									>
+										<Layers size={15} className='text-accent2 shrink-0' />
+										<span className='text-sm font-medium text-[color:var(--c-on-bg)]'>
+											Элементы
+										</span>
+										<span className='text-xs text-gray-500'>
+											({state.elements.length})
+										</span>
+										<span className='flex-1' />
+										{betaElementsOpen ? (
+											<ChevronUp size={16} className='text-gray-400' />
+										) : (
+											<ChevronDown size={16} className='text-gray-400' />
+										)}
+									</button>
+									{betaElementsOpen && (
+										<div className='border-t border-border'>
+											{state.elements.length > 0 && (
+												<div className='flex justify-end px-2 pt-2'>
+													<button
+														onClick={() => {
+															if (confirm('Очистить все элементы?')) {
+																remember()
+																emit('elements:clear')
+															}
+														}}
+														className='inline-flex items-center gap-1 px-2 py-1 text-[10px] rounded-md border border-red-900/50 text-red-400 hover:bg-red-950/40 transition-colors'
+													>
+														<Trash2 size={11} />
+														Очистить
+													</button>
+												</div>
+											)}
+											<div className='grid grid-cols-2 gap-2 p-2 max-h-[45vh] overflow-y-auto'>
+												{state.elements.map(el => (
+													<ElementCard
+														key={el.id}
+														el={el}
+														selected={selectedId === el.id}
+														active={selectedIds.has(el.id)}
+														onSelect={() => selectOnly(el.id)}
+														onToggleVisible={() => {
+															setState(p => ({
+																...p,
+																elements: p.elements.map(x =>
+																	x.id === el.id
+																		? { ...x, visible: !x.visible }
+																		: x,
+																),
+															}))
+															emit('element:toggle-visible', el.id)
+														}}
+														onDelete={() => {
+															remember()
+															emit('element:delete', el.id)
+															if (selectedId === el.id) setSelectedId(null)
+														}}
+													/>
+												))}
+											</div>
+											{state.elements.length === 0 && (
+												<p className='px-3 pb-3 text-xs text-gray-600'>
+													Нет элементов. Добавьте снизу.
+												</p>
+											)}
+										</div>
+									)}
+								</div>
+							</div>
+						)}
+						{/* минималистичное меню: нижнее меню добавления элементов */}
+						{betaUI && !isMobile && (
+							<div
+								className='absolute bottom-4 left-1/2 -translate-x-1/2 z-20'
+								data-nopan='1'
+								onPointerDown={e => e.stopPropagation()}
+							>
+								<div className='flex items-center gap-0.5 rounded-2xl border border-border bg-panel/95 px-2 py-1.5 shadow-2xl backdrop-blur'>
+									<DockButton
+										label='Добавить картинку'
+										onClick={() => setAddSheet('image')}
+									>
+										<ImagePlus size={17} />
+									</DockButton>
+									<DockButton
+										label='Добавить видео'
+										onClick={() => setAddSheet('video')}
+									>
+										<Film size={17} />
+									</DockButton>
+									<DockButton
+										label='Добавить звук'
+										onClick={() => setAddSheet('audio')}
+									>
+										<Volume2 size={17} />
+									</DockButton>
+									<div className='w-px h-6 bg-border mx-1' />
+									<DockButton label='Смайлик' onClick={() => openEmotePicker()}>
+										<Smile size={17} />
+									</DockButton>
+									<DockButton label='Сайт' onClick={addIframeEl}>
+										<Globe size={17} />
+									</DockButton>
+									<DockButton
+										label='Виджеты'
+										onClick={() => setWidgetPickerOpen(true)}
+									>
+										<Blocks size={17} />
+									</DockButton>
+									<DockButton
+										label='YouTube плейлист'
+										onClick={() => {
+											setPlaylistOpen(true)
+											setPlaylistError('')
+										}}
+									>
+										<ListVideo size={17} />
+									</DockButton>
+									<DockButton label='Текст' onClick={addTextEl}>
+										<Type size={17} />
+									</DockButton>
+									<DockButton label='Таймер' onClick={addTimerEl}>
+										<Timer size={17} />
+									</DockButton>
+									<div className='w-px h-6 bg-border mx-1' />
+									<button
+										onClick={() => setBetaElementsOpen(v => !v)}
+										title='Список элементов'
+										aria-label='Список элементов'
+										className={`relative w-9 h-9 rounded-xl flex items-center justify-center transition-colors ${
+											betaElementsOpen
+												? 'bg-accent text-white'
+												: 'text-gray-300 hover:bg-border hover:text-white'
+										}`}
+									>
+										<Layers size={17} />
+										{state.elements.length > 0 && (
+											<span className='absolute -top-1 -right-1 min-w-[15px] h-[15px] px-0.5 rounded-full bg-accent text-white text-[9px] leading-[15px] text-center'>
+												{state.elements.length}
+											</span>
+										)}
+									</button>
+								</div>
+							</div>
+						)}
+						{!isMobile && !betaUI && !sidebarOpen && (
 							<button
 								onClick={toggleSidebar}
 								title='Показать панель элементов'
@@ -3945,6 +4888,7 @@ export default function PanelClient({
 							</button>
 						)}
 						{previewPill}
+						{!isMobile && chatPill}
 						{marquee && (
 							<div
 								className='absolute z-30 pointer-events-none border border-accent2 bg-accent2/20'
@@ -3966,7 +4910,7 @@ export default function PanelClient({
 						{isMobile ? (
 							// мобильный: левый нижний угол — «− +» в ряд (шириной с «Сбросить»), «Сбросить» под ними
 							<div
-								className='absolute left-4 bottom-3 z-10 flex flex-col items-stretch gap-1.5'
+								className='absolute left-4 bottom-20 z-10 flex flex-col items-stretch gap-1.5'
 								data-nopan='1'
 								onPointerDown={e => e.stopPropagation()}
 							>
@@ -4050,48 +4994,173 @@ export default function PanelClient({
 					</div>
 				</div>
 
-					{selected && (
-						<aside
-							className={`w-72 shrink-0 bg-panel border-l border-border p-4 overflow-y-auto ${isMobile ? 'hidden' : ''}`}
-						>
-							{/* Удаление всегда под рукой: у длинного списка карточка с крестиком
+				{selected && (
+					<aside
+						className={`w-72 shrink-0 bg-panel border-l border-border p-4 overflow-y-auto ${isMobile ? 'hidden' : ''}`}
+					>
+						{/* Удаление всегда под рукой: у длинного списка карточка с крестиком
 							    может уйти за пределы видимой области, а у ghost-элемента её
 							    легко не найти */}
-							<div className='flex items-center justify-between mb-2'>
-								<span className='text-[10px] uppercase tracking-wide text-gray-600'>
-									Элемент
-								</span>
-								<button
-									onClick={() => {
-										remember()
-										emit('element:delete', selected.id)
-										setSelectedId(null)
-										setSelectedIds(prev => {
-											const n = new Set(prev)
-											n.delete(selected.id)
-											return n
-										})
-									}}
-									title='Удалить элемент'
-									className='px-1.5 py-0.5 text-xs text-red-400 border border-red-900/50 rounded-md hover:bg-red-950/40 transition-colors'
-								>
-									✕
-								</button>
-							</div>
-							<PropertyEditor
-								el={selected}
-								update={partial => updateElement(selected.id, partial)}
-								emit={emit}
-							/>
-						</aside>
-					)}
+						<div className='flex items-center justify-between mb-2'>
+							<span className='text-[10px] uppercase tracking-wide text-gray-600'>
+								Элемент
+							</span>
+							<button
+								onClick={() => {
+									remember()
+									emit('element:delete', selected.id)
+									setSelectedId(null)
+									setSelectedIds(prev => {
+										const n = new Set(prev)
+										n.delete(selected.id)
+										return n
+									})
+								}}
+								title='Удалить элемент'
+								className='px-1.5 py-0.5 text-xs text-red-400 border border-red-900/50 rounded-md hover:bg-red-950/40 transition-colors'
+							>
+								✕
+							</button>
+						</div>
+						<PropertyEditor
+							el={selected}
+							update={partial => updateElement(selected.id, partial)}
+							emit={emit}
+							onEditWidget={editWidgetFromElement}
+						/>
+					</aside>
+				)}
+			</div>
+
+			<div
+				className={`flex-1 min-h-0 ${tab === 'widgets' ? 'flex flex-col' : 'hidden'}`}
+			>
+				{widgetStudioMounted && (
+					<WidgetStudio
+						widgets={state.widgets || {}}
+						channel={channel}
+						ownerLogin={userLogin}
+						theme={theme}
+						onSave={saveWidget}
+						onDelete={deleteWidget}
+						editWidget={pendingWidgetEdit}
+						onEditWidgetDone={() => setPendingWidgetEdit(null)}
+					/>
+				)}
 			</div>
 
 			<div className={`flex-1 overflow-auto ${tab === 'obs' ? '' : 'hidden'}`}>
 				{obsMounted && <ObsPanel />}
 			</div>
 
-			{/* бургер-меню: вкладки, тема, статус */}
+			{/* чат канала во вкладке: iframe живёт только пока вкладка открыта,
+			    чтобы не держать второй чат вместе с плавающим окном */}
+			{tab === 'chat' && (
+				<div className='flex-1 min-h-0 flex'>
+					{channel ? (
+						<iframe
+							src={`https://www.twitch.tv/embed/${encodeURIComponent(channel)}/chat?parent=${encodeURIComponent(parentHost)}&darkpopout`}
+							title={`Чат канала ${channel}`}
+							className='w-full h-full border-0'
+						/>
+					) : (
+						<div className='m-auto max-w-sm px-6 text-center'>
+							<MessageCircle size={30} className='mx-auto mb-3 text-gray-600' />
+							<p className='text-sm text-gray-500'>
+								Чат доступен после входа через Twitch: панель должна знать канал
+								стримера.
+							</p>
+						</div>
+					)}
+				</div>
+			)}
+
+			<div
+				className={`flex-1 overflow-auto ${tab === 'settings' ? '' : 'hidden'}`}
+			>
+				<div className='max-w-2xl mx-auto p-5 sm:p-8'>
+					<h2 className='text-lg font-semibold text-[color:var(--c-on-bg)]'>
+						Настройки
+					</h2>
+					<p className='mt-1 text-sm text-gray-500'>
+						Внешний вид панели сохраняется в этом браузере.
+					</p>
+					<div className='mt-5 rounded-2xl border border-border bg-panel p-4 sm:p-5'>
+						<div className='flex items-start gap-3 sm:gap-4'>
+							<span className='w-10 h-10 shrink-0 rounded-xl bg-accent/15 text-accent2 flex items-center justify-center'>
+								<Settings size={19} />
+							</span>
+							<div className='min-w-0 flex-1'>
+								<div className='flex flex-wrap items-center gap-2'>
+									<h3 className='text-sm font-semibold text-[color:var(--c-on-bg)]'>
+										Минималистичное меню
+									</h3>
+								</div>
+								<p className='mt-1 text-sm leading-relaxed text-gray-500'>
+									Компактное меню добавления элементов внизу и сворачиваемый
+									список элементов. Выключено — привычная панель с боковым меню.
+								</p>
+							</div>
+							<button
+								role='switch'
+								aria-checked={betaUI}
+								aria-label='Минималистичное меню'
+								onClick={toggleBetaUI}
+								className={`relative w-11 h-6 shrink-0 rounded-full transition-colors ${
+									betaUI ? 'bg-accent' : 'bg-gray-600'
+								}`}
+							>
+								<span
+									className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${
+										betaUI ? 'left-[22px]' : 'left-0.5'
+									}`}
+								/>
+							</button>
+						</div>
+						<p className='mt-3 border-t border-border pt-3 text-xs leading-relaxed text-gray-500'>
+							{betaUI
+								? 'Включено: элементы добавляются с нижней панели, список — в левом верхнем углу и свёрнут.'
+								: 'Выключено: используется панель с боковым меню.'}
+						</p>
+					</div>
+					<div className='mt-4 rounded-2xl border border-border bg-panel p-4 sm:p-5'>
+						<div className='flex items-start gap-3 sm:gap-4'>
+							<span className='w-10 h-10 shrink-0 rounded-xl bg-accent/15 text-accent2 flex items-center justify-center'>
+								<Monitor size={19} />
+							</span>
+							<div className='min-w-0 flex-1'>
+								<h3 className='text-sm font-semibold text-[color:var(--c-on-bg)]'>
+									Управление OBS
+								</h3>
+								<p className='mt-1 text-sm leading-relaxed text-gray-500'>
+									Показывать вкладку «Управление OBS» в панели. По умолчанию она
+									скрыта и не мешает работе.
+								</p>
+							</div>
+							<button
+								role='switch'
+								aria-checked={showObsTab}
+								aria-label='Показывать вкладку Управление OBS'
+								onClick={toggleObsTab}
+								className={`relative w-11 h-6 shrink-0 rounded-full transition-colors ${
+									showObsTab ? 'bg-accent' : 'bg-gray-600'
+								}`}
+							>
+								<span
+									className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${
+										showObsTab ? 'left-[22px]' : 'left-0.5'
+									}`}
+								/>
+							</button>
+						</div>
+						<p className='mt-3 border-t border-border pt-3 text-xs leading-relaxed text-gray-500'>
+							{showObsTab
+								? 'Включено: вкладка OBS показывается после «Виджет».'
+								: 'Выключено: вкладка OBS скрыта.'}
+						</p>
+					</div>
+				</div>
+			</div>
 			{isMobile && menuOpen && (
 				<>
 					<div
@@ -4113,12 +5182,44 @@ export default function PanelClient({
 						</button>
 						<button
 							onClick={() => {
-								setTab('obs')
+								setTab('widgets')
 								closeBurger()
 							}}
-							className={`w-full text-left px-3 py-2 text-sm rounded-lg transition-colors ${tab === 'obs' ? 'bg-accent text-white' : 'text-gray-300 hover:bg-border'}`}
+							className={`w-full flex items-center gap-2 text-left px-3 py-2 text-sm rounded-lg transition-colors ${tab === 'widgets' ? 'bg-accent text-white' : 'text-gray-300 hover:bg-border'}`}
 						>
-							Управление OBS
+							<Blocks size={15} />
+							Виджеты
+						</button>
+						{showObsTab && (
+							<button
+								onClick={() => {
+									setTab('obs')
+									closeBurger()
+								}}
+								className={`w-full text-left px-3 py-2 text-sm rounded-lg transition-colors ${tab === 'obs' ? 'bg-accent text-white' : 'text-gray-300 hover:bg-border'}`}
+							>
+								Управление OBS
+							</button>
+						)}
+						<button
+							onClick={() => {
+								setTab('chat')
+								closeBurger()
+							}}
+							className={`w-full flex items-center gap-2 text-left px-3 py-2 text-sm rounded-lg transition-colors ${tab === 'chat' ? 'bg-accent text-white' : 'text-gray-300 hover:bg-border'}`}
+						>
+							<MessageCircle size={15} />
+							Чат
+						</button>
+						<button
+							onClick={() => {
+								setTab('settings')
+								closeBurger()
+							}}
+							className={`w-full flex items-center gap-2 text-left px-3 py-2 text-sm rounded-lg transition-colors ${tab === 'settings' ? 'bg-accent text-white' : 'text-gray-300 hover:bg-border'}`}
+						>
+							<Settings size={15} />
+							Настройки
 						</button>
 						<div className='h-px bg-border my-1' />
 						<div className='flex items-center justify-between px-3 py-1.5'>
@@ -4154,106 +5255,303 @@ export default function PanelClient({
 				</>
 			)}
 
-			{/* мобильный тулбар: добавление элементов одним касанием */}
-			{isMobile && (
+			{/* мобильный тулбар: добавление элементов одним касанием.
+			    на вкладке чата его нет — иначе он перекрывает поле ввода Twitch
+			    и защита Twitch блокирует чат владельцу/модераторам */}
+			{isMobile && tab !== 'chat' && (
 				<div
-					className='fixed inset-x-0 bottom-0 z-40 flex items-center justify-center px-3 pointer-events-none'
+					className='fixed inset-x-0 bottom-0 z-40 flex items-center justify-center px-2 pointer-events-none'
 					style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
 				>
-					<div className='flex items-center gap-1 pointer-events-auto rounded-full border border-border bg-panel px-3 py-1'>
+					<div className='flex items-center gap-0.5 pointer-events-auto rounded-full border border-border bg-panel px-2 py-1 max-[380px]:gap-0 max-[380px]:px-1'>
 						<button
 							title='Картинка'
+							aria-label='Картинка'
 							onClick={() => setAddSheet('image')}
-							className='w-8 h-8 rounded-lg hover:bg-border active:bg-accent flex items-center justify-center text-sm'
+							className='w-8 h-8 rounded-lg hover:bg-border active:bg-accent flex items-center justify-center'
 						>
-							🖼
+							<ImagePlus size={16} />
 						</button>
 						<button
 							title='Смайлик'
+							aria-label='Смайлик'
 							onClick={() => openEmotePicker()}
-							className='w-8 h-8 rounded-lg hover:bg-border active:bg-accent flex items-center justify-center text-sm'
+							className='w-8 h-8 rounded-lg hover:bg-border active:bg-accent flex items-center justify-center'
 						>
-							😀
+							<Smile size={16} />
 						</button>
 						<button
 							title='Видео'
+							aria-label='Видео'
 							onClick={() => setAddSheet('video')}
-							className='w-8 h-8 rounded-lg hover:bg-border active:bg-accent flex items-center justify-center text-sm'
+							className='w-8 h-8 rounded-lg hover:bg-border active:bg-accent flex items-center justify-center'
 						>
-							🎬
+							<Film size={16} />
+						</button>
+						<button
+							title='Звук'
+							aria-label='Звук'
+							onClick={() => setAddSheet('audio')}
+							className='w-8 h-8 rounded-lg hover:bg-border active:bg-accent flex items-center justify-center'
+						>
+							<Volume2 size={16} />
 						</button>
 						<button
 							title='Сайт'
+							aria-label='Сайт'
 							onClick={addIframeEl}
-							className='w-8 h-8 rounded-lg hover:bg-border active:bg-accent flex items-center justify-center text-sm'
+							className='w-8 h-8 rounded-lg hover:bg-border active:bg-accent flex items-center justify-center'
 						>
-							🌐
+							<Globe size={16} />
+						</button>
+						<button
+							title='Добавить виджет'
+							aria-label='Добавить виджет'
+							onClick={() => setWidgetPickerOpen(true)}
+							className='w-8 h-8 rounded-lg hover:bg-border active:bg-accent flex items-center justify-center'
+						>
+							<Blocks size={16} />
+						</button>
+						<button
+							title='YouTube плейлист'
+							aria-label='YouTube плейлист'
+							onClick={() => {
+								setPlaylistOpen(true)
+								setPlaylistError('')
+							}}
+							className='w-8 h-8 rounded-lg hover:bg-border active:bg-accent flex items-center justify-center'
+						>
+							<ListVideo size={16} />
 						</button>
 						<button
 							title='Текст'
+							aria-label='Текст'
 							onClick={addTextEl}
-							className='w-8 h-8 rounded-lg hover:bg-border active:bg-accent flex items-center justify-center text-sm font-bold'
+							className='w-8 h-8 rounded-lg hover:bg-border active:bg-accent flex items-center justify-center'
 						>
-							Т
+							<Type size={16} />
 						</button>
 						<button
 							title='Таймер'
+							aria-label='Таймер'
 							onClick={addTimerEl}
-							className='w-8 h-8 rounded-lg hover:bg-border active:bg-accent flex items-center justify-center text-sm'
+							className='w-8 h-8 rounded-lg hover:bg-border active:bg-accent flex items-center justify-center'
 						>
-							⏱
+							<Timer size={16} />
 						</button>
 						<button
 							title={
 								selected ? 'Свойства элемента' : 'Выберите элемент на холсте'
 							}
+							aria-label='Свойства элемента'
 							onClick={() => setSheetOpen(v => !v)}
-							className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm ${sheetOpen && selected ? 'bg-accent text-white' : 'hover:bg-border'}`}
+							className={`w-8 h-8 rounded-lg flex items-center justify-center ${sheetOpen && selected ? 'bg-accent text-white' : 'hover:bg-border'}`}
 						>
-							✏️
+							<SlidersHorizontal size={16} />
 						</button>
 					</div>
 				</div>
 			)}
 
-			{/* мобильный шит: источник добавления — файл с устройства или ссылка */}
-			{isMobile && addSheet && (
+			{/* чат плавающим окном: портал в body, без клиппинга, opacity и
+			    transform-родителей. Twitch отключает ввод владельцу/модераторам,
+			    если его iframe хоть чем-то перекрыт или обрезан. */}
+			{mounted &&
+				!isMobile &&
+				chatOn &&
+				channel &&
+				tab === 'elements' &&
+				typeof document !== 'undefined' &&
+				createPortal(
+					<div
+						className='flex flex-col rounded-2xl overflow-hidden border border-border bg-panel shadow-2xl'
+						style={{
+							position: 'fixed',
+							top: chatTop,
+							right: chatRight,
+							// минимум для ширины не нужен после понижения плашек:
+							// 288 работает, кнопка Chat остаётся активной
+							width: 288,
+							maxWidth: 'calc(100vw - 2rem)',
+							height: 520,
+							maxHeight: 'calc(100dvh - 184px)',
+							zIndex: 30,
+						}}
+					>
+						<iframe
+							src={`https://www.twitch.tv/embed/${encodeURIComponent(channel)}/chat?parent=${encodeURIComponent(parentHost)}&darkpopout`}
+							title={`Чат канала ${channel}`}
+							tabIndex={0}
+							className='flex-1 w-full min-h-0 border-0'
+						/>
+					</div>,
+					document.body,
+				)}
+
+			{/* мини-окно: выбрать виджет из «Моих виджетов» и добавить на холст */}
+			{widgetPickerOpen && (
+				<div className='fixed inset-0 z-[70] flex items-center justify-center p-4'>
+					<div
+						className='absolute inset-0 bg-black/60'
+						onClick={() => setWidgetPickerOpen(false)}
+					/>
+					<div className='relative w-full max-w-md rounded-2xl border border-border bg-panel p-4 shadow-2xl pop-in'>
+						<div className='flex items-start justify-between gap-3'>
+							<div className='min-w-0'>
+								<h3 className='text-sm font-semibold text-[color:var(--c-on-bg)]'>
+									Добавить виджет
+								</h3>
+								<p className='mt-0.5 text-[11px] leading-relaxed text-gray-500'>
+									Выбери виджет из «Моих виджетов» — он появится на холсте.
+								</p>
+							</div>
+							<button
+								onClick={() => setWidgetPickerOpen(false)}
+								aria-label='Закрыть'
+								className='w-8 h-8 shrink-0 rounded-lg text-gray-400 hover:text-white hover:bg-border flex items-center justify-center'
+							>
+								<X size={15} />
+							</button>
+						</div>
+
+						{widgetLibrary.length === 0 ? (
+							<div className='mt-3 rounded-xl border border-dashed border-border bg-bg/50 p-4 text-center'>
+								<Blocks size={22} className='mx-auto text-gray-600' />
+								<p className='mt-2 text-sm text-gray-400'>
+									В «Моих виджетах» пока пусто
+								</p>
+								<p className='mt-1 text-[11px] leading-relaxed text-gray-500'>
+									Открой библиотеку и нажми «Добавить» на шаблоне — он появится
+									здесь.
+								</p>
+								<button
+									onClick={() => {
+										setWidgetPickerOpen(false)
+										setTab('widgets')
+									}}
+									className='mt-3 px-3 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg'
+								>
+									Открыть «Мои виджеты»
+								</button>
+							</div>
+						) : (
+							<div className='mt-3 max-h-[55vh] overflow-y-auto space-y-1.5'>
+								{widgetLibrary.map(def => (
+									<button
+										key={def.id}
+										onClick={() => {
+											setWidgetPickerOpen(false)
+											addWidgetToCanvas(def)
+										}}
+										className='w-full flex items-center gap-2.5 rounded-lg border border-border bg-bg px-3 py-2 text-left hover:border-accent2/50 hover:bg-accent2/5 transition-colors'
+									>
+										<span className='w-8 h-8 shrink-0 rounded-lg bg-accent2/10 text-accent2 flex items-center justify-center'>
+											<Blocks size={15} />
+										</span>
+										<span className='min-w-0 flex-1'>
+											<span className='block truncate text-sm font-medium text-[color:var(--c-on-bg)]'>
+												{def.name}
+											</span>
+											<span className='mt-0.5 block text-[10px] text-gray-500'>
+												{def.width}×{def.height} · {def.variables.length} перем.
+											</span>
+										</span>
+										<Plus size={15} className='shrink-0 text-gray-500' />
+									</button>
+								))}
+							</div>
+						)}
+
+						<div className='mt-3 flex items-center justify-between gap-2 border-t border-border pt-3'>
+							<span className='text-[10px] leading-relaxed text-gray-500'>
+								Код и переменные — в редакторе виджета
+							</span>
+							<button
+								onClick={() => {
+									setWidgetPickerOpen(false)
+									setTab('widgets')
+								}}
+								className='shrink-0 text-xs text-accent2 hover:underline'
+							>
+								Открыть библиотеку
+							</button>
+						</div>
+					</div>
+				</div>
+			)}
+
+			{/* шит источника: одна кнопка «Картинка»/«Видео» → выбор «с ПК» или URL */}
+			{addSheet && (
 				<>
 					<div
-						className={`fixed inset-0 z-40 bg-black/50 ${addSheetClosing ? 'fade-out' : 'fade-in'}`}
+						className={`fixed inset-0 z-40 ${isMobile || betaUI ? 'bg-black/40' : 'bg-transparent'} ${addSheetClosing ? 'fade-out' : 'fade-in'}`}
 						onClick={closeAddSheet}
 					/>
 					<div
-						className={`fixed left-3 right-3 z-50 bg-panel border border-border rounded-2xl p-3 space-y-2 shadow-xl ${addSheetClosing ? 'pop-out' : 'pop-in'}`}
-						style={{
-							bottom: 'calc(76px + env(safe-area-inset-bottom))',
-							transformOrigin: 'bottom center',
-						}}
+						className={`fixed z-50 bg-panel border border-border rounded-2xl p-3 space-y-2 shadow-xl ${
+							addSheetClosing
+								? isMobile || betaUI
+									? 'pop-out'
+									: 'fade-out'
+								: isMobile || betaUI
+									? 'pop-in'
+									: 'sheet-slide-in'
+						} ${
+							isMobile
+								? 'left-3 right-3'
+								: betaUI
+									? 'left-1/2 -translate-x-1/2 w-80'
+									: 'w-80'
+						}`}
+						style={
+							isMobile
+								? {
+										bottom: 'calc(76px + env(safe-area-inset-bottom))',
+										transformOrigin: 'bottom center',
+									}
+								: betaUI
+									? { bottom: '96px', transformOrigin: 'bottom center' }
+									: {
+											// привычная панель: окно выезжает справа от левого меню
+											top: '120px',
+											left: sidebarOpen ? 296 : 16,
+											transformOrigin: 'top left',
+										}
+						}
 					>
 						<p className='text-xs font-semibold text-gray-400 uppercase tracking-wide px-1 pt-1'>
-							Добавить: {addSheet === 'image' ? 'картинку' : 'видео'}
+							Добавить:{' '}
+							{addSheet === 'image'
+								? 'картинку'
+								: addSheet === 'video'
+									? 'видео'
+									: 'звук'}
 						</p>
 						<button
 							onClick={() => {
 								const kind = addSheet
 								closeAddSheet()
 								if (kind === 'image') addImagePC()
-								else addVideoPC()
+								else if (kind === 'video') addVideoPC()
+								else addAudioPC()
 							}}
-							className='w-full px-3 py-2.5 bg-accent hover:bg-accent-hover text-white text-sm rounded-xl transition-colors'
+							className='w-full flex items-center justify-center gap-2 px-3 py-2.5 bg-accent hover:bg-accent-hover text-white text-sm rounded-xl transition-colors'
 						>
-							📱 Файл с устройства
+							<Upload size={15} />
+							{isMobile ? 'Файл с устройства' : 'С ПК'}
 						</button>
 						<button
 							onClick={() => {
 								const kind = addSheet
 								closeAddSheet()
 								if (kind === 'image') addImageUrl()
-								else addVideoUrl()
+								else if (kind === 'video') addVideoUrl()
+								else addAudioUrl()
 							}}
-							className='w-full px-3 py-2.5 bg-border hover:bg-gray-600 text-white text-sm rounded-xl transition-colors'
+							className='w-full flex items-center justify-center gap-2 px-3 py-2.5 bg-border hover:bg-gray-600 text-white text-sm rounded-xl transition-colors'
 						>
-							🔗 Вставить ссылку (URL)
+							<Link2 size={15} />
+							Вставить ссылку (URL)
 						</button>
 						<button
 							onClick={closeAddSheet}
@@ -4263,6 +5561,121 @@ export default function PanelClient({
 						</button>
 					</div>
 				</>
+			)}
+
+			{/* модалка YouTube-плейлиста: несколько ссылок → очередь с автопереходом */}
+			{playlistOpen && (
+				<div className='fixed inset-0 z-[70] flex items-center justify-center p-4'>
+					<div
+						className='absolute inset-0 bg-black/60 fade-in'
+						onClick={() => setPlaylistOpen(false)}
+					/>
+					<div className='relative w-full max-w-lg max-h-[90dvh] overflow-y-auto rounded-2xl border border-border bg-panel p-4 sm:p-5 shadow-2xl'>
+						<div className='flex items-start gap-2 mb-3'>
+							<span className='w-9 h-9 shrink-0 rounded-xl bg-accent/15 text-accent2 flex items-center justify-center'>
+								<ListVideo size={18} />
+							</span>
+							<div className='min-w-0 flex-1'>
+								<h3 className='text-sm font-semibold text-[color:var(--c-on-bg)]'>
+									YouTube плейлист
+								</h3>
+								<p className='mt-0.5 text-xs leading-relaxed text-gray-500'>
+									Можно вставить ссылку готового плейлиста YouTube или несколько
+									отдельных видео — после окончания ролика автоматически
+									запустится следующий.
+								</p>
+							</div>
+							<button
+								onClick={() => setPlaylistOpen(false)}
+								title='Закрыть'
+								aria-label='Закрыть'
+								className='w-7 h-7 shrink-0 rounded-lg text-gray-400 hover:text-white hover:bg-border flex items-center justify-center'
+							>
+								×
+							</button>
+						</div>
+						<label className='text-xs text-gray-500 block mb-1'>
+							Ссылка готового плейлиста
+						</label>
+						<div className='flex flex-col sm:flex-row gap-2'>
+							<input
+								type='text'
+								value={playlistUrl}
+								onChange={e => {
+									setPlaylistUrl(e.target.value)
+									if (playlistError) setPlaylistError('')
+								}}
+								placeholder='https://youtube.com/playlist?list=...'
+								onKeyDown={e => {
+									if (e.key === 'Enter') {
+										e.preventDefault()
+										addReadyYoutubePlaylist()
+									}
+								}}
+								className='flex-1 min-w-0 px-3 py-2 bg-bg border border-border rounded-lg text-xs font-mono'
+							/>
+							<button
+								onClick={addReadyYoutubePlaylist}
+								className='px-3 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors shrink-0'
+							>
+								Добавить плейлист
+							</button>
+						</div>
+						<div className='my-3 flex items-center gap-2'>
+							<div className='h-px flex-1 bg-border' />
+							<span className='text-[10px] uppercase tracking-wide text-gray-600'>
+								или несколько видео
+							</span>
+							<div className='h-px flex-1 bg-border' />
+						</div>
+						<label className='text-xs text-gray-500 block mb-1'>
+							Ссылки на видео — по одной в строке
+						</label>
+						<textarea
+							value={playlistText}
+							onChange={e => {
+								setPlaylistText(e.target.value)
+								if (playlistError) setPlaylistError('')
+							}}
+							rows={6}
+							placeholder={
+								'https://youtu.be/AAAAAAAAAAA\nhttps://youtu.be/BBBBBBBBBBB\nhttps://youtube.com/watch?v=CCCCCCCCCCC'
+							}
+							className='w-full resize-y px-3 py-2 bg-bg border border-border rounded-lg text-xs font-mono leading-relaxed'
+						/>
+						<button
+							onClick={() => setPlaylistLoopNew(v => !v)}
+							className='mt-2 w-full flex items-center justify-between px-3 py-2 bg-bg border border-border rounded-lg text-sm'
+						>
+							<span>Повторять после последнего</span>
+							<span
+								className={`w-9 h-5 rounded-full relative shrink-0 ${playlistLoopNew ? 'bg-green-500' : 'bg-gray-600'}`}
+							>
+								<span
+									className='absolute top-[2px] w-4 h-4 bg-white rounded-full transition-all'
+									style={{ left: playlistLoopNew ? 18 : 2 }}
+								/>
+							</span>
+						</button>
+						{playlistError && (
+							<p className='mt-2 text-xs text-red-400'>{playlistError}</p>
+						)}
+						<div className='mt-3 flex gap-2'>
+							<button
+								onClick={addYoutubePlaylist}
+								className='flex-1 px-3 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
+							>
+								Добавить очередь
+							</button>
+							<button
+								onClick={() => setPlaylistOpen(false)}
+								className='px-3 py-2 bg-border hover:bg-gray-600 text-white text-sm rounded-lg transition-colors'
+							>
+								Отмена
+							</button>
+						</div>
+					</div>
+				</div>
 			)}
 
 			{/* мобильная шторка свойств выбранного элемента */}
@@ -4299,6 +5712,7 @@ export default function PanelClient({
 						el={selected}
 						update={partial => updateElement(selected.id, partial)}
 						emit={emit}
+						onEditWidget={editWidgetFromElement}
 					/>
 				</div>
 			)}
@@ -4471,6 +5885,7 @@ export default function PanelClient({
 														alt={e.code}
 														className='w-9 h-9 object-contain'
 														loading='lazy'
+														decoding='async'
 													/>
 													<span className='text-[10px] text-gray-500 truncate w-full text-center'>
 														{e.code}
@@ -4493,13 +5908,125 @@ export default function PanelClient({
 	)
 }
 
+// Карточка элемента в списке: превью, видимость и удаление. Одна и та же
+// в обычной панели и в минималистичном меню.
+function ElementCard({
+	el,
+	selected,
+	active,
+	onSelect,
+	onToggleVisible,
+	onDelete,
+}: {
+	el: StreamElement
+	selected: boolean
+	active: boolean
+	onSelect: () => void
+	onToggleVisible: () => void
+	onDelete: () => void
+}) {
+	return (
+		<div
+			onClick={onSelect}
+			className={`group relative rounded-lg border overflow-hidden cursor-pointer transition-colors ${
+				selected
+					? 'border-accent2'
+					: active
+						? 'border-accent2/60'
+						: 'border-border hover:border-gray-500'
+			}`}
+		>
+			<div className='relative h-16 bg-bg flex items-center justify-center overflow-hidden'>
+				<ElementThumb el={el} />
+			</div>
+			<div className='flex items-center gap-0.5 px-1 py-0.5 bg-panel'>
+				<span className='flex-1 truncate text-[10px] text-gray-400'>
+					{elementLabel(el)}
+				</span>
+				<button
+					onClick={e => {
+						e.stopPropagation()
+						onToggleVisible()
+					}}
+					title={el.visible ? 'Скрыть' : 'Показать'}
+					aria-label={el.visible ? 'Скрыть элемент' : 'Показать элемент'}
+					className='shrink-0 w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:bg-border hover:text-white transition-colors'
+				>
+					{el.visible ? <Eye size={12} /> : <EyeOff size={12} />}
+				</button>
+				<button
+					onClick={e => {
+						e.stopPropagation()
+						onDelete()
+					}}
+					title='Удалить'
+					aria-label='Удалить элемент'
+					className='shrink-0 w-5 h-5 flex items-center justify-center rounded text-red-400 hover:bg-red-950/40 transition-colors'
+				>
+					<Trash2 size={12} />
+				</button>
+			</div>
+			{el.alwaysLoaded && (
+				<span
+					className='absolute top-0.5 right-0.5 text-gray-300'
+					title='Всегда загружен'
+				>
+					<Package size={11} />
+				</span>
+			)}
+			{el.locked && (
+				<span
+					className='absolute top-0.5 left-0.5 text-gray-300'
+					title='Заблокирован от перетаскивания'
+				>
+					<Lock size={11} />
+				</span>
+			)}
+		</div>
+	)
+}
+
+// Кнопка нижнего минималистичного меню: только иконка, подпись в подсказке
+function DockButton({
+	label,
+	onClick,
+	children,
+}: {
+	label: string
+	onClick: () => void
+	children: ReactNode
+}) {
+	return (
+		<button
+			onClick={onClick}
+			title={label}
+			aria-label={label}
+			className='w-9 h-9 rounded-xl flex items-center justify-center text-gray-300 hover:bg-border hover:text-white transition-colors'
+		>
+			{children}
+		</button>
+	)
+}
+
 // Подпись элемента в списке: вместо «data:image/png;base64,iVBOR…» — понятное слово
 function elementLabel(el: StreamElement): string {
+	if (el.type === 'widget') return el.widget?.name || 'Виджеты'
 	if (el.type === 'text') {
 		const t = (el.text || '').trim().replace(/\s+/g, ' ')
 		return t ? t.slice(0, 40) : 'Текст'
 	}
 	if (el.type === 'timer') return el.timerLabel?.trim() || 'Таймер'
+	if (el.type === 'audio') {
+		const src = el.src || ''
+		if (src.startsWith('data:')) return 'Звук с ПК'
+		try {
+			const u = new URL(src)
+			const tail = u.pathname.split('/').filter(Boolean).pop()
+			return tail && !/^\d+$/.test(tail) ? decodeURIComponent(tail) : 'Звук'
+		} catch {
+			return 'Звук'
+		}
+	}
 	const src = el.src || ''
 	if (src.startsWith('data:')) {
 		if (el.type === 'video') return 'Видео с ПК'
@@ -4522,6 +6049,12 @@ function elementLabel(el: StreamElement): string {
 // Мини-превью в списке: у картинки/гифки/видео показываем сам файл, у остальных —
 // иконку по типу (в списке это понятнее, чем первые символы URL)
 function ElementThumb({ el }: { el: StreamElement }) {
+	if (el.type === 'widget')
+		return (
+			<span className='absolute inset-0 flex items-center justify-center bg-[#14141c] text-accent2'>
+				<Blocks size={22} />
+			</span>
+		)
 	if (el.type === 'image' || el.type === 'gif')
 		return (
 			<img
@@ -4563,8 +6096,14 @@ function ElementThumb({ el }: { el: StreamElement }) {
 						overflow: 'hidden',
 					}}
 				>
-					{el.text || 'Текст'}
+					{el.text}
 				</span>
+			</span>
+		)
+	if (el.type === 'audio')
+		return (
+			<span className='absolute inset-0 flex items-center justify-center bg-[#14141c] text-accent2'>
+				<Volume2 size={22} />
 			</span>
 		)
 	if (el.type === 'timer')
@@ -5128,6 +6667,7 @@ function PreviewElement({
 	mediaCommand,
 	onMediaState,
 	onTwitchPlayer,
+	channel,
 }: {
 	el: StreamElement
 	scale: number
@@ -5140,11 +6680,27 @@ function PreviewElement({
 	mediaCommand?: (id: string, cmd: string, value?: number) => void
 	onMediaState?: (id: string, patch: Partial<MediaSt>) => void
 	onTwitchPlayer?: (id: string, p: any | null) => void
+	channel?: string | null
 }) {
 	// веб-шрифт текста подгружаем по требованию (у панели и оверлея — свои документы)
 	useEffect(() => {
 		if (el.type === 'text') ensureFontLoaded(el.fontFamily)
 	}, [el.type, el.fontFamily])
+	if (el.type === 'widget' && el.widget)
+		return (
+			<WidgetFrame
+				widget={el.widget}
+				values={el.widgetValues}
+				isOverlay={false}
+				channel={channel}
+				elementId={el.id}
+				background={
+					el.bgColor && el.bgColor !== 'transparent'
+						? colorWithOpacity(el.bgColor, el.bgOpacity ?? 1)
+						: undefined
+				}
+			/>
+		)
 	if (el.type === 'image' || el.type === 'gif')
 		return (
 			<img
@@ -5238,10 +6794,20 @@ function PreviewElement({
 				</>
 			)
 		}
+		const embedSrc = toEmbedUrl(el.src || '')
+		// готовый YouTube-плейлист: включаем autoplay у самого YouTube,
+		// иначе после добавления он стоит на постере и не переключает ролики.
+		// Панель стартует без звука — браузер блокирует громкий автозапуск
+		const autoplayPlaylist =
+			!!el.autoplay && /\/embed\/videoseries/.test(embedSrc)
 		return (
 			<>
 				<iframe
-					src={toEmbedUrl(el.src || '')}
+					src={
+						autoplayPlaylist
+							? `${embedSrc}${embedSrc.includes('?') ? '&' : '?'}autoplay=1&mute=1`
+							: embedSrc
+					}
 					title='embed'
 					data-id={el.id}
 					className='w-full h-full'
@@ -5267,6 +6833,18 @@ function PreviewElement({
 				style={textBoxStyle(el, scale)}
 			>
 				{el.text}
+			</div>
+		)
+	if (el.type === 'audio')
+		return (
+			<div className='w-full h-full flex items-center gap-2 rounded-lg border border-border bg-panel/95 px-3 text-gray-300'>
+				<Volume2 size={18} className='text-accent2 shrink-0' />
+				<div className='min-w-0'>
+					<p className='text-xs font-medium truncate'>Звук</p>
+					<p className='text-[10px] text-gray-500 truncate'>
+						Проиграть — в свойствах
+					</p>
+				</div>
 			</div>
 		)
 	if (el.type === 'timer') return <TimerPreview el={el} scale={1} />
@@ -5365,7 +6943,7 @@ function TimerPreview({ el, scale }: { el: StreamElement; scale: number }) {
 	} else {
 		playedRef.current = false
 	}
-	const bg = el.bgColor === 'transparent' ? 'none' : el.bgColor
+	const bg = colorWithOpacity(el.bgColor, el.bgOpacity ?? 1)
 
 	return (
 		<div className='w-full h-full flex flex-col items-center justify-center pointer-events-none overflow-hidden'>
@@ -5404,20 +6982,43 @@ function TimerPreview({ el, scale }: { el: StreamElement; scale: number }) {
 }
 
 function formatTime(seconds: number): string {
-	const m = Math.floor(seconds / 60)
-	const s = seconds % 60
-	return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+	const total = Math.max(0, Math.floor(seconds))
+	const h = Math.floor(total / 3600)
+	const m = Math.floor((total % 3600) / 60)
+	const s = total % 60
+	const mm = String(m).padStart(2, '0')
+	const ss = String(s).padStart(2, '0')
+	return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`
 }
 
 function PropertyEditor({
 	el,
 	update,
 	emit,
+	onEditWidget,
 }: {
 	el: StreamElement
 	update: (partial: Partial<StreamElement>) => void
 	emit: (e: string, d?: any) => void
+	onEditWidget: (def: WidgetDefinition) => void
 }) {
+	// пока идёт обратный отсчёт, раз в полсекунды обновляем кнопку и подпись:
+	// в конце она должна снова стать «Старт», даже если состояние не менялось
+	const [, tick] = useState(0)
+	useEffect(() => {
+		if (el.type !== 'timer' || !el.isRunning) return
+		const i = setInterval(() => tick(x => x + 1), 500)
+		return () => clearInterval(i)
+	}, [el.type, el.isRunning])
+	const timerFinished =
+		el.type === 'timer' &&
+		el.timerDirection === 'down' &&
+		(el.duration || 0) > 0 &&
+		(el.isRunning && el.startTime
+			? Date.now() - serverClockLag.ms - el.startTime
+			: el.elapsed || 0) >=
+			(el.duration || 0) * 1000
+
 	return (
 		<div className='space-y-4'>
 			<h2 className='text-sm font-semibold text-gray-400 uppercase tracking-wide'>
@@ -5580,6 +7181,69 @@ function PropertyEditor({
 					</p>
 				)}
 			</div>
+			{el.type !== 'text' && (
+				<div className='rounded-xl border border-border bg-bg p-3 space-y-2'>
+					<div className='flex items-center justify-between'>
+						<span className='text-xs font-semibold uppercase tracking-wide text-gray-400'>
+							Фон
+						</span>
+						<button
+							onClick={() => update({ bgColor: 'transparent', bgOpacity: 1 })}
+							title='Убрать фон'
+							className='px-2 py-1 text-[10px] rounded-md border border-border text-gray-400 hover:text-white hover:bg-border transition-colors'
+						>
+							Прозрачный
+						</button>
+					</div>
+					<div className='flex gap-2'>
+						<input
+							type='color'
+							value={
+								el.bgColor &&
+								el.bgColor !== 'transparent' &&
+								/^#[0-9a-f]{6}$/i.test(el.bgColor)
+									? el.bgColor
+									: '#000000'
+							}
+							onChange={e => update({ bgColor: e.target.value })}
+							className='w-10 h-9 shrink-0 rounded-lg border border-border bg-bg cursor-pointer'
+						/>
+						<input
+							type='text'
+							value={el.bgColor || 'transparent'}
+							onChange={e =>
+								update({
+									bgColor: e.target.value.trim() || 'transparent',
+								})
+							}
+							placeholder='#000000 или transparent'
+							className='flex-1 min-w-0 px-2 py-1.5 bg-panel border border-border rounded-lg text-xs font-mono'
+						/>
+					</div>
+					<div>
+						<label className='text-xs text-gray-500 block mb-1'>
+							Прозрачность фона: {Math.round((el.bgOpacity ?? 1) * 100)}%
+						</label>
+						<input
+							type='range'
+							min={0}
+							max={100}
+							step={5}
+							value={Math.round((el.bgOpacity ?? 1) * 100)}
+							onChange={e =>
+								update({ bgOpacity: Number(e.target.value) / 100 })
+							}
+							disabled={!el.bgColor || el.bgColor === 'transparent'}
+							className='w-full accent-accent disabled:opacity-40'
+						/>
+					</div>
+					{(!el.bgColor || el.bgColor === 'transparent') && (
+						<p className='text-[10px] text-gray-600'>
+							Фон выключен — виден только сам элемент.
+						</p>
+					)}
+				</div>
+			)}
 			{el.type === 'text' && (
 				<TextStyleControls key={el.id} el={el} update={update} />
 			)}
@@ -5601,16 +7265,33 @@ function PropertyEditor({
 						</select>
 					</div>
 					{el.timerDirection === 'down' && (
-						<div className='grid grid-cols-2 gap-2'>
+						<div className='grid grid-cols-3 gap-2'>
+							<NumberField
+								label='Часы'
+								min={0}
+								value={Math.floor((el.duration || 0) / 3600)}
+								onChange={v =>
+									update({
+										duration: v * 3600 + ((el.duration || 0) % 3600),
+									})
+								}
+							/>
 							<NumberField
 								label='Минуты'
-								value={Math.floor((el.duration || 0) / 60)}
+								min={0}
+								value={Math.floor(((el.duration || 0) % 3600) / 60)}
 								onChange={v =>
-									update({ duration: v * 60 + ((el.duration || 0) % 60) })
+									update({
+										duration:
+											Math.floor((el.duration || 0) / 3600) * 3600 +
+											v * 60 +
+											((el.duration || 0) % 60),
+									})
 								}
 							/>
 							<NumberField
 								label='Секунды'
+								min={0}
 								value={(el.duration || 0) % 60}
 								onChange={v =>
 									update({
@@ -5647,7 +7328,7 @@ function PropertyEditor({
 						/>
 					</div>
 					<div className='flex gap-2 pt-2'>
-						{!el.isRunning ? (
+						{!el.isRunning || timerFinished ? (
 							<button
 								onClick={() => emit('timer:start', { id: el.id })}
 								className='flex-1 px-3 py-2 bg-green-700 hover:bg-green-600 text-white text-sm rounded-lg'
@@ -5669,13 +7350,180 @@ function PropertyEditor({
 							⏹ Сброс
 						</button>
 					</div>
+					{timerFinished && (
+						<p className='text-[10px] text-gray-500'>
+							Отсчёт завершён — «Старт» запустит его заново с самого начала.
+						</p>
+					)}
 					{/* Звук окончания: свой файл с ПК вместо встроенного сигнала.
 					    После выбора — громкость и длительность (не больше 10 секунд) */}
 					<TimerSoundControls key={el.id} el={el} update={update} />
 				</>
 			)}
+			{el.type === 'audio' && (
+				<div className='space-y-3'>
+					<div className='flex gap-2'>
+						<button
+							onClick={() =>
+								emit('element:command', { id: el.id, cmd: 'audio-play' })
+							}
+							className='flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-green-700 hover:bg-green-600 text-white text-sm rounded-lg'
+						>
+							<Play size={14} />
+							Проиграть
+						</button>
+						<button
+							onClick={() =>
+								emit('element:command', { id: el.id, cmd: 'audio-stop' })
+							}
+							className='flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-border hover:bg-gray-600 text-white text-sm rounded-lg'
+						>
+							<Square size={13} />
+							Стоп
+						</button>
+					</div>
+					<div>
+						<label className='text-xs text-gray-500 block mb-1'>
+							Громкость: {Math.round((el.volume ?? 1) * 100)}%
+						</label>
+						<input
+							type='range'
+							min={0}
+							max={100}
+							step={1}
+							value={Math.round((el.volume ?? 1) * 100)}
+							onChange={e => update({ volume: Number(e.target.value) / 100 })}
+							className='w-full accent-accent'
+						/>
+					</div>
+					<button
+						onClick={() => update({ loop: !el.loop })}
+						className='w-full flex items-center justify-between px-3 py-2 bg-bg border border-border rounded-lg text-sm'
+					>
+						<span>Повторять</span>
+						<span
+							className={`w-9 h-5 rounded-full relative shrink-0 ${el.loop ? 'bg-green-500' : 'bg-gray-600'}`}
+						>
+							<span
+								className='absolute top-[2px] w-4 h-4 bg-white rounded-full transition-all'
+								style={{ left: el.loop ? 18 : 2 }}
+							/>
+						</span>
+					</button>
+					<p className='text-[10px] leading-relaxed text-gray-500'>
+						На оверлее звук не рисуется. «Проиграть» запускает его на стриме,
+						воспроизведение начинается с начала.
+					</p>
+				</div>
+			)}
+			{el.type === 'iframe' &&
+				Array.isArray(el.playlist) &&
+				el.playlist.length > 0 &&
+				(() => {
+					const list = el.playlist || []
+					const idx = Math.min(
+						Math.max(0, el.playlistIndex ?? 0),
+						Math.max(0, list.length - 1),
+					)
+					const step = (dir: number) =>
+						emit('playlist:step', { id: el.id, dir, expected: idx })
+					return (
+						<div className='space-y-2 rounded-lg border border-border bg-bg p-3'>
+							<div className='flex items-center justify-between text-xs'>
+								<span className='font-medium text-gray-300'>
+									YouTube плейлист
+								</span>
+								<span className='text-gray-500'>
+									{idx + 1} / {list.length}
+								</span>
+							</div>
+							<div className='flex gap-2'>
+								<button
+									onClick={() => step(-1)}
+									className='flex-1 px-2 py-1.5 text-xs bg-border hover:bg-gray-600 rounded-lg'
+								>
+									← Предыдущее
+								</button>
+								<button
+									onClick={() => step(1)}
+									className='flex-1 px-2 py-1.5 text-xs bg-border hover:bg-gray-600 rounded-lg'
+								>
+									Следующее →
+								</button>
+							</div>
+							<button
+								onClick={() => update({ playlistLoop: !el.playlistLoop })}
+								className='w-full flex items-center justify-between px-3 py-2 bg-panel border border-border rounded-lg text-sm'
+							>
+								<span>Повторять после последнего</span>
+								<span
+									className={`w-9 h-5 rounded-full relative shrink-0 ${el.playlistLoop ? 'bg-green-500' : 'bg-gray-600'}`}
+								>
+									<span
+										className='absolute top-[2px] w-4 h-4 bg-white rounded-full transition-all'
+										style={{ left: el.playlistLoop ? 18 : 2 }}
+									/>
+								</span>
+							</button>
+							<p className='text-[10px] leading-relaxed text-gray-500'>
+								Когда ролик заканчивается, автоматически включается следующий.
+							</p>
+						</div>
+					)
+				})()}
+			{el.type === 'widget' && el.widget && (
+				<div className='space-y-3'>
+					<div className='rounded-lg border border-border bg-bg p-3'>
+						<p className='text-[10px] uppercase tracking-wide text-gray-600'>
+							Виджеты
+						</p>
+						<p className='mt-0.5 text-sm font-semibold'>{el.widget.name}</p>
+						<button
+							onClick={() => {
+								if (!el.widget) return
+								onEditWidget(el.widget)
+							}}
+							className='mt-2 w-full flex items-center justify-center gap-2 px-3 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
+						>
+							<Pencil size={14} />
+							Редактировать виджет
+						</button>
+						<p className='mt-1.5 text-[10px] leading-relaxed text-gray-500'>
+							Откроет код и переменные во вкладке «Виджет».
+						</p>
+					</div>
+					{el.widget.variables.length === 0 && (
+						<p className='text-[10px] text-gray-500'>
+							У этого виджета нет переменных.
+						</p>
+					)}
+					{el.widget.variables.map(v => (
+						<WidgetVariableControl
+							key={v.name}
+							variable={v}
+							value={el.widgetValues?.[v.name] ?? v.value ?? ''}
+							onChange={value =>
+								update({
+									widgetValues: {
+										...(el.widgetValues || {}),
+										[v.name]: value,
+									},
+								})
+							}
+							onTrigger={() =>
+								emit('widget:trigger', {
+									id: el.id,
+									name: v.name,
+									value: v.value,
+								})
+							}
+						/>
+					))}
+				</div>
+			)}
 			{(el.type === 'image' ||
 				el.type === 'video' ||
+				el.type === 'audio' ||
 				el.type === 'gif' ||
 				el.type === 'iframe') && (
 				<div>

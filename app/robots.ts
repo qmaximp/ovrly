@@ -14,6 +14,8 @@ export default function robots(): MetadataRoute.Robots {
 			},
 		],
 		sitemap: `${base}/sitemap.xml`,
-		host: base,
+		// Host у Яндекса устарел: оставляем голое имя без схемы, чтобы не
+		// выглядеть как невалидная директива в старых проверках
+		host: base.replace(/^https?:\/\//, ''),
 	}
 }

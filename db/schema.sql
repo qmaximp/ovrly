@@ -37,3 +37,18 @@ CREATE TABLE IF NOT EXISTS settings (
 	value jsonb NOT NULL,
 	updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- Публичная библиотека кастомных виджетов. definition — снимок WidgetDefinition,
+-- source_id — id виджета в личной библиотеке автора (для повторной публикации).
+CREATE TABLE IF NOT EXISTS widget_library (
+	id text PRIMARY KEY,
+	owner text NOT NULL,
+	source_id text NOT NULL,
+	name text NOT NULL,
+	definition jsonb NOT NULL,
+	updated_at timestamptz NOT NULL DEFAULT now(),
+	UNIQUE (owner, source_id)
+);
+
+CREATE INDEX IF NOT EXISTS widget_library_updated_idx
+	ON widget_library (updated_at DESC);

@@ -1,4 +1,52 @@
-export type ElementType = 'image' | 'gif' | 'video' | 'iframe' | 'text' | 'timer';
+export type ElementType = 'image' | 'gif' | 'video' | 'audio' | 'iframe' | 'text' | 'timer' | 'widget';
+
+// --- кастомные виджеты (HTML/CSS/JS в sandboxed iframe) ---
+// Набор повторяет типы Pogly: 1 String … 12 Checkboxes (см. TYPE_TO_NUM в lib/widgets.ts)
+export type WidgetVariableType =
+  | 'string'
+  | 'boolean'
+  | 'toggle'
+  | 'color'
+  | 'media'
+  | 'button'
+  | 'slider'
+  | 'dropdown'
+  | 'datetime'
+  | 'counter'
+  | 'list'
+  | 'checkboxes';
+
+export type WidgetVariable = {
+  name: string;
+  type: WidgetVariableType;
+  value: string;
+  live?: boolean;
+  min?: number;
+  max?: number;
+  step?: number;
+  // варианты для dropdown / checkboxes
+  options?: string[];
+};
+
+export type WidgetDefinition = {
+  id: string;
+  name: string;
+  description?: string;
+  width: number;
+  height: number;
+  header: string;
+  body: string;
+  style: string;
+  script: string;
+  variables: WidgetVariable[];
+  // Включаемые интеграции. Kick не поддерживаем.
+  integrations?: {
+    twitchChat?: boolean;
+    twitchSubs?: boolean;
+    twitchRaids?: boolean;
+    twitchBits?: boolean;
+  };
+};
 
 export interface StreamElement {
   id: string;
@@ -13,6 +61,8 @@ export interface StreamElement {
   color?: string;
   fontWeight?: string;
   bgColor?: string;
+  // прозрачность именно фона (0..1), не всего элемента
+  bgOpacity?: number;
   // --- оформление текста (всё необязательное: без значений — как было раньше) ---
   fontFamily?: string; // готовая CSS-строка стека шрифтов
   italic?: boolean;
@@ -48,6 +98,18 @@ export interface StreamElement {
   alwaysLoaded?: boolean;
   locked?: boolean;
   autoplay?: boolean;
+  // YouTube-плейлист: очередь id видео и текущая позиция. После окончания
+  // ролика панель переключает src на следующий (YouTube-плейлист с готовым
+  // list=... хранит только src и переключается силами самого YouTube)
+  playlist?: string[];
+  playlistIndex?: number;
+  playlistLoop?: boolean;
+  // звуковой элемент: громкость 0..1 и повтор воспроизведения
+  volume?: number;
+  loop?: boolean;
+  // кастомный виджет: снимок кода + текущие значения переменных
+  widget?: WidgetDefinition;
+  widgetValues?: Record<string, string>;
   zIndex: number;
 }
 
@@ -72,6 +134,8 @@ export interface SyncState {
   elements: StreamElement[];
   canvasW: number;
   canvasH: number;
+  // библиотека виджетов комнаты (создаётся в панели, лежит в состоянии комнаты)
+  widgets?: Record<string, WidgetDefinition>;
 }
 
 // Кто сейчас на странице комнаты (для списка участников в шапке панели):

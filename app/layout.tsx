@@ -33,6 +33,14 @@ export const metadata: Metadata = {
 		{ name: 'nezory_1', url: 'https://www.twitch.tv/nezory_1' },
 	],
 	creator: 'jettle_, nezory_1',
+	// подтверждение владения сайтом в Яндекс.Вебмастере (файл-подтверждение
+	// тоже лежит в public, но meta-тег работает даже если файл закрыт nginx)
+	verification: {
+		yandex: 'e0e3796d711d3024',
+		// Google Search Console: DNS TXT у REG.RU так и не разошёлся, поэтому
+		// подтверждаем мета-тегом (токен публичный, не секрет)
+		google: 'MZsoxSyzkByqeUKdZfIvXvhfFwttYxmX0nxb5qUSnOA',
+	},
 	robots: {
 		index: true,
 		follow: true,

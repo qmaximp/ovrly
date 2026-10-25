@@ -2,7 +2,11 @@
 
 import LogoMark from '@/components/LogoMark'
 import ThemeToggle from '@/components/ThemeToggle'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import WidgetFrame from '@/components/WidgetFrame'
+import type { WidgetDefinition } from '@/lib/types'
+import { widgetHasTwitchIntegration } from '@/lib/widgets'
+import { Eye, EyeOff, Search, Trash2 } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { io as ioInit } from 'socket.io-client'
 
 // Данные статистики с сервера (server.js → admin:stats)
@@ -45,6 +49,14 @@ type Stats = {
 	rooms: StatsRoom[]
 }
 
+type AdminWidget = {
+	id: string
+	owner: string
+	name: string
+	definition: WidgetDefinition
+	updatedAt: string
+}
+
 const ROLE_LABELS: Record<StatsUser['role'], string> = {
 	streamer: 'автор',
 	moderator: 'модератор',
@@ -55,19 +67,30 @@ function fmtSec(sec: number | null | undefined): string {
 	if (sec === null || sec === undefined) return '—'
 	if (sec < 60) return `${sec} с`
 	if (sec < 3600) return `${Math.floor(sec / 60)} мин`
-	if (sec < 86400) return `${Math.floor(sec / 3600)} ч ${Math.floor((sec % 3600) / 60)} мин`
+	if (sec < 86400)
+		return `${Math.floor(sec / 3600)} ч ${Math.floor((sec % 3600) / 60)} мин`
 	return `${Math.floor(sec / 86400)} д ${Math.floor((sec % 86400) / 3600)} ч`
 }
 
 function fmtClock(at: number | null | undefined): string {
 	if (!at) return '—'
 	const d = new Date(at)
-	return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+	return d.toLocaleTimeString('ru-RU', {
+		hour: '2-digit',
+		minute: '2-digit',
+		second: '2-digit',
+	})
 }
 
 function TwitchIcon({ size = 14 }: { size?: number }) {
 	return (
-		<svg viewBox='0 0 24 24' fill='currentColor' width={size} height={size} aria-hidden='true'>
+		<svg
+			viewBox='0 0 24 24'
+			fill='currentColor'
+			width={size}
+			height={size}
+			aria-hidden='true'
+		>
 			<path d='M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714H20.57z' />
 		</svg>
 	)
@@ -86,6 +109,11 @@ export default function AdminClient({
 	const [error, setError] = useState('')
 	const [announce, setAnnounce] = useState('')
 	const [announced, setAnnounced] = useState('')
+	const [adminWidgets, setAdminWidgets] = useState<AdminWidget[]>([])
+	const [widgetsLoading, setWidgetsLoading] = useState(false)
+	const [widgetsError, setWidgetsError] = useState('')
+	const [widgetQuery, setWidgetQuery] = useState('')
+	const [openWidget, setOpenWidget] = useState<string | null>(null)
 	const socketRef = useRef<ReturnType<typeof ioInit> | null>(null)
 
 	useEffect(() => {
@@ -111,15 +139,80 @@ export default function AdminClient({
 		}
 	}, [])
 
-// Админка задумана как самостоятельная страница: её удобно держать отдельным окном
+	// Админка задумана как самостоятельная страница: её удобно держать отдельным окном
 	// рядом со стримом и не отвлекаться на вкладку панели
 	const openWindow = useCallback(() => {
-		window.open('/admin?window=1', 'ovrly-admin', 'width=1100,height=820,menubar=no,toolbar=no')
+		window.open(
+			'/admin?window=1',
+			'ovrly-admin',
+			'width=1100,height=820,menubar=no,toolbar=no',
+		)
 	}, [])
 
 	const refresh = useCallback(() => {
 		socketRef.current?.emit('admin:stats')
 	}, [])
+
+	const loadAdminWidgets = useCallback(async () => {
+		setWidgetsLoading(true)
+		setWidgetsError('')
+		try {
+			const res = await fetch('/api/admin/widgets')
+			const data = await res.json()
+			if (!res.ok)
+				throw new Error(data?.error || 'Не удалось загрузить виджеты')
+			setAdminWidgets(Array.isArray(data.widgets) ? data.widgets : [])
+		} catch (e: any) {
+			setWidgetsError(e?.message || 'Не удалось загрузить виджеты')
+		} finally {
+			setWidgetsLoading(false)
+		}
+	}, [])
+
+	useEffect(() => {
+		void loadAdminWidgets()
+	}, [loadAdminWidgets])
+
+	const deleteAdminWidget = useCallback(
+		async (w: AdminWidget) => {
+			if (
+				!confirm(
+					`Удалить «${w.name}» из публичной библиотеки? У автора в комнате копия останется.`,
+				)
+			)
+				return
+			try {
+				const res = await fetch(
+					`/api/admin/widgets?id=${encodeURIComponent(w.id)}`,
+					{ method: 'DELETE' },
+				)
+				const data = await res.json()
+				if (!res.ok) throw new Error(data?.error || 'Не удалось удалить виджет')
+				if (openWidget === w.id) setOpenWidget(null)
+				await loadAdminWidgets()
+			} catch (e: any) {
+				setWidgetsError(e?.message || 'Не удалось удалить виджет')
+			}
+		},
+		[loadAdminWidgets, openWidget],
+	)
+
+	const filteredWidgets = useMemo(() => {
+		const q = widgetQuery.trim().toLowerCase()
+		if (!q) return adminWidgets
+		return adminWidgets.filter(w => {
+			const text = [
+				w.name,
+				w.owner,
+				w.definition?.name,
+				w.definition?.description,
+			]
+				.filter(Boolean)
+				.join(' ')
+				.toLowerCase()
+			return text.includes(q)
+		})
+	}, [adminWidgets, widgetQuery])
 
 	const sendAnnounce = useCallback(() => {
 		const text = announce.trim()
@@ -160,9 +253,12 @@ export default function AdminClient({
 	}, [])
 	const peopleOnline = onlineUsers.filter(u => u.role !== 'guest')
 	// оверлеев может быть несколько (каждый Browser Source — отдельное подключение)
-	const overlaysOnline = peopleOnline.length === 0 && onlineUsers.length === 0
-		? 0
-		: onlineUsers.filter(u => u.role === 'guest').reduce((s, u) => s + u.connections, 0)
+	const overlaysOnline =
+		peopleOnline.length === 0 && onlineUsers.length === 0
+			? 0
+			: onlineUsers
+					.filter(u => u.role === 'guest')
+					.reduce((s, u) => s + u.connections, 0)
 	// пустые комнаты без владельца (в списке выглядели как «---») не показываем
 	const visibleRooms = stats
 		? stats.rooms.filter(r => r.owner && r.owner !== '—')
@@ -204,10 +300,7 @@ export default function AdminClient({
 								⧉ <span className='hidden sm:inline'>Отдельным окном</span>
 							</button>
 						)}
-						<button
-							onClick={refresh}
-							className='btn btn-ghost btn-sm'
-						>
+						<button onClick={refresh} className='btn btn-ghost btn-sm'>
 							↻ <span className='hidden sm:inline'>Обновить</span>
 						</button>
 						<a href='/cabinet' className='btn btn-ghost btn-sm'>
@@ -275,12 +368,12 @@ export default function AdminClient({
 
 							<div className='admin-grid'>
 								<section className='glass-card admin-card'>
-										<div className='admin-card-head'>
-											<div>
-												<span className='kicker'>Онлайн</span>
-												<h2 className='admin-card-title'>Кто сейчас на сайте</h2>
-											</div>
+									<div className='admin-card-head'>
+										<div>
+											<span className='kicker'>Онлайн</span>
+											<h2 className='admin-card-title'>Кто сейчас на сайте</h2>
 										</div>
+									</div>
 									{peopleOnline.length === 0 ? (
 										<p className='admin-empty'>
 											Никого нет. Оверлеи OBS в этот список не попадают.
@@ -379,16 +472,14 @@ export default function AdminClient({
 													>
 														{r.dirty ? 'не сохранено' : 'сохранено'}
 													</span>
-														<span className='admin-room-edit'>
-															{r.lastEditSec === null
-																? 'без правок'
-																: `правка ${fmtSec(r.lastEditSec)} назад`}
-														</span>
+													<span className='admin-room-edit'>
+														{r.lastEditSec === null
+															? 'без правок'
+															: `правка ${fmtSec(r.lastEditSec)} назад`}
+													</span>
 													{r.token && (
 														<button
-															onClick={() =>
-																openGhostPanel(r.token, r.owner)
-															}
+															onClick={() => openGhostPanel(r.token, r.owner)}
 															title={`Войти в панель ${r.owner} невидимо`}
 															aria-label={`Войти в панель ${r.owner} невидимо`}
 															className='admin-icon-btn'
@@ -403,45 +494,199 @@ export default function AdminClient({
 								</section>
 							</div>
 
-							<section className='glass-card admin-card'>
-								<div className='admin-card-head'>
-									<div>
-										<span className='kicker'>Оповещение</span>
-										<h2 className='admin-card-title'>Предупредить всех</h2>
+							<div className='admin-grid'>
+								<section className='glass-card admin-card'>
+									<div className='admin-card-head'>
+										<div>
+											<span className='kicker'>Плагины</span>
+											<h2 className='admin-card-title'>
+												Публичные виджеты ({filteredWidgets.length})
+											</h2>
+										</div>
+										<button
+											onClick={() => void loadAdminWidgets()}
+											className='btn btn-ghost btn-sm'
+											title='Обновить список виджетов'
+										>
+											↻ <span className='hidden sm:inline'>Обновить</span>
+										</button>
 									</div>
-								</div>
-								<p className='cabinet-muted'>
-									Сообщение появится баннером у всех, кто сейчас в панели
-									(например: «через 5 минут обновление, сохраните работу»).
-								</p>
-								<div className='admin-notice-row'>
-									<input
-										value={announce}
-										onChange={e => setAnnounce(e.target.value)}
-										onKeyDown={e => {
-											if (e.key === 'Enter') sendAnnounce()
-										}}
-										placeholder='Текст предупреждения'
-										className='admin-input'
-									/>
-									<button
-										onClick={sendAnnounce}
-										disabled={!announce.trim()}
-										className='btn btn-primary btn-sm'
-									>
-										Отправить
-									</button>
-								</div>
-								{announced && (
-									<p className='text-xs text-green-400 mt-2'>
-										Отправлено: «{announced}»
+									<p className='cabinet-muted'>
+										Виджеты из публичной библиотеки. Удаление убирает
+										публикацию; копии, уже добавленные в комнаты, остаются.
 									</p>
-								)}
-							</section>
+									<div className='admin-notice-row'>
+										<div className='relative flex-1'>
+											<Search
+												size={15}
+												className='absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none'
+											/>
+											<input
+												value={widgetQuery}
+												onChange={e => setWidgetQuery(e.target.value)}
+												placeholder='Поиск по названию или автору'
+												aria-label='Поиск публичных виджетов'
+												className='admin-input w-full pl-9'
+											/>
+										</div>
+									</div>
+									{widgetsError && <p className='alert mt-3'>{widgetsError}</p>}
+									{widgetsLoading && !adminWidgets.length ? (
+										<p className='admin-empty'>Загружаю виджеты…</p>
+									) : filteredWidgets.length === 0 ? (
+										<p className='admin-empty'>
+											{widgetQuery
+												? `Ничего не найдено по запросу «${widgetQuery}»`
+												: 'Публичных виджетов пока нет'}
+										</p>
+									) : (
+										<div className='admin-widget-table'>
+											<div className='admin-widget-head' aria-hidden='true'>
+												<span>Виджеты</span>
+												<span>Автор</span>
+												<span>Размер</span>
+												<span>Переменные</span>
+												<span>Опубликован</span>
+												<span />
+											</div>
+											{filteredWidgets.map(w => (
+												<div key={w.id} className='admin-widget-item'>
+													<div className='admin-widget-row'>
+														<div className='min-w-0'>
+															<div className='flex items-center gap-2 min-w-0'>
+																<span className='admin-role-icon'>🧩</span>
+																<span className='admin-widget-name'>
+																	{w.name}
+																</span>
+																{w.definition &&
+																	widgetHasTwitchIntegration(w.definition) && (
+																		<span className='admin-room-badge shrink-0'>
+																			Twitch
+																		</span>
+																	)}
+															</div>
+															<span className='admin-widget-mobile-meta'>
+																@{w.owner} · {w.definition?.width ?? '?'}×
+																{w.definition?.height ?? '?'} ·{' '}
+																{w.definition?.variables?.length ?? 0} перем. ·{' '}
+																{new Date(w.updatedAt).toLocaleDateString(
+																	'ru-RU',
+																)}
+															</span>
+														</div>
+														<a
+															href={`https://www.twitch.tv/${w.owner}`}
+															target='_blank'
+															rel='noopener noreferrer'
+															className='admin-widget-cell admin-widget-author'
+														>
+															@{w.owner}
+														</a>
+														<span className='admin-widget-cell admin-widget-size'>
+															{w.definition?.width ?? '?'}×
+															{w.definition?.height ?? '?'}
+														</span>
+														<span className='admin-widget-cell admin-widget-vars'>
+															{w.definition?.variables?.length ?? 0} перем.
+														</span>
+														<span className='admin-widget-cell admin-widget-date'>
+															{new Date(w.updatedAt).toLocaleDateString(
+																'ru-RU',
+															)}
+														</span>
+														<div className='admin-widget-actions'>
+															<button
+																onClick={() =>
+																	setOpenWidget(v => (v === w.id ? null : w.id))
+																}
+																title={
+																	openWidget === w.id
+																		? 'Скрыть предпросмотр'
+																		: 'Показать предпросмотр'
+																}
+																aria-label={
+																	openWidget === w.id
+																		? 'Скрыть предпросмотр'
+																		: 'Показать предпросмотр'
+																}
+																className='admin-icon-btn'
+															>
+																{openWidget === w.id ? (
+																	<EyeOff size={15} />
+																) : (
+																	<Eye size={15} />
+																)}
+															</button>
+															<button
+																onClick={() => void deleteAdminWidget(w)}
+																title='Удалить из публичной библиотеки'
+																aria-label={`Удалить виджет ${w.name}`}
+																className='admin-icon-btn text-red-400 hover:text-red-300'
+															>
+																<Trash2 size={15} />
+															</button>
+														</div>
+													</div>
+													{openWidget === w.id && (
+														<div
+															className='admin-widget-preview'
+															style={{
+																maxWidth: Math.min(
+																	360,
+																	w.definition?.width || 360,
+																),
+																aspectRatio: `${Math.max(1, w.definition?.width || 360)} / ${Math.max(1, w.definition?.height || 200)}`,
+															}}
+														>
+															<WidgetFrame widget={w.definition} preview />
+														</div>
+													)}
+												</div>
+											))}
+										</div>
+									)}
+								</section>
+
+								<section className='glass-card admin-card'>
+									<div className='admin-card-head'>
+										<div>
+											<span className='kicker'>Оповещение</span>
+											<h2 className='admin-card-title'>Предупредить всех</h2>
+										</div>
+									</div>
+									<p className='cabinet-muted'>
+										Сообщение появится баннером у всех, кто сейчас в панели
+										(например: «через 5 минут обновление, сохраните работу»).
+									</p>
+									<div className='admin-notice-row'>
+										<input
+											value={announce}
+											onChange={e => setAnnounce(e.target.value)}
+											onKeyDown={e => {
+												if (e.key === 'Enter') sendAnnounce()
+											}}
+											placeholder='Текст предупреждения'
+											className='admin-input'
+										/>
+										<button
+											onClick={sendAnnounce}
+											disabled={!announce.trim()}
+											className='btn btn-primary btn-sm'
+										>
+											Отправить
+										</button>
+									</div>
+									{announced && (
+										<p className='text-xs text-green-400 mt-2'>
+											Отправлено: «{announced}»
+										</p>
+									)}
+								</section>
+							</div>
 
 							<p className='admin-meta'>
-								Статистика обновляется каждые 5 секунд · данные:{' '}
-								{stats.dataDir} · вы вошли как {login}
+								Статистика обновляется каждые 5 секунд · данные: {stats.dataDir}{' '}
+								· вы вошли как {login}
 							</p>
 						</div>
 					)}

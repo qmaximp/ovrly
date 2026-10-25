@@ -1,3 +1,4 @@
+import { colorWithOpacity } from './color'
 import type { CSSProperties } from 'react'
 import type { StreamElement } from './types'
 
@@ -174,6 +175,6 @@ export function textBoxStyle(
 		overflow: 'hidden',
 		padding: el.padding ? el.padding * scale : undefined,
 		borderRadius: el.radius ? el.radius * scale : undefined,
-		background: el.bgColor === 'transparent' ? 'none' : el.bgColor,
+		background: colorWithOpacity(el.bgColor, el.bgOpacity ?? 1),
 	}
 }

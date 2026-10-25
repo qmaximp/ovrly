@@ -3,6 +3,7 @@ const next = require('next')
 const { Server } = require('socket.io')
 const crypto = require('crypto')
 const path = require('path')
+const WebSocket = require('ws')
 const roomStore = require('./lib/roomStore')
 
 // режим запуска: npm run dev (--dev) / npm start (--prod).
@@ -71,6 +72,155 @@ const MAX_TOTAL_ROOM_BYTES = 768 * 1024 * 1024
 // Клиент ограничивает файл 2 МБ, сервер дополнительно не даёт залить больше
 const MAX_SOUND_DATA = 3 * 1024 * 1024
 
+// YouTube-плейлист: в состоянии храним только id роликов, не произвольные URL.
+// Это защищает и от мусора, и от подмены src при playlist:step.
+const YT_ID_RE = /^[A-Za-z0-9_-]{6,20}$/
+function cleanPlaylist(raw) {
+	if (!Array.isArray(raw)) return null
+	const out = []
+	const seen = new Set()
+	for (const id of raw.slice(0, 100)) {
+		if (typeof id !== 'string' || !YT_ID_RE.test(id) || seen.has(id)) continue
+		seen.add(id)
+		out.push(id)
+	}
+	return out.length ? out : null
+}
+
+// --- кастомные виджеты ---
+// Код виджета хранится в состоянии комнаты (библиотека на комнату). Всё, что
+// приходит с клиента, проверяем: размеры, имена переменных, типы и лимиты.
+const WIDGET_RESERVED = new Set([
+	'is_overlay',
+	'widget_width',
+	'widget_height',
+	'channel_name',
+	'platform',
+])
+const WIDGET_TYPES = new Set([
+	'string',
+	'boolean',
+	'toggle',
+	'color',
+	'media',
+	'button',
+	'slider',
+	'dropdown',
+	'datetime',
+	'counter',
+	'list',
+	'checkboxes',
+])
+// Pogly не обновляет toggle/media на лету; кнопка — отдельный триггер
+const WIDGET_NON_LIVE_TYPES = new Set(['button', 'toggle', 'media'])
+const WIDGET_TWITCH_INTEGRATIONS = [
+	'twitchChat',
+	'twitchSubs',
+	'twitchRaids',
+	'twitchBits',
+]
+const WIDGET_CODE_TOTAL = 240 * 1024
+const WIDGET_CODE_PART = 100 * 1024
+const WIDGET_VAR_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+function cleanWidgetOptions(raw) {
+	if (!Array.isArray(raw)) return undefined
+	const seen = new Set()
+	const out = []
+	for (const item of raw.slice(0, 50)) {
+		const value = String(item ?? '').trim().slice(0, 100)
+		if (!value || seen.has(value)) continue
+		seen.add(value)
+		out.push(value)
+	}
+	return out.length ? out : undefined
+}
+
+function cleanWidgetVariable(raw) {
+	if (!raw || typeof raw !== 'object') return null
+	const name = typeof raw.name === 'string' ? raw.name.trim() : ''
+	if (!WIDGET_VAR_NAME_RE.test(name) || WIDGET_RESERVED.has(name)) return null
+	const type = WIDGET_TYPES.has(raw.type) ? raw.type : 'string'
+	const v = {
+		name,
+		type,
+		value: String(raw.value ?? '').slice(0, 5000),
+		live: !WIDGET_NON_LIVE_TYPES.has(type) && !!raw.live,
+	}
+	if (type === 'toggle' || type === 'boolean')
+		v.value = v.value === 'true' ? 'true' : 'false'
+	if (type === 'slider' || type === 'counter') {
+		const min = Number(raw.min)
+		const max = Number(raw.max)
+		const step = Number(raw.step)
+		if (Number.isFinite(min)) v.min = min
+		if (Number.isFinite(max)) v.max = max
+		if (Number.isFinite(step) && step > 0) v.step = step
+	}
+	if (type === 'dropdown' || type === 'checkboxes') {
+		const options = cleanWidgetOptions(raw.options)
+		if (options) v.options = options
+	}
+	return v
+}
+
+function cleanWidgetDefinition(raw) {
+	if (!raw || typeof raw !== 'object') return null
+	const id = typeof raw.id === 'string' ? raw.id.trim() : ''
+	if (!/^[A-Za-z0-9_-]{1,100}$/.test(id)) return null
+	const name = String(raw.name ?? '').trim().slice(0, 80)
+	if (!name) return null
+	const width = Math.min(3840, Math.max(20, Math.round(Number(raw.width) || 0)))
+	const height = Math.min(2160, Math.max(20, Math.round(Number(raw.height) || 0)))
+	const header = String(raw.header ?? '').slice(0, WIDGET_CODE_PART)
+	const body = String(raw.body ?? '').slice(0, WIDGET_CODE_PART)
+	const style = String(raw.style ?? '').slice(0, WIDGET_CODE_PART)
+	const script = String(raw.script ?? '').slice(0, WIDGET_CODE_PART)
+	if (header.length + body.length + style.length + script.length > WIDGET_CODE_TOTAL)
+		return null
+	const variables = []
+	const seen = new Set()
+	if (Array.isArray(raw.variables)) {
+		for (const item of raw.variables.slice(0, 50)) {
+			const v = cleanWidgetVariable(item)
+			if (!v || seen.has(v.name)) continue
+			seen.add(v.name)
+			variables.push(v)
+		}
+	}
+	const integrations = {}
+	for (const key of WIDGET_TWITCH_INTEGRATIONS) {
+		if (raw.integrations?.[key]) integrations[key] = true
+	}
+	return {
+		id,
+		name,
+		description: raw.description
+			? String(raw.description).slice(0, 200)
+			: undefined,
+		width,
+		height,
+		header,
+		body,
+		style,
+		script,
+		variables,
+		integrations: Object.keys(integrations).length
+			? integrations
+			: undefined,
+	}
+}
+
+function cleanWidgetValues(widget, raw) {
+	const source = raw && typeof raw === 'object' ? raw : {}
+	const out = {}
+	for (const v of widget.variables || []) {
+		const value = source[v.name]
+		out[v.name] = String(value ?? v.value ?? '').slice(0, 5000)
+	}
+	return out
+}
+
 // комната без подключений столько не держится в памяти: сохраняем на диск и выгружаем.
 // При следующем входе сервер поднимет её из файла
 const ROOM_IDLE_EVICT_MS = 15 * 60 * 1000
@@ -84,6 +234,9 @@ const MUTATING_EVENTS = new Set([
 	'element:resize',
 	'element:delete',
 	'element:reorder',
+	'playlist:step',
+	'widget:save',
+	'widget:delete',
 	'element:toggle-visible',
 	'timer:start',
 	'timer:pause',
@@ -377,6 +530,283 @@ app.prepare().then(() => {
 		return !!entry && entry.status === 'accepted' && !entry.suspended
 	}
 
+	// ===== Twitch-события для виджетов =====
+	// Один анонимный IRC-клиент на комнату, только если в комнате есть виджет
+	// с любой включённой интеграцией Twitch. В сам виджет токены не попадают.
+	const twitchChats = new Map()
+
+	function parseIrcLine(line) {
+		let rest = line
+		const tags = {}
+		if (rest.startsWith('@')) {
+			const space = rest.indexOf(' ')
+			if (space < 0) return null
+			for (const part of rest.slice(1, space).split(';')) {
+				const eq = part.indexOf('=')
+				if (eq > 0) tags[part.slice(0, eq)] = part.slice(eq + 1)
+			}
+			rest = rest.slice(space + 1)
+		}
+		let prefix = ''
+		if (rest.startsWith(':')) {
+			const space = rest.indexOf(' ')
+			if (space < 0) return null
+			prefix = rest.slice(1, space)
+			rest = rest.slice(space + 1)
+		}
+		const space = rest.indexOf(' ')
+		const command = space < 0 ? rest : rest.slice(0, space)
+		const params = space < 0 ? '' : rest.slice(space + 1)
+		return { tags, prefix, command, params }
+	}
+
+	function ircDecode(s) {
+		return String(s || '')
+			.replace(/\\s/g, ' ')
+			.replace(/\\:/g, ';')
+			.replace(/\\r/g, '\r')
+			.replace(/\\n/g, '\n')
+			.replace(/\\\\/g, '\\')
+	}
+
+	function parseTwitchMessage(line, channel) {
+		const parsed = parseIrcLine(line)
+		if (!parsed || parsed.command !== 'PRIVMSG') return null
+		const { tags, prefix, params } = parsed
+		const textAt = params.indexOf(' :')
+		if (textAt < 0) return null
+		let message = params.slice(textAt + 2)
+		if (message.length > 1000) message = message.slice(0, 1000)
+		const login = (prefix.split('!')[0] || '').toLowerCase()
+		let isAction = false
+		if (message.startsWith('\x01ACTION ')) {
+			isAction = true
+			message = message.slice(8).replace(/\x01$/g, '')
+		}
+		const badges = (tags.badges || '')
+			.split(',')
+			.filter(Boolean)
+			.map(item => {
+				const [type, version] = item.split('/')
+				return { type, text: type, version }
+			})
+		return {
+			username: ircDecode(tags['display-name'] || login),
+			login,
+			message,
+			isAction,
+			color: tags.color || '',
+			badges,
+			userId: tags['user-id'] || '',
+			bits: Number(tags.bits) || 0,
+			isBroadcaster: login === channel,
+			isMod: tags.mod === '1',
+			isVip: tags.vip === '1',
+			isSubscriber: tags.subscriber === '1',
+			raw: { tags },
+		}
+	}
+
+	// USERNOTICE: подписки, подарочные сабы, рейды. Приходит на тот же
+	// анонимный IRC-клиент (CAP twitch.tv/commands), авторизация не нужна.
+	function parseTwitchUserNotice(line, channel) {
+		const parsed = parseIrcLine(line)
+		if (!parsed || parsed.command !== 'USERNOTICE') return null
+		const { tags, prefix, params } = parsed
+		const msgId = String(tags['msg-id'] || '')
+		if (!msgId) return null
+		const login = (
+			tags.login ||
+			prefix.split('!')[0] ||
+			''
+		).toLowerCase()
+		const username = ircDecode(tags['display-name'] || login) || 'anonymous'
+		const systemMessage = ircDecode(tags['system-msg'] || '')
+		const textAt = params.indexOf(' :')
+		const message =
+			textAt >= 0 ? ircDecode(params.slice(textAt + 2)).slice(0, 500) : ''
+		const months =
+			Number(tags['msg-param-cumulative-months']) ||
+			Number(tags['msg-param-months']) ||
+			0
+		const streak = Number(tags['msg-param-streak-months']) || 0
+		const tier = tags['msg-param-sub-plan'] || ''
+		const giftCount = Number(tags['msg-param-mass-gift-count']) || 1
+		const recipientLogin = (
+			tags['msg-param-recipient-user-name'] || ''
+		).toLowerCase()
+		const recipient = ircDecode(
+			tags['msg-param-recipient-display-name'] || recipientLogin,
+		)
+		switch (msgId) {
+			case 'sub':
+			case 'resub':
+				return {
+					event: 'sub',
+					data: {
+						kind: msgId,
+						username,
+						login,
+						months,
+						streak,
+						tier,
+						message,
+						isGift: false,
+						systemMessage,
+					},
+				}
+			case 'subgift':
+			case 'anonsubgift':
+				return {
+					event: 'sub',
+					data: {
+						kind: 'gift',
+						username: recipient || 'anonymous',
+						login: recipientLogin,
+						gifter: username,
+						recipient: recipient || 'anonymous',
+						months,
+						tier,
+						giftCount: 1,
+						isGift: true,
+						message,
+						systemMessage,
+					},
+				}
+			case 'submysterygift':
+				return {
+					event: 'sub',
+					data: {
+						kind: 'gift-bomb',
+						username,
+						login,
+						gifter: username,
+						months,
+						tier,
+						giftCount,
+						isGift: true,
+						message,
+						systemMessage,
+					},
+				}
+			case 'raid':
+				return {
+					event: 'raid',
+					data: {
+						kind: 'raid',
+						username,
+						login,
+						viewers: Number(tags['msg-param-viewerCount']) || 0,
+						systemMessage,
+					},
+				}
+			default:
+				return null
+		}
+	}
+
+	function stopTwitchChat(room) {
+		const chat = twitchChats.get(room)
+		if (!chat) return
+		chat.closed = true
+		if (chat.retry) clearTimeout(chat.retry)
+		try {
+			chat.ws?.close()
+		} catch {}
+		twitchChats.delete(room)
+	}
+
+	function startTwitchChat(room, channel, force = false) {
+		const current = twitchChats.get(room)
+		if (!force && current && current.channel === channel && !current.closed)
+			return
+		stopTwitchChat(room)
+		const chat = { channel, ws: null, retry: null, closed: false }
+		twitchChats.set(room, chat)
+
+		const connect = () => {
+			if (chat.closed) return
+			let ws
+			try {
+				ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443')
+			} catch {
+				chat.retry = setTimeout(connect, 5000)
+				return
+			}
+			chat.ws = ws
+			ws.on('open', () => {
+				const nick = `justinfan${Math.floor(10000 + Math.random() * 80000)}`
+				ws.send('PASS SCHMOOPIIE')
+				ws.send(`NICK ${nick}`)
+				ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands')
+				ws.send(`JOIN #${channel}`)
+				console.log('[twitch] события подключены:', channel, 'комната:', room.slice(0, 12))
+			})
+			ws.on('message', data => {
+				const text = data.toString()
+				for (const line of text.split('\r\n')) {
+					if (!line) continue
+					if (line.startsWith('PING')) {
+						try {
+							ws.send('PONG :tmi.twitch.tv')
+						} catch {}
+						continue
+					}
+					const msg = parseTwitchMessage(line, channel)
+					if (msg) {
+						io.to(room).emit('widget:chat', msg)
+						if (msg.bits > 0) {
+							io.to(room).emit('widget:twitch-event', {
+								event: 'bits',
+								data: {
+									username: msg.username,
+									login: msg.login,
+									amount: msg.bits,
+									message: msg.message,
+									color: msg.color,
+									badges: msg.badges,
+								},
+							})
+						}
+						continue
+					}
+					const twitchEvent = parseTwitchUserNotice(line, channel)
+					if (twitchEvent)
+						io.to(room).emit('widget:twitch-event', twitchEvent)
+				}
+			})
+			ws.on('close', () => {
+				if (chat.closed) return
+				chat.retry = setTimeout(connect, 3000)
+			})
+			ws.on('error', () => {})
+		}
+		connect()
+	}
+
+	function roomNeedsTwitchChat(state) {
+		return (state?.elements || []).some(el => {
+			if (el.type !== 'widget') return false
+			const i = el.widget?.integrations
+			return !!(
+				i?.twitchChat ||
+				i?.twitchSubs ||
+				i?.twitchRaids ||
+				i?.twitchBits
+			)
+		})
+	}
+
+	function syncTwitchChat(room, state) {
+		const owner = roomOwner(room)
+		if (!owner || !roomNeedsTwitchChat(state)) {
+			stopTwitchChat(room)
+			return
+		}
+		startTwitchChat(room, owner.toLowerCase())
+	}
+
+
 	const adminSockets = new Set()
 
 	// Статистика для админ-панели: комнаты, участники, активность, память
@@ -485,6 +915,8 @@ app.prepare().then(() => {
 		const userLogin = session ? session.login : 'гость'
 		const isGuest = !session
 		const ownerByRoom = roomOwner(room)
+		// если в комнате есть виджет с Twitch-чатом — поднимаем IRC-релей
+		syncTwitchChat(room, state)
 		// стример (владелец комнаты) может перехватывать элементы у модераторов всегда
 		const isStreamer =
 			!isGuest && !!ownerByRoom && userLogin.toLowerCase() === ownerByRoom.toLowerCase()
@@ -584,6 +1016,12 @@ app.prepare().then(() => {
 			const event = packet && packet[0]
 			roomRec.lastActivity = Date.now()
 			if (isGuest) {
+				// оверлей — тоже гость, но именно он реально проигрывает YouTube
+				// и должен иметь право переключить плейлист на следующий ролик
+				if (event === 'playlist:step') {
+					roomRec.dirty = true
+					return next()
+				}
 				if (READ_ONLY_EVENTS.has(event)) return next()
 				console.log('[io] гостю доступно только чтение, отклоняю:', event)
 				return next(new Error('read-only'))
@@ -672,12 +1110,15 @@ app.prepare().then(() => {
 					io.to(room).emit('element:unlock', { id })
 				}
 			}
+			if (liveSockets(room) === 0) stopTwitchChat(room)
 		})
 
 		socket.on('element:add', el => {
 			if (!el || typeof el !== 'object') return
-			// свой звук таймера не должен разрастаться сверх лимита
-			if (el.soundSrc && String(el.soundSrc).length > MAX_SOUND_DATA) {
+			// свой звук таймера и звуковой элемент не должны разрастаться сверх лимита
+			const soundBlob =
+				el.type === 'audio' ? el.src : el.soundSrc
+			if (soundBlob && String(soundBlob).length > MAX_SOUND_DATA) {
 				console.log('[io] звук больше лимита, элемент не добавлен:', room.slice(0, 12))
 				return
 			}
@@ -703,11 +1144,32 @@ app.prepare().then(() => {
 				)
 				return
 			}
+			if (el.playlist !== undefined) {
+				const playlist = cleanPlaylist(el.playlist)
+				if (playlist) {
+					el.playlist = playlist
+					const i = Number(el.playlistIndex)
+					el.playlistIndex = Number.isFinite(i)
+						? Math.min(Math.max(0, Math.trunc(i)), playlist.length - 1)
+						: 0
+				} else {
+					delete el.playlist
+					delete el.playlistIndex
+					delete el.playlistLoop
+				}
+			}
+			if (el.type === 'widget') {
+				const widget = cleanWidgetDefinition(el.widget)
+				if (!widget) return
+				el.widget = widget
+				el.widgetValues = cleanWidgetValues(widget, el.widgetValues)
+			}
 			el.zIndex = el.zIndex ?? state.elements.length
 			el.visible = el.visible ?? true
 			if (existing >= 0) state.elements[existing] = el
 			else state.elements.push(el)
 			io.to(room).emit('element:added', el)
+			if (el.type === 'widget') syncTwitchChat(room, state)
 			void trimMemory()
 		})
 
@@ -715,11 +1177,31 @@ app.prepare().then(() => {
 			if (!partial || typeof partial.id !== 'string') return
 			const idx = state.elements.findIndex(e => e.id === partial.id)
 			if (idx < 0) return
-			if (partial.soundSrc && String(partial.soundSrc).length > MAX_SOUND_DATA) {
+			const nextType = partial.type || state.elements[idx].type
+			const soundBlob = nextType === 'audio' ? partial.src : partial.soundSrc
+			if (soundBlob && String(soundBlob).length > MAX_SOUND_DATA) {
 				console.log('[io] звук больше лимита, обновление отклонено:', room.slice(0, 12))
 				return
 			}
 			const oldEl = state.elements[idx]
+			if (partial.widget !== undefined) {
+				const widget = cleanWidgetDefinition(partial.widget)
+				if (!widget) return
+				partial.widget = widget
+			}
+			if (partial.widgetValues !== undefined) {
+				const widget = partial.widget || oldEl.widget
+				if (widget) partial.widgetValues = cleanWidgetValues(widget, partial.widgetValues)
+				else delete partial.widgetValues
+			}
+			if (partial.playlist !== undefined) {
+				const playlist = cleanPlaylist(partial.playlist)
+				if (playlist) partial.playlist = playlist
+				else {
+					delete partial.playlist
+					partial.playlistIndex = 0
+				}
+			}
 			// медиа можно менять и через update: проверяем, что комната не переполнится
 			if (partial.src !== undefined || partial.soundSrc !== undefined) {
 				const before = roomStore.roomBytes({ elements: [oldEl] })
@@ -731,6 +1213,7 @@ app.prepare().then(() => {
 			}
 			state.elements[idx] = { ...oldEl, ...partial }
 			socket.broadcast.to(room).emit('element:updated', state.elements[idx])
+			if (partial.widget !== undefined) syncTwitchChat(room, state)
 		})
 
 		socket.on('element:move', data => {
@@ -793,37 +1276,103 @@ app.prepare().then(() => {
 			state.elements = state.elements.filter(e => e.id !== id)
 			roomRec.locks.delete(id)
 			io.to(room).emit('element:deleted', id)
+			syncTwitchChat(room, state)
 		})
 
-		socket.on('element:reorder', ({ id, direction }) => {
-			const idx = state.elements.findIndex(e => e.id === id)
+		socket.on('element:reorder', ({ id, direction } = {}) => {
+			if (
+				typeof id !== 'string' ||
+				!['up', 'down', 'front', 'back'].includes(direction)
+			)
+				return
+			// Слои считаем по zIndex, а не по порядку вставки: массив мог быть
+			// перемешан (удаление, вставка, старые комнаты). Сначала нормализуем
+			// 0..n-1, потом меняем местами соседние СЛОИ и снова нормализуем.
+			const list = state.elements
+				.slice()
+				.sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0))
+			list.forEach((e, i) => {
+				e.zIndex = i
+			})
+			const idx = list.findIndex(e => e.id === id)
 			if (idx < 0) return
-			if (direction === 'front' || direction === 'back') {
-				// прыжок на самый верх/низ с нормализацией zIndex в 0..n-1
-				const zis = state.elements.map(e => e.zIndex)
-				state.elements[idx].zIndex =
-					direction === 'front' ? Math.max(...zis) + 1 : Math.min(...zis) - 1
-				state.elements
-					.slice()
-					.sort((a, b) => a.zIndex - b.zIndex)
-					.forEach((e, i) => {
-						e.zIndex = i
-					})
+			if (direction === 'front') {
+				list.push(list.splice(idx, 1)[0])
+			} else if (direction === 'back') {
+				list.unshift(list.splice(idx, 1)[0])
 			} else {
-				const swap = direction === 'up' ? idx + 1 : idx - 1
-				if (swap < 0 || swap >= state.elements.length) return
-				const zi = state.elements[idx].zIndex
-				state.elements[idx].zIndex = state.elements[swap].zIndex
-				state.elements[swap].zIndex = zi
+				const to = direction === 'up' ? idx + 1 : idx - 1
+				if (to < 0 || to >= list.length) return
+				const tmp = list[idx]
+				list[idx] = list[to]
+				list[to] = tmp
 			}
-			// рассылаем порядок именно по слоям, а не по порядку вставки
+			list.forEach((e, i) => {
+				e.zIndex = i
+			})
+			// порядок массива тоже выравниваем: новые элементы получают
+			// zIndex = length и не должны оказаться под старыми
+			state.elements = list
 			io.to(room).emit(
 				'element:zorder',
-				state.elements
-					.slice()
-					.sort((a, b) => a.zIndex - b.zIndex)
-					.map(e => e.id),
+				list.map(e => e.id),
 			)
+		})
+
+		socket.on('widget:save', raw => {
+			const def = cleanWidgetDefinition(raw)
+			if (!def) return
+			state.widgets = state.widgets || {}
+			const old = state.widgets[def.id]
+			state.widgets[def.id] = def
+			if (roomStore.roomBytes(state) > MAX_ROOM_BYTES) {
+				if (old) state.widgets[def.id] = old
+				else delete state.widgets[def.id]
+				console.log('[io] виджет не сохранён: комната переполнена')
+				return
+			}
+			io.to(room).emit('widget:updated', def)
+		})
+
+		socket.on('widget:delete', id => {
+			if (typeof id !== 'string' || !state.widgets || !state.widgets[id]) return
+			delete state.widgets[id]
+			io.to(room).emit('widget:deleted', id)
+		})
+
+		// кнопка виджета: не меняет состояние, но должна дойти до iframe
+		// на всех панелях и оверлее. Значение берём из определения, а не с клиента
+		socket.on('widget:trigger', data => {
+			const el = state.elements.find(e => e.id === data?.id)
+			if (!el || el.type !== 'widget' || !el.widget) return
+			const v = el.widget.variables?.find(
+				x => x.name === data.name && x.type === 'button',
+			)
+			if (!v) return
+			io.to(room).emit('widget:trigger', {
+				id: el.id,
+				name: v.name,
+				value: String(v.value ?? ''),
+			})
+		})
+
+		socket.on('playlist:step', data => {
+			const idx = state.elements.findIndex(e => e.id === data?.id)
+			if (idx < 0) return
+			const el = state.elements[idx]
+			const list = Array.isArray(el.playlist) ? el.playlist : []
+			if (!list.length) return
+			const dir = data?.dir === -1 ? -1 : 1
+			const cur = Number.isInteger(el.playlistIndex) ? el.playlistIndex : 0
+			if (data?.expected !== undefined && cur !== data.expected) return
+			let next = cur + dir
+			if (next < 0 || next >= list.length) {
+				if (!el.playlistLoop) return
+				next = (next + list.length) % list.length
+			}
+			el.playlistIndex = next
+			el.src = `https://www.youtube.com/watch?v=${list[next]}`
+			io.to(room).emit('element:updated', el)
 		})
 
 		socket.on('element:toggle-visible', id => {
@@ -838,12 +1387,20 @@ app.prepare().then(() => {
 			const idx = state.elements.findIndex(e => e.id === data.id)
 			if (idx >= 0) {
 				const el = state.elements[idx]
-				if (el.isRunning) return
-				let elapsed = el.elapsed || 0
-				if (
+				// закончившийся обратный отсчёт считается остановленным: кнопка в
+				// панели уже показывает «Старт», и нажатие должно запустить заново
+				const finished =
 					el.timerDirection === 'down' &&
 					el.duration &&
-					elapsed >= el.duration * 1000
+					el.startTime &&
+					Date.now() - el.startTime >= el.duration * 1000
+				if (el.isRunning && !finished) return
+				let elapsed = el.elapsed || 0
+				if (
+					finished ||
+					(el.timerDirection === 'down' &&
+						el.duration &&
+						elapsed >= el.duration * 1000)
 				) {
 					elapsed = 0
 				}
@@ -890,6 +1447,7 @@ app.prepare().then(() => {
 			state.elements = []
 			roomRec.locks.clear()
 			io.to(room).emit('elements:cleared')
+			syncTwitchChat(room, state)
 		})
 	})
 

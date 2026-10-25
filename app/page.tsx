@@ -185,6 +185,10 @@ export default async function Home({
 		softwareVersion: '1.6',
 		isAccessibleForFree: true,
 		license: 'https://github.com/qmaximp/ovrly/blob/main/LICENSE',
+		image: `${site}/og-v2.jpg`,
+		screenshot: `${site}/og-v2.jpg`,
+		featureList: features.map(f => f.title),
+		dateModified: '2026-10-25',
 		author: [
 			{
 				'@type': 'Person',
@@ -197,9 +201,28 @@ export default async function Home({
 				url: 'https://www.twitch.tv/nezory_1',
 			},
 		],
-		publisher: { '@type': 'Organization', name: 'Ovrly', url: site },
+		publisher: {
+			'@type': 'Organization',
+			name: 'Ovrly',
+			url: site,
+			logo: `${site}/icon-512.png`,
+			sameAs: [
+				'https://github.com/qmaximp/ovrly',
+				'https://t.me/ovrly_control',
+			],
+		},
 		sameAs: ['https://github.com/qmaximp/ovrly', 'https://t.me/ovrly_control'],
 		offers: { '@type': 'Offer', price: '0', priceCurrency: 'RUB' },
+	}
+	// FAQPage помогает Яндексу и Google показать блок «Вопросы и ответы»
+	const faqLd = {
+		'@context': 'https://schema.org',
+		'@type': 'FAQPage',
+		mainEntity: faqs.map(item => ({
+			'@type': 'Question',
+			name: item.q,
+			acceptedAnswer: { '@type': 'Answer', text: item.a },
+		})),
 	}
 
 	return (
@@ -216,6 +239,10 @@ export default async function Home({
 					type='application/ld+json'
 					dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
 				/>
+				<script
+					type='application/ld+json'
+					dangerouslySetInnerHTML={{ __html: JSON.stringify(faqLd) }}
+				/>
 
 				<header className='site-header'>
 					<div className='container header-inner'>
@@ -230,6 +257,7 @@ export default async function Home({
 							<a href='#features'>Возможности</a>
 							<a href='#how'>Как работает</a>
 							<a href='#faq'>FAQ</a>
+							<a href='/guide'>Инструкция</a>
 							<a
 								href='https://github.com/qmaximp/ovrly'
 								target='_blank'
@@ -256,6 +284,7 @@ export default async function Home({
 									<a href='#features'>Возможности</a>
 									<a href='#how'>Как работает</a>
 									<a href='#faq'>FAQ</a>
+									<a href='/guide'>Инструкция</a>
 									<a
 										href='https://github.com/qmaximp/ovrly'
 										target='_blank'
@@ -408,6 +437,13 @@ export default async function Home({
 							</article>
 						))}
 					</div>
+					<a
+						href='/guide'
+						className='btn btn-ghost btn-sm'
+						style={{ marginTop: '1.2rem' }}
+					>
+						Подробная инструкция для OBS →
+					</a>
 				</section>
 
 				<section className='container section'>
@@ -476,8 +512,9 @@ export default async function Home({
 				</section>
 
 				<footer className='container site-footer'>
-					<span>© 2026 jettle_, nezory_1 · Версия 2.0</span>
+					<span>© 2026 jettle_, nezory_1 · Версия 2.1</span>
 					<div className='footer-links'>
+						<a href='/guide'>Инструкция</a>
 						<a
 							href='https://t.me/ovrly_control'
 							target='_blank'

@@ -2,10 +2,12 @@
 
 import type { StreamElement, SyncState } from '@/lib/types'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import WidgetFrame from '@/components/WidgetFrame'
 import { toEmbedUrl } from '@/lib/embed'
 import { parseMediaUrl, youtubeEmbedUrl, loadTwitchSdk } from '@/lib/media'
 import { playTimerSound } from '@/lib/sound'
 import { noteServerClock, serverClockLag } from '@/lib/clock'
+import { colorWithOpacity } from '@/lib/color'
 import { textBoxStyle, ensureFontLoaded } from '@/lib/textStyle'
 import { io as ioInit } from 'socket.io-client'
 
@@ -50,6 +52,12 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 		canvasW: 1920,
 		canvasH: 1080,
 	})
+	// свежее состояние и сокет для обработчика сообщений YouTube (эффект ниже
+	// монтируется один раз и не должен зависеть от пересоздания сокета)
+	const stateRef = useRef(state)
+	stateRef.current = state
+	const socketRef = useRef<any>(null)
+	const playlistStepAtRef = useRef<Map<string, number>>(new Map())
 	const [, force] = useState(0)
 	const [scale, setScale] = useState(1)
 	// YouTube-элементы, которые реально заиграли: до этого поверх iframe своя
@@ -65,6 +73,7 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 
 	useEffect(() => {
 		const socket = ioInit({ transports: ['websocket', 'polling'], query: { room: room || 'default' } })
+		socketRef.current = socket
 		socket.on('state:init', (s: SyncState) => setState(s))
 		socket.on('element:added', (el: StreamElement) =>
 			setState(p => ({ ...p, elements: [...p.elements, el] })),
@@ -114,6 +123,18 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 			forgetAllElements()
 			setYtStarted(new Set())
 			setState(p => ({ ...p, elements: [] }))
+		})
+		// кнопка виджета из панели: пробрасываем в sandboxed iframe
+		socket.on('widget:trigger', (d: any) => {
+			window.dispatchEvent(new CustomEvent('ovrly:widget-trigger', { detail: d }))
+		})
+		socket.on('widget:chat', (d: any) => {
+			window.dispatchEvent(new CustomEvent('ovrly:widget-chat', { detail: d }))
+		})
+		socket.on('widget:twitch-event', (d: any) => {
+			window.dispatchEvent(
+				new CustomEvent('ovrly:widget-twitch-event', { detail: d }),
+			)
 		})
 		// команды медиа-плееру из панели: YouTube — postMessage, Twitch — SDK
 		socket.on('element:command', ({ id, cmd, value }: { id: string; cmd: string; value?: number }) => {
@@ -186,10 +207,30 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 					}
 				} catch {}
 			}
+			// звуковой элемент (звуковая кнопка): на оверлее он не рисуется,
+			// но живёт как <audio> и слушает команды из свойств панели
+			const a = document.querySelector(
+				`audio[data-id="${id}"]`,
+			) as HTMLAudioElement | null
+			if (a) {
+				try {
+					if (cmd === 'audio-play') {
+						a.currentTime = 0
+						void a.play().catch(() => {})
+					} else if (cmd === 'audio-stop') {
+						a.pause()
+						a.currentTime = 0
+					} else if (cmd === 'audio-pause') a.pause()
+					else if (cmd === 'audio-volume') {
+						a.volume = Math.max(0, Math.min(1, (value ?? 100) / 100))
+					} else if (cmd === 'audio-loop') a.loop = !!value
+				} catch {}
+			}
 		})
 		// панель с выбранным играющим элементом отдаст play/seek/субтитры
 		socket.on('connect', () => socket.emit('overlay:hello'))
 		return () => {
+			socketRef.current = null
 			socket.disconnect()
 		}
 	}, [])
@@ -214,6 +255,22 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 					Date.now() - target.at < FRESH_MS && Math.abs(t - target.t) > 2
 				) {
 					ytFrames.get(id)?.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'seekTo', args: [target.t, true] }), '*')
+				}
+				// ролик закончился — оверлей сам просит следующий: плейлист
+				// продолжается, даже если панель закрыта. expected не даёт двум
+				// клиентам (панель + оверлей) переключить дважды
+				const el = stateRef.current.elements.find(x => x.id === id)
+				if (st === 0 && el && Array.isArray(el.playlist) && el.playlist.length) {
+					const now = Date.now()
+					const last = playlistStepAtRef.current.get(id) || 0
+					if (now - last > 1500) {
+						playlistStepAtRef.current.set(id, now)
+						socketRef.current?.emit('playlist:step', {
+							id,
+							dir: 1,
+							expected: el.playlistIndex ?? 0,
+						})
+					}
 				}
 			} catch {}
 		}
@@ -348,8 +405,32 @@ function OverlayElement({ el, ytStarted }: { el: StreamElement; ytStarted: boole
 		opacity: el.opacity ?? 1,
 		transform: `${el.rotation ? `rotate(${el.rotation}deg)` : ''}${el.flipH || el.flipV ? ` scale(${el.flipH ? -1 : 1}, ${el.flipV ? -1 : 1})` : ''}` || undefined,
 		transformOrigin: 'center',
+		background:
+			el.type !== 'text' &&
+			el.type !== 'timer' &&
+			el.type !== 'widget' &&
+			el.bgColor &&
+			el.bgColor !== 'transparent'
+				? colorWithOpacity(el.bgColor, el.bgOpacity ?? 1)
+				: undefined,
 	}
 
+	if (el.type === 'widget' && el.widget)
+		return (
+			<div style={style}>
+				<WidgetFrame
+					widget={el.widget}
+					values={el.widgetValues}
+					isOverlay
+					elementId={el.id}
+					background={
+						el.bgColor && el.bgColor !== 'transparent'
+							? colorWithOpacity(el.bgColor, el.bgOpacity ?? 1)
+							: undefined
+					}
+				/>
+			</div>
+		)
 	if (el.type === 'image' || el.type === 'gif')
 		return (
 			<div style={style}>
@@ -381,7 +462,9 @@ function OverlayElement({ el, ytStarted }: { el: StreamElement; ytStarted: boole
 			return (
 				<div style={style}>
 					<iframe
-						src={youtubeEmbedUrl(info.id, window.location.origin, true, !!el.autoplay)}
+						// в плейлисте каждый следующий ролик стартует заново: не глушим его,
+						// иначе после автоперехода звук пропадал бы до ручного unmute
+						src={youtubeEmbedUrl(info.id, window.location.origin, !el.playlist, !!el.autoplay)}
 						title='media'
 						ref={setYtFrame}
 						style={{ width: '100%', height: '100%', border: 'none' }}
@@ -411,10 +494,19 @@ function OverlayElement({ el, ytStarted }: { el: StreamElement; ytStarted: boole
 				<TwitchOverlayFrame el={el} />
 			</div>
 		)
+		const embedSrc = toEmbedUrl(el.src || '')
+		// готовый YouTube-плейлист запускаем сразу и со звуком: в OBS автозапуск
+		// разрешён, а без autoplay плейлист остался бы на постере
+		const autoplayPlaylist =
+			!!el.autoplay && /\/embed\/videoseries/.test(embedSrc)
 		return (
 			<div style={style}>
 				<iframe
-					src={toEmbedUrl(el.src || '')}
+					src={
+						autoplayPlaylist
+							? `${embedSrc}${embedSrc.includes('?') ? '&' : '?'}autoplay=1`
+							: embedSrc
+					}
 					title='embed'
 					style={{ width: '100%', height: '100%', border: 'none' }}
 					allow='autoplay; encrypted-media; picture-in-picture; fullscreen'
@@ -429,6 +521,7 @@ function OverlayElement({ el, ytStarted }: { el: StreamElement; ytStarted: boole
 				{el.text}
 			</div>
 		)
+	if (el.type === 'audio') return <AudioOverlay el={el} />
 	if (el.type === 'timer') {
 		const elapsedMs =
 			el.isRunning && el.startTime
@@ -472,7 +565,7 @@ function OverlayElement({ el, ytStarted }: { el: StreamElement; ytStarted: boole
 							color: el.color,
 							fontWeight: el.fontWeight,
 							marginBottom: 4,
-							background: el.bgColor === 'transparent' ? 'none' : el.bgColor,
+							background: colorWithOpacity(el.bgColor, el.bgOpacity ?? 1),
 							padding: '2px 8px',
 							borderRadius: 4,
 						}}
@@ -485,7 +578,7 @@ function OverlayElement({ el, ytStarted }: { el: StreamElement; ytStarted: boole
 						fontSize: el.fontSize,
 						color: el.color,
 						fontWeight: el.fontWeight,
-						background: el.bgColor === 'transparent' ? 'none' : el.bgColor,
+						background: colorWithOpacity(el.bgColor, el.bgOpacity ?? 1),
 						padding: '4px 12px',
 						borderRadius: 6,
 						fontFamily: 'monospace',
@@ -534,8 +627,33 @@ function TwitchOverlayFrame({ el }: { el: StreamElement }) {
 	return <div ref={ref} style={{ width: '100%', height: '100%', pointerEvents: 'none' }} />
 }
 
+function AudioOverlay({ el }: { el: StreamElement }) {
+	const ref = useRef<HTMLAudioElement | null>(null)
+	// громкость и повтор приходят из состояния элемента; плеер не должен
+	// пересоздаваться при изменении этих настроек
+	useEffect(() => {
+		const a = ref.current
+		if (!a) return
+		a.volume = Math.max(0, Math.min(1, el.volume ?? 1))
+		a.loop = !!el.loop
+	}, [el.volume, el.loop])
+	return (
+		<audio
+			ref={ref}
+			data-id={el.id}
+			src={el.src}
+			preload='auto'
+			style={{ display: 'none' }}
+		/>
+	)
+}
+
 function formatTime(seconds: number): string {
-	const m = Math.floor(seconds / 60)
-	const s = seconds % 60
-	return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+	const total = Math.max(0, Math.floor(seconds))
+	const h = Math.floor(total / 3600)
+	const m = Math.floor((total % 3600) / 60)
+	const s = total % 60
+	const mm = String(m).padStart(2, '0')
+	const ss = String(s).padStart(2, '0')
+	return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`
 }

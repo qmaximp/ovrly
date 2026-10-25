@@ -233,6 +233,25 @@ export default function TextStyleControls({
 					Без фона
 				</button>
 			</div>
+			{!bgOff && (
+				<div className='mt-2'>
+					<label className='text-xs text-gray-500 block mb-1'>
+						Прозрачность фона:{' '}
+						{Math.round((el.bgOpacity ?? 1) * 100)}%
+					</label>
+					<input
+						type='range'
+						min={0}
+						max={100}
+						step={5}
+						value={Math.round((el.bgOpacity ?? 1) * 100)}
+						onChange={e =>
+							update({ bgOpacity: Number(e.target.value) / 100 })
+						}
+						className='w-full accent-accent'
+					/>
+				</div>
+			)}
 			<div className='grid grid-cols-2 gap-2'>
 				<NumberField
 					label='Отступ'

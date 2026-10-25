@@ -2,6 +2,7 @@
 
 import LogoMark from '@/components/LogoMark'
 import ThemeToggle from '@/components/ThemeToggle'
+import { GUIDE_STEPS } from '@/lib/guide'
 import { useCallback, useEffect, useState } from 'react'
 
 function TwitchIcon({ size = 20 }: { size?: number }) {
@@ -102,32 +103,7 @@ type InvitesPayload = {
 }
 
 // пошаговая инструкция по добавлению оверлея в OBS: картинки лежат в public/guide
-const GUIDE_STEPS = [
-	{
-		title: 'Скопируй ссылку',
-		text: 'Открой вкладку «Мои ссылки» и нажми «Копировать» на карточке «Оверлей для OBS».',
-		image: '/guide/step-1-copy.svg',
-		alt: 'Карточка оверлея в кабинете с выделенной кнопкой «Копировать»',
-	},
-	{
-		title: 'Добавь Browser Source',
-		text: 'В OBS открой панель «Источники», нажми «+» и выбери «Браузер».',
-		image: '/guide/step-2-source.svg',
-		alt: 'Окно OBS: кнопка плюс в источниках и пункт «Браузер» в меню',
-	},
-	{
-		title: 'Вставь ссылку',
-		text: 'Вставь ссылку в поле URL. Ширину и высоту выставь по размеру своего экрана. И включи управление аудио через OBS.',
-		image: '/guide/step-3-url.svg?v=2',
-		alt: 'Свойства Browser Source: поле URL, ширина и высота',
-	},
-	{
-		title: 'Готово',
-		text: 'Нажми «ОК» — оверлей появится на сцене. Двигай его мышью, а содержимое меняй в панели.',
-		image: '/guide/step-4-ready.svg',
-		alt: 'Оверлей появился на сцене OBS',
-	},
-] as const
+// и общий список шагов — в lib/guide.ts (он же используется на /guide)
 
 interface CabinetClientProps {
 	login: string
@@ -773,7 +749,7 @@ export default function CabinetClient({
 						>
 							AGPL-3.0
 						</a>
-						<span>© 2026 jettle_, nezory_1 · Версия 2.0</span>
+						<span>© 2026 jettle_, nezory_1 · Версия 2.1</span>
 					</div>
 				</footer>
 			</div>

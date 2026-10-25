@@ -58,6 +58,52 @@ const nextConfig = {
 		]
 		return [
 			{ source: '/:path*', headers: securityHeaders },
+			// Публичные картинки/иконки/инструкции не меняются от запроса к запросу:
+			// отдаём их с кэшем, иначе Next по умолчанию ставит max-age=0.
+			{
+				source: '/og-v2.jpg',
+				headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }],
+			},
+			{
+				source: '/og.jpg',
+				headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }],
+			},
+			{
+				source: '/favicon.ico',
+				headers: [{ key: 'Cache-Control', value: 'public, max-age=604800' }],
+			},
+			{
+				source: '/favicon.svg',
+				headers: [{ key: 'Cache-Control', value: 'public, max-age=604800' }],
+			},
+			{
+				source: '/icon-192.png',
+				headers: [{ key: 'Cache-Control', value: 'public, max-age=604800' }],
+			},
+			{
+				source: '/icon-512.png',
+				headers: [{ key: 'Cache-Control', value: 'public, max-age=604800' }],
+			},
+			{
+				source: '/apple-touch-icon.png',
+				headers: [{ key: 'Cache-Control', value: 'public, max-age=604800' }],
+			},
+			{
+				source: '/guide/:path*',
+				headers: [{ key: 'Cache-Control', value: 'public, max-age=604800' }],
+			},
+			{
+				source: '/manifest.webmanifest',
+				headers: [{ key: 'Cache-Control', value: 'public, max-age=3600' }],
+			},
+			{
+				source: '/sitemap.xml',
+				headers: [{ key: 'Cache-Control', value: 'public, max-age=3600' }],
+			},
+			{
+				source: '/robots.txt',
+				headers: [{ key: 'Cache-Control', value: 'public, max-age=3600' }],
+			},
 			...privatePaths.map(source => ({ source, headers: [noindex] })),
 		]
 	},
