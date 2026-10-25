@@ -7469,7 +7469,11 @@ function PropertyEditor({
 				<div className='space-y-3'>
 					<button
 						onClick={toggleStreamAudio}
-						className='w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-green-700 hover:bg-green-600 text-white text-sm rounded-lg'
+						className={`w-full flex items-center justify-center gap-1.5 px-3 py-2 text-white text-sm rounded-lg ${
+							audioPlaying
+								? 'bg-orange-600 hover:bg-orange-500'
+								: 'bg-green-700 hover:bg-green-600'
+						}`}
 					>
 						{audioPlaying ? <Pause size={14} /> : <Play size={14} />}
 						{audioPlaying
