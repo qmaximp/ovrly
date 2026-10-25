@@ -2236,9 +2236,7 @@ export default function PanelClient({
 
 	const addIframeEl = useCallback(() => {
 		const p = parkingSpot(560, 315)
-		const url = prompt(
-			'Ссылка на сайт, YouTube, Twitch, Vimeo или Rutube (например, https://youtube.com/watch?v=...):',
-		)
+		const url = prompt('Ссылка на сайт:')
 		// обычные видео стоят на превью-заставке (как на референсе) и играют после play,
 		// а живые трансляции (канал Twitch, youtube /live/) запускаем сразу — иначе кажется,
 		// что «стрим не запускается»
@@ -5989,8 +5987,8 @@ function ElementCard({
 				>
 					<Trash2 size={12} />
 				</button>
-				</div>
-				{el.locked && (
+			</div>
+			{el.locked && (
 				<span
 					className='absolute top-0.5 left-0.5 text-gray-300'
 					title='Заблокирован от перетаскивания'
@@ -7034,10 +7032,7 @@ function PropertyEditor({
 	}, [el.id])
 	useEffect(() => {
 		if (localAudioRef.current)
-			localAudioRef.current.volume = Math.max(
-				0,
-				Math.min(1, el.volume ?? 1),
-			)
+			localAudioRef.current.volume = Math.max(0, Math.min(1, el.volume ?? 1))
 	}, [el.volume])
 	useEffect(
 		() => () => {
