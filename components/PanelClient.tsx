@@ -1990,12 +1990,33 @@ export default function PanelClient({
 	}, [addElement, pickFile])
 
 	const addAudioUrl = useCallback(() => {
-		const url = prompt('Ссылка на звук (MP3, WAV, OGG):')
+		const entered = prompt('Ссылка на звук (MP3, WAV, OGG):')
+		const url = entered?.trim()
+		if (!url) return
+		const srcUrl: string = url
 		const p = parkingSpot(360, 110)
-		if (url)
+		// проверяем, что это действительно аудиофайл, а не страница сайта:
+		// иначе браузер молча не сможет воспроизвести элемент
+		const probe = new Audio()
+		probe.preload = 'metadata'
+		let settled = false
+		const timer = setTimeout(() => finish(false), 8000)
+		function finish(ok: boolean) {
+			if (settled) return
+			settled = true
+			clearTimeout(timer)
+			probe.onloadedmetadata = null
+			probe.onerror = null
+			probe.src = ''
+			if (!ok) {
+				alert(
+					'Не удалось загрузить звук. Нужна прямая ссылка на аудиофайл (MP3/OGG/WAV), а не страница сайта.',
+				)
+				return
+			}
 			addElement({
 				type: 'audio',
-				src: url,
+				src: srcUrl,
 				...p,
 				width: 360,
 				height: 110,
@@ -2003,6 +2024,10 @@ export default function PanelClient({
 				volume: 1,
 				loop: false,
 			})
+		}
+		probe.onloadedmetadata = () => finish(true)
+		probe.onerror = () => finish(false)
+		probe.src = srcUrl
 	}, [addElement])
 
 	// YouTube-плейлист: готовый list=... встраиваем нативно (YouTube сам
@@ -7012,6 +7037,10 @@ function PropertyEditor({
 	}, [el.type, el.isRunning])
 	// локальное прослушивание звука в панели (не отправляется на оверлей)
 	const localAudioRef = useRef<HTMLAudioElement | null>(null)
+	const [audioError, setAudioError] = useState('')
+	useEffect(() => {
+		setAudioError('')
+	}, [el.id])
 	useEffect(() => {
 		if (localAudioRef.current)
 			localAudioRef.current.volume = Math.max(
@@ -7031,14 +7060,26 @@ function PropertyEditor({
 		[el.id],
 	)
 	const previewAudio = () => {
+		setAudioError('')
 		const a = localAudioRef.current ?? new Audio()
 		localAudioRef.current = a
 		a.pause()
+		a.onerror = () =>
+			setAudioError(
+				'Не удалось загрузить звук. Нужна прямая ссылка на MP3/OGG/WAV, а не страница сайта.',
+			)
 		a.src = el.src || ''
 		a.volume = Math.max(0, Math.min(1, el.volume ?? 1))
 		a.loop = false
 		a.currentTime = 0
-		void a.play().catch(() => {})
+		void a
+			.play()
+			.then(() => setAudioError(''))
+			.catch(() =>
+				setAudioError(
+					'Не удалось воспроизвести. Проверь, что ссылка ведёт на аудиофайл.',
+				),
+			)
 	}
 	const timerFinished =
 		el.type === 'timer' &&
@@ -7457,9 +7498,20 @@ function PropertyEditor({
 						</span>
 					</button>
 					<p className='text-[10px] leading-relaxed text-gray-500'>
+						Источник:{' '}
+						<span className='break-all'>
+							{el.src?.startsWith('data:') ? 'файл с ПК' : el.src || '—'}
+						</span>
+					</p>
+					<p className='text-[10px] leading-relaxed text-gray-500'>
 						На оверлее звук не рисуется. «Проиграть» отправляет его на
 						оверлей (в OBS), «Прослушать» — только здесь, в панели.
 					</p>
+					{audioError && (
+						<p className='text-[11px] leading-relaxed text-red-400'>
+							{audioError}
+						</p>
+					)}
 				</div>
 			)}
 			{el.type === 'iframe' &&
