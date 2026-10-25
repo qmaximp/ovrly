@@ -7010,6 +7010,36 @@ function PropertyEditor({
 		const i = setInterval(() => tick(x => x + 1), 500)
 		return () => clearInterval(i)
 	}, [el.type, el.isRunning])
+	// локальное прослушивание звука в панели (не отправляется на оверлей)
+	const localAudioRef = useRef<HTMLAudioElement | null>(null)
+	useEffect(() => {
+		if (localAudioRef.current)
+			localAudioRef.current.volume = Math.max(
+				0,
+				Math.min(1, el.volume ?? 1),
+			)
+	}, [el.volume])
+	useEffect(
+		() => () => {
+			const a = localAudioRef.current
+			if (a) {
+				a.pause()
+				a.src = ''
+			}
+			localAudioRef.current = null
+		},
+		[el.id],
+	)
+	const previewAudio = () => {
+		const a = localAudioRef.current ?? new Audio()
+		localAudioRef.current = a
+		a.pause()
+		a.src = el.src || ''
+		a.volume = Math.max(0, Math.min(1, el.volume ?? 1))
+		a.loop = false
+		a.currentTime = 0
+		void a.play().catch(() => {})
+	}
 	const timerFinished =
 		el.type === 'timer' &&
 		el.timerDirection === 'down' &&
@@ -7373,13 +7403,29 @@ function PropertyEditor({
 							Проиграть
 						</button>
 						<button
-							onClick={() =>
-								emit('element:command', { id: el.id, cmd: 'audio-stop' })
-							}
+							onClick={() => {
+								const a = localAudioRef.current
+								if (a) {
+									a.pause()
+									a.currentTime = 0
+								}
+								emit('element:command', {
+									id: el.id,
+									cmd: 'audio-stop',
+								})
+							}}
 							className='flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-border hover:bg-gray-600 text-white text-sm rounded-lg'
 						>
 							<Square size={13} />
 							Стоп
+						</button>
+						<button
+							onClick={previewAudio}
+							title='Прослушать здесь, в панели'
+							aria-label='Прослушать в панели'
+							className='w-10 shrink-0 flex items-center justify-center bg-border hover:bg-gray-600 text-white rounded-lg'
+						>
+							<Volume2 size={15} />
 						</button>
 					</div>
 					<div>
@@ -7411,8 +7457,8 @@ function PropertyEditor({
 						</span>
 					</button>
 					<p className='text-[10px] leading-relaxed text-gray-500'>
-						На оверлее звук не рисуется. «Проиграть» запускает его на стриме,
-						воспроизведение начинается с начала.
+						На оверлее звук не рисуется. «Проиграть» отправляет его на
+						оверлей (в OBS), «Прослушать» — только здесь, в панели.
 					</p>
 				</div>
 			)}
