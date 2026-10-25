@@ -7053,6 +7053,7 @@ function PropertyEditor({
 			const a = localAudioRef.current
 			if (a) {
 				a.pause()
+				a.remove()
 				a.src = ''
 			}
 			localAudioRef.current = null
@@ -7063,6 +7064,12 @@ function PropertyEditor({
 		setAudioError('')
 		const a = localAudioRef.current ?? new Audio()
 		localAudioRef.current = a
+		// некоторые браузеры не запускают отвязанный Audio: держим скрытый
+		// элемент в документе, чтобы play() по клику срабатывал стабильно
+		if (!a.isConnected) {
+			a.style.display = 'none'
+			document.body.appendChild(a)
+		}
 		a.pause()
 		a.onerror = () =>
 			setAudioError(
