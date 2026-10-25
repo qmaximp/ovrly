@@ -383,14 +383,29 @@ export default function WidgetStudio({
 		return null
 	}
 
+	// «Значения» — это текущие значения переменных в предпросмотре. Перед
+	// сохранением/публикацией/экспортом переносим их в definition, иначе правки
+	// из блока «Значения» откатываются к значениям шаблона.
+	const draftWithValues = (): WidgetDefinition | null => {
+		if (!draft) return null
+		return {
+			...draft,
+			variables: draft.variables.map(v => ({
+				...v,
+				value: String(draftValues[v.name] ?? v.value ?? ''),
+			})),
+		}
+	}
+
 	const save = () => {
-		if (!draft) return
-		const err = validate(draft)
+		const withValues = draftWithValues()
+		if (!withValues) return
+		const err = validate(withValues)
 		if (err) {
 			setError(err)
 			return
 		}
-		onSave(prepareWidget(draft))
+		onSave(prepareWidget(withValues))
 		setStatus('Сохранено')
 		setError('')
 		setLibraryTab('mine')
@@ -420,8 +435,9 @@ export default function WidgetStudio({
 	}, [])
 
 	const publishPublic = async () => {
-		if (!draft) return
-		const err = validate(draft)
+		const withValues = draftWithValues()
+		if (!withValues) return
+		const err = validate(withValues)
 		if (err) {
 			setError(err)
 			return
@@ -429,7 +445,7 @@ export default function WidgetStudio({
 		setPublishing(true)
 		setError('')
 		try {
-			const def = prepareWidget(draft)
+			const def = prepareWidget(withValues)
 			const res = await fetch('/api/widget-library', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
@@ -465,8 +481,11 @@ export default function WidgetStudio({
 	}
 
 	const openExport = () => {
-		if (!draft) return
-		setJsonText(JSON.stringify(toPortableWidget(draft), null, 2))
+		const withValues = draftWithValues()
+		if (!withValues) return
+		setJsonText(
+			JSON.stringify(toPortableWidget(prepareWidget(withValues)), null, 2),
+		)
 		setJsonError('')
 		setJsonOpen('export')
 	}
