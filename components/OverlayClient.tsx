@@ -360,7 +360,7 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 				}}
 			>
 				{sorted.map(el =>
-					el.visible || el.alwaysLoaded ? (
+					el.visible ? (
 						<OverlayElement key={el.id} el={el} ytStarted={ytStarted.has(el.id)} />
 					) : null,
 				)}

@@ -95,7 +95,6 @@ export interface StreamElement {
   soundVolume?: number;
   soundDuration?: number;
   visible: boolean;
-  alwaysLoaded?: boolean;
   locked?: boolean;
   autoplay?: boolean;
   // YouTube-плейлист: очередь id видео и текущая позиция. После окончания

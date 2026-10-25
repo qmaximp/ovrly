@@ -46,7 +46,6 @@ import {
 	Lock,
 	MessageCircle,
 	Monitor,
-	Package,
 	Pencil,
 	Play,
 	Plus,
@@ -5990,16 +5989,8 @@ function ElementCard({
 				>
 					<Trash2 size={12} />
 				</button>
-			</div>
-			{el.alwaysLoaded && (
-				<span
-					className='absolute top-0.5 right-0.5 text-gray-300'
-					title='Всегда загружен'
-				>
-					<Package size={11} />
-				</span>
-			)}
-			{el.locked && (
+				</div>
+				{el.locked && (
 				<span
 					className='absolute top-0.5 left-0.5 text-gray-300'
 					title='Заблокирован от перетаскивания'
@@ -7211,24 +7202,6 @@ function PropertyEditor({
 					/>
 				</button>
 			</div>
-			<div className='flex items-center justify-between gap-2'>
-				<div>
-					<label className='text-xs text-gray-500 block'>Всегда загружен</label>
-					<p className='text-[10px] text-gray-600 leading-tight'>
-						Скрытый элемент остаётся загруженным и появляется мгновенно, без
-						перезагрузки
-					</p>
-				</div>
-				<button
-					onClick={() => update({ alwaysLoaded: !el.alwaysLoaded })}
-					className={`w-9 h-5 rounded-full transition-colors shrink-0 relative ${el.alwaysLoaded ? 'bg-green-500' : 'bg-gray-600'}`}
-				>
-					<span
-						className='absolute top-[2px] w-4 h-4 bg-white rounded-full transition-all'
-						style={{ left: el.alwaysLoaded ? 18 : 2 }}
-					/>
-				</button>
-			</div>
 			<div>
 				<label className='text-xs text-gray-500 block mb-1'>
 					Прозрачность: {Math.round((el.opacity ?? 1) * 100)}%
@@ -7440,16 +7413,19 @@ function PropertyEditor({
 			)}
 			{el.type === 'audio' && (
 				<div className='space-y-3'>
-					<div className='flex gap-2'>
-						<button
-							onClick={() =>
-								emit('element:command', { id: el.id, cmd: 'audio-play' })
-							}
-							className='flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-green-700 hover:bg-green-600 text-white text-sm rounded-lg'
-						>
-							<Play size={14} />
-							Проиграть
-						</button>
+					<button
+						onClick={() =>
+							emit('element:command', {
+								id: el.id,
+								cmd: 'audio-play',
+							})
+						}
+						className='w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-green-700 hover:bg-green-600 text-white text-sm rounded-lg'
+					>
+						<Play size={14} />
+						Проиграть на стриме
+					</button>
+					<div className='grid grid-cols-2 gap-2'>
 						<button
 							onClick={() => {
 								const a = localAudioRef.current
@@ -7462,18 +7438,19 @@ function PropertyEditor({
 									cmd: 'audio-stop',
 								})
 							}}
-							className='flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-border hover:bg-gray-600 text-white text-sm rounded-lg'
+							className='flex items-center justify-center gap-1.5 px-3 py-2 bg-border hover:bg-gray-600 text-white text-sm rounded-lg'
 						>
 							<Square size={13} />
-							Стоп
+							Остановить
 						</button>
 						<button
 							onClick={previewAudio}
-							title='Прослушать здесь, в панели'
+							title='Прослушать здесь, только в панели'
 							aria-label='Прослушать в панели'
-							className='w-10 shrink-0 flex items-center justify-center bg-border hover:bg-gray-600 text-white rounded-lg'
+							className='flex items-center justify-center gap-1.5 px-3 py-2 bg-bg border border-border hover:bg-border text-gray-200 text-sm rounded-lg'
 						>
 							<Volume2 size={15} />
+							Прослушать здесь
 						</button>
 					</div>
 					<div>
@@ -7511,8 +7488,8 @@ function PropertyEditor({
 						</span>
 					</p>
 					<p className='text-[10px] leading-relaxed text-gray-500'>
-						На оверлее звук не рисуется. «Проиграть» отправляет его на
-						оверлей (в OBS), «Прослушать» — только здесь, в панели.
+						На оверлее звук не рисуется. «Проиграть на стриме» уходит в OBS,
+						«Прослушать здесь» слышно только в панели.
 					</p>
 					{audioError && (
 						<p className='text-[11px] leading-relaxed text-red-400'>
