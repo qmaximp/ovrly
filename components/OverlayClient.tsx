@@ -221,7 +221,15 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 						a.pause()
 						a.currentTime = 0
 					} else if (cmd === 'audio-pause') a.pause()
-					else if (cmd === 'audio-volume') {
+					else if (cmd === 'audio-resume') void a.play().catch(() => {})
+					else if (cmd === 'audio-seek') {
+						const t = Number(value)
+						if (Number.isFinite(t))
+							a.currentTime = Math.max(
+								0,
+								Math.min(a.duration || t, t),
+							)
+					} else if (cmd === 'audio-volume') {
 						a.volume = Math.max(0, Math.min(1, (value ?? 100) / 100))
 					} else if (cmd === 'audio-loop') a.loop = !!value
 				} catch {}

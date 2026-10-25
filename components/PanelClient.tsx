@@ -46,6 +46,7 @@ import {
 	Lock,
 	MessageCircle,
 	Monitor,
+	Pause,
 	Pencil,
 	Play,
 	Plus,
@@ -7024,47 +7025,74 @@ function PropertyEditor({
 		const i = setInterval(() => tick(x => x + 1), 500)
 		return () => clearInterval(i)
 	}, [el.type, el.isRunning])
-	// локальное прослушивание звука в панели (не отправляется на оверлей)
+	// локальный плеер звука в панели: он же даёт прогресс/паузу/перемотку,
+	// команды дублируются на оверлей
 	const localAudioRef = useRef<HTMLAudioElement | null>(null)
 	const [audioError, setAudioError] = useState('')
+	const [audioPlaying, setAudioPlaying] = useState(false)
+	const [audioPos, setAudioPos] = useState(0)
+	const [audioDuration, setAudioDuration] = useState(0)
 	useEffect(() => {
+		if (el.type !== 'audio' || !el.src) return
+		const a = new Audio()
+		a.style.display = 'none'
+		a.preload = 'metadata'
+		a.src = el.src
+		a.volume = Math.max(0, Math.min(1, el.volume ?? 1))
+		a.loop = !!el.loop
+		document.body.appendChild(a)
+		localAudioRef.current = a
 		setAudioError('')
-	}, [el.id])
+		setAudioPlaying(false)
+		setAudioPos(0)
+		setAudioDuration(0)
+		const onMeta = () => {
+			setAudioDuration(Number.isFinite(a.duration) ? a.duration : 0)
+			setAudioPos(a.currentTime || 0)
+		}
+		const onTime = () => setAudioPos(a.currentTime || 0)
+		const onPlay = () => setAudioPlaying(true)
+		const onPause = () => setAudioPlaying(false)
+		const onEnded = () => {
+			setAudioPlaying(false)
+			setAudioPos(a.duration || 0)
+		}
+		const onError = () =>
+			setAudioError(
+				'Не удалось загрузить звук. Нужна прямая ссылка на MP3/OGG/WAV, а не страница сайта.',
+			)
+		a.addEventListener('loadedmetadata', onMeta)
+		a.addEventListener('timeupdate', onTime)
+		a.addEventListener('play', onPlay)
+		a.addEventListener('pause', onPause)
+		a.addEventListener('ended', onEnded)
+		a.addEventListener('error', onError)
+		return () => {
+			a.pause()
+			a.removeEventListener('loadedmetadata', onMeta)
+			a.removeEventListener('timeupdate', onTime)
+			a.removeEventListener('play', onPlay)
+			a.removeEventListener('pause', onPause)
+			a.removeEventListener('ended', onEnded)
+			a.removeEventListener('error', onError)
+			a.remove()
+			a.src = ''
+			if (localAudioRef.current === a) localAudioRef.current = null
+		}
+	}, [el.id, el.type, el.src])
 	useEffect(() => {
 		if (localAudioRef.current)
 			localAudioRef.current.volume = Math.max(0, Math.min(1, el.volume ?? 1))
 	}, [el.volume])
-	useEffect(
-		() => () => {
-			const a = localAudioRef.current
-			if (a) {
-				a.pause()
-				a.remove()
-				a.src = ''
-			}
-			localAudioRef.current = null
-		},
-		[el.id],
-	)
-	const previewAudio = () => {
+	useEffect(() => {
+		if (localAudioRef.current) localAudioRef.current.loop = !!el.loop
+	}, [el.loop])
+	const localPlay = (fromStart: boolean) => {
+		const a = localAudioRef.current
+		if (!a) return
 		setAudioError('')
-		const a = localAudioRef.current ?? new Audio()
-		localAudioRef.current = a
-		// некоторые браузеры не запускают отвязанный Audio: держим скрытый
-		// элемент в документе, чтобы play() по клику срабатывал стабильно
-		if (!a.isConnected) {
-			a.style.display = 'none'
-			document.body.appendChild(a)
-		}
-		a.pause()
-		a.onerror = () =>
-			setAudioError(
-				'Не удалось загрузить звук. Нужна прямая ссылка на MP3/OGG/WAV, а не страница сайта.',
-			)
-		a.src = el.src || ''
 		a.volume = Math.max(0, Math.min(1, el.volume ?? 1))
-		a.loop = false
-		a.currentTime = 0
+		if (fromStart) a.currentTime = 0
 		void a
 			.play()
 			.then(() => setAudioError(''))
@@ -7073,6 +7101,42 @@ function PropertyEditor({
 					'Не удалось воспроизвести. Проверь, что ссылка ведёт на аудиофайл.',
 				),
 			)
+	}
+	const previewAudio = () => localPlay(true)
+	const toggleStreamAudio = () => {
+		const a = localAudioRef.current
+		if (audioPlaying) {
+			a?.pause()
+			emit('element:command', { id: el.id, cmd: 'audio-pause' })
+			return
+		}
+		const resume =
+			!!a &&
+			a.currentTime > 0.05 &&
+			(!audioDuration || a.currentTime < audioDuration - 0.05)
+		if (resume) {
+			localPlay(false)
+			emit('element:command', { id: el.id, cmd: 'audio-resume' })
+		} else {
+			localPlay(true)
+			emit('element:command', { id: el.id, cmd: 'audio-play' })
+		}
+	}
+	const stopAudio = () => {
+		const a = localAudioRef.current
+		if (a) {
+			a.pause()
+			a.currentTime = 0
+		}
+		setAudioPos(0)
+		emit('element:command', { id: el.id, cmd: 'audio-stop' })
+	}
+	const seekAudio = (value: number) => {
+		const a = localAudioRef.current
+		const t = Math.max(0, Math.min(audioDuration || value, value))
+		if (a) a.currentTime = t
+		setAudioPos(t)
+		emit('element:command', { id: el.id, cmd: 'audio-seek', value: t })
 	}
 	const timerFinished =
 		el.type === 'timer' &&
@@ -7283,11 +7347,6 @@ function PropertyEditor({
 							className='w-full accent-accent disabled:opacity-40'
 						/>
 					</div>
-					{(!el.bgColor || el.bgColor === 'transparent') && (
-						<p className='text-[10px] text-gray-600'>
-							Фон выключен — виден только сам элемент.
-						</p>
-					)}
 				</div>
 			)}
 			{el.type === 'text' && (
@@ -7409,40 +7468,47 @@ function PropertyEditor({
 			{el.type === 'audio' && (
 				<div className='space-y-3'>
 					<button
-						onClick={() =>
-							emit('element:command', {
-								id: el.id,
-								cmd: 'audio-play',
-							})
-						}
+						onClick={toggleStreamAudio}
 						className='w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-green-700 hover:bg-green-600 text-white text-sm rounded-lg'
 					>
-						<Play size={14} />
-						Проиграть на стриме
+						{audioPlaying ? <Pause size={14} /> : <Play size={14} />}
+						{audioPlaying
+							? 'Пауза'
+							: audioPos > 0.05 &&
+								  audioDuration > audioPos + 0.05
+								? 'Продолжить'
+								: 'Проиграть на стриме'}
 					</button>
-					<div className='grid grid-cols-2 gap-2'>
+					<div>
+						<input
+							type='range'
+							min={0}
+							max={Math.max(1, audioDuration)}
+							step={0.1}
+							value={Math.min(audioPos, Math.max(0, audioDuration))}
+							onChange={e => seekAudio(Number(e.target.value))}
+							disabled={!audioDuration}
+							className='w-full accent-accent disabled:opacity-40'
+						/>
+						<div className='mt-0.5 flex justify-between text-[10px] tabular-nums text-gray-500'>
+							<span>{formatTime(audioPos)}</span>
+							<span>{formatTime(audioDuration)}</span>
+						</div>
+					</div>
+					<div className='flex gap-2'>
 						<button
-							onClick={() => {
-								const a = localAudioRef.current
-								if (a) {
-									a.pause()
-									a.currentTime = 0
-								}
-								emit('element:command', {
-									id: el.id,
-									cmd: 'audio-stop',
-								})
-							}}
-							className='flex items-center justify-center gap-1.5 px-3 py-2 bg-border hover:bg-gray-600 text-white text-sm rounded-lg'
+							onClick={stopAudio}
+							title='Остановить'
+							aria-label='Остановить'
+							className='w-10 shrink-0 flex items-center justify-center bg-border hover:bg-gray-600 text-white rounded-lg'
 						>
 							<Square size={13} />
-							Остановить
 						</button>
 						<button
 							onClick={previewAudio}
 							title='Прослушать здесь, только в панели'
 							aria-label='Прослушать в панели'
-							className='flex items-center justify-center gap-1.5 px-3 py-2 bg-bg border border-border hover:bg-border text-gray-200 text-sm rounded-lg'
+							className='flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-bg border border-border hover:bg-border text-gray-200 text-sm rounded-lg'
 						>
 							<Volume2 size={15} />
 							Прослушать здесь
@@ -7476,16 +7542,6 @@ function PropertyEditor({
 							/>
 						</span>
 					</button>
-					<p className='text-[10px] leading-relaxed text-gray-500'>
-						Источник:{' '}
-						<span className='break-all'>
-							{el.src?.startsWith('data:') ? 'файл с ПК' : el.src || '—'}
-						</span>
-					</p>
-					<p className='text-[10px] leading-relaxed text-gray-500'>
-						На оверлее звук не рисуется. «Проиграть на стриме» уходит в OBS,
-						«Прослушать здесь» слышно только в панели.
-					</p>
 					{audioError && (
 						<p className='text-[11px] leading-relaxed text-red-400'>
 							{audioError}

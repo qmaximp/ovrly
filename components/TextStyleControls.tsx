@@ -59,7 +59,7 @@ export default function TextStyleControls({
 				Шрифт
 			</h3>
 			<div>
-				<label className='text-xs text-gray-500 block mb-1'>Гарнитура</label>
+				<label className='text-xs text-gray-500 block mb-1'>Шрифты</label>
 				<select
 					value={el.fontFamily ?? ''}
 					onChange={e => update({ fontFamily: e.target.value })}
