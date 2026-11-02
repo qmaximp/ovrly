@@ -35,28 +35,50 @@ export function toEmbedUrl(raw: string): string {
     // parent обязателен и должен совпадать с доменом страницы (в OBS — тоже).
     const parent =
       typeof window !== "undefined" ? window.location.hostname : "ovrly.ru";
+    // Twitch проверяет parent по списку: добавляем основной домен и localhost,
+    // чтобы плеер работал и в панели на localhost, и в OBS на ovrly.ru
+    const parents = [...new Set([parent, "ovrly.ru", "localhost"])];
+    const twitchParams = () => {
+      const p = new URLSearchParams();
+      for (const h of parents) p.append("parent", h);
+      return p;
+    };
     if (host === "twitch.tv" || host.endsWith(".twitch.tv")) {
       const parts = u.pathname.split("/").filter(Boolean);
-      const p = new URLSearchParams({ parent });
+      const p = twitchParams();
       if (host === "clips.twitch.tv") {
         const slug = parts[0] || "";
         if (slug) {
           p.set("clip", slug);
+          p.set("autoplay", "true");
+          p.set("muted", "true");
           return `https://clips.twitch.tv/embed?${p.toString()}`;
         }
       }
       if (host === "player.twitch.tv") {
-        u.searchParams.set("parent", parent);
+        u.searchParams.delete("parent");
+        for (const h of parents) u.searchParams.append("parent", h);
+        if (!u.searchParams.has("autoplay")) u.searchParams.set("autoplay", "true");
+        if (!u.searchParams.has("muted")) u.searchParams.set("muted", "true");
         return u.toString();
       }
       if (parts[0] === "videos" && parts[1]) {
         p.set("video", parts[1]);
+        p.set("autoplay", "true");
+        p.set("muted", "true");
         return `https://player.twitch.tv/?${p.toString()}`;
       }
       if (parts[0] === "embed") {
         if (parts[1]) p.set("channel", parts[1]);
-        if (!u.search.includes("parent=")) u.searchParams.set("parent", parent);
-        return u.toString();
+        // сохраняем остальные параметры встроенной ссылки
+        for (const [k, v] of u.searchParams) {
+          if (k !== "parent" && !p.has(k)) p.set(k, v);
+        }
+        if (!p.has("autoplay")) p.set("autoplay", "true");
+        if (!p.has("muted")) p.set("muted", "true");
+        return `https://www.twitch.tv/embed/${parts[1] || ""}${
+          parts[2] ? `/${parts[2]}` : ""
+        }?${p.toString()}`;
       }
       if (parts[1] === "chat" && parts[0]) {
         p.set("parent", parent);
@@ -64,11 +86,15 @@ export function toEmbedUrl(raw: string): string {
       }
       if (parts[1] === "clip" && parts[2]) {
         p.set("clip", parts[2]);
+        p.set("autoplay", "true");
+        p.set("muted", "true");
         return `https://clips.twitch.tv/embed?${p.toString()}`;
       }
       if (parts[0]) {
         p.set("channel", parts[0]);
+        // без muted браузер не даёт автозапуск со звуком
         p.set("autoplay", "true");
+        p.set("muted", "true");
         return `https://player.twitch.tv/?${p.toString()}`;
       }
     }
