@@ -4,16 +4,15 @@ import {
 	LEGAL_DATE,
 	OPERATOR,
 	RKN,
+	legalMeta,
 	operatorTitle,
 } from '@/lib/legal'
 
-export const metadata: Metadata = {
-	title: 'Политика обработки персональных данных',
-	description:
-		'Какие данные Ovrly получает при входе через Twitch, зачем они нужны, кому передаются, сколько хранятся и как их удалить. Политика по 152-ФЗ.',
-	alternates: { canonical: '/legal/privacy' },
-	robots: { index: true, follow: true },
-}
+export const metadata: Metadata = legalMeta(
+	'Политика обработки персональных данных',
+	'Какие данные Ovrly получает при входе через Twitch, зачем они нужны, кому передаются, сколько хранятся и как их удалить. Политика по 152-ФЗ.',
+	'/legal/privacy',
+)
 
 export default function PrivacyPage() {
 	return (

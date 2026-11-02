@@ -1,3 +1,5 @@
+import type { Metadata } from 'next'
+
 // Единая точка правды для юридических документов.
 //
 // ⚠️ ФИО и адрес оператора-физлица обязательны по ст. 18.1 ч. 2 п. 3 152-ФЗ.
@@ -9,7 +11,7 @@ export const OPERATOR = {
 	// Статус для реквизитов и оферты. Для обычного физлица — пустая строка.
 	status:
 		'применяющий специальный налоговый режим «Налог на профессиональный доход» (самозанятый)',
-	inn: '525821227166' as string, // TODO: 12-значный ИНН самозанятого
+	inn: '525821227166',
 	address: '603140, г. Нижний Новгород, пл. Комсомольская, д. 2, к. 3, кв. 39',
 	email: 'ya@s-maksim.ru',
 	telegram: 'https://t.me/ovrly_control',
@@ -34,8 +36,8 @@ export const LEGAL_DOCS = [
 	{
 		href: '/legal/terms',
 		title: 'Пользовательское соглашение (публичная оферта)',
-		short: 'Соглашение',
-		desc: 'Правила использования сервиса, права на контент, ответственность сторон.',
+		short: 'Оферта',
+		desc: 'Публичная оферта: правила использования сервиса, права на контент и ответственность сторон.',
 	},
 	{
 		href: '/legal/cookies',
@@ -55,6 +57,43 @@ export const RKN = {
 	address: '109074, г. Москва, Китайгородский проезд, д. 7, стр. 2',
 	site: 'https://pd.rkn.gov.ru/',
 } as const
+
+// Метаданные правовых страниц: свой canonical/OG/Twitter на каждый документ.
+// Без этого Next подставляет OG главной страницы (og:url = «/»), и соцсети
+// показывают не тот заголовок.
+const OG_IMAGE = {
+	url: '/og-v2.jpg',
+	width: 1200,
+	height: 630,
+	alt: 'Ovrly — панель управления оверлеем для OBS',
+} as const
+
+export function legalMeta(
+	title: string,
+	description: string,
+	path: string,
+): Metadata {
+	return {
+		title,
+		description,
+		alternates: { canonical: path },
+		openGraph: {
+			type: 'website',
+			url: path,
+			siteName: 'Ovrly',
+			locale: 'ru_RU',
+			title,
+			description,
+			images: [OG_IMAGE],
+		},
+		twitter: {
+			card: 'summary_large_image',
+			title,
+			description,
+			images: [OG_IMAGE.url],
+		},
+	}
+}
 
 // Публичное описание оператора для шапки документов.
 // Псевдонимы нужны только как fallback, пока ФИО не заполнено.

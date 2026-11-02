@@ -6,16 +6,15 @@ import {
 	LEGAL_VERSION,
 	OPERATOR,
 	RKN,
+	legalMeta,
 	operatorTitle,
 } from '@/lib/legal'
 
-export const metadata: Metadata = {
-	title: 'Правовая информация',
-	description:
-		'Документы Ovrly: политика обработки персональных данных, пользовательское соглашение, политика cookie и согласие на обработку данных. Реквизиты оператора и контакты.',
-	alternates: { canonical: '/legal' },
-	robots: { index: true, follow: true },
-}
+export const metadata: Metadata = legalMeta(
+	'Правовая информация и документы',
+	'Документы Ovrly: политика обработки персональных данных, публичная оферта, cookie и согласие. Реквизиты оператора и контакты.',
+	'/legal',
+)
 
 export default function LegalIndexPage() {
 	const site = OPERATOR.site

@@ -8,7 +8,7 @@ import type { Metadata } from 'next'
 export const metadata: Metadata = {
 	title: 'Как добавить оверлей в OBS — пошаговая инструкция',
 	description:
-		'Четыре шага: скопировать ссылку оверлея, добавить Browser Source в OBS, вставить URL и выставить размер. Ovrly работает без установки, плагинов и настройки серверов.',
+		'Четыре шага: скопировать ссылку оверлея, добавить Browser Source в OBS, вставить URL и выставить размер. Без установки и плагинов.',
 	alternates: { canonical: '/guide' },
 	openGraph: {
 		type: 'website',
@@ -27,6 +27,13 @@ export const metadata: Metadata = {
 				alt: 'Ovrly — панель управления оверлеем для OBS',
 			},
 		],
+	},
+	twitter: {
+		card: 'summary_large_image',
+		title: 'Как добавить оверлей в OBS — инструкция Ovrly',
+		description:
+			'Пошагово: ссылка оверлея → Browser Source в OBS → URL и размер → готово. Без установки и плагинов.',
+		images: ['/og-v2.jpg'],
 	},
 }
 
@@ -230,7 +237,7 @@ export default function GuidePage() {
 					<div className='footer-links'>
 						<a href='/'>Главная</a>
 						<a href='/legal/privacy'>Политика ПДн</a>
-						<a href='/legal/terms'>Соглашение</a>
+						<a href='/legal/terms'>Оферта</a>
 						<a href='/legal/cookies'>Cookie</a>
 						<a href='/legal'>Реквизиты</a>
 						<a

@@ -525,7 +525,7 @@ export default async function Home({
 					<div className='footer-links'>
 						<a href='/guide'>Инструкция</a>
 						<a href='/legal/privacy'>Политика ПДн</a>
-						<a href='/legal/terms'>Соглашение</a>
+						<a href='/legal/terms'>Оферта</a>
 						<a href='/legal/cookies'>Cookie</a>
 						<a href='/legal'>Реквизиты</a>
 						<a

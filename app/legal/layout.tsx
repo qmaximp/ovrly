@@ -3,7 +3,13 @@ import Link from 'next/link'
 import LogoMark from '@/components/LogoMark'
 import ThemeToggle from '@/components/ThemeToggle'
 import CookieBanner from '@/components/CookieBanner'
-import { LEGAL_DATE, LEGAL_DOCS, LEGAL_VERSION, OPERATOR } from '@/lib/legal'
+import {
+	LEGAL_DATE,
+	LEGAL_DOCS,
+	LEGAL_VERSION,
+	OPERATOR,
+	operatorTitle,
+} from '@/lib/legal'
 import './legal.css'
 
 export const metadata: Metadata = {
@@ -50,11 +56,10 @@ export default function LegalLayout({ children }: { children: React.ReactNode })
 					</a>
 				</div>
 				<p className='legal-foot-meta'>
-					© 2026 {OPERATOR.persons} · Ovrly · редакция документов от {LEGAL_DATE} (v
-					{LEGAL_VERSION})
+					© 2026 Ovrly · редакция документов от {LEGAL_DATE} (v{LEGAL_VERSION})
 				</p>
 				<p className='legal-foot-meta'>
-					Оператор персональных данных: {OPERATOR.persons} ·{' '}
+					Оператор персональных данных: {operatorTitle()}, {OPERATOR.status} ·{' '}
 					<a href={`mailto:${OPERATOR.email}`}>{OPERATOR.email}</a>
 				</p>
 			</footer>

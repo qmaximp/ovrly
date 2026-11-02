@@ -4,16 +4,15 @@ import {
 	LEGAL_DATE,
 	LEGAL_VERSION,
 	OPERATOR,
+	legalMeta,
 	operatorTitle,
 } from '@/lib/legal'
 
-export const metadata: Metadata = {
-	title: 'Согласие на обработку персональных данных',
-	description:
-		'Текст согласия на обработку персональных данных, которое пользователь даёт при входе в Ovrly через Twitch: состав данных, цели, срок, порядок отзыва.',
-	alternates: { canonical: '/legal/consent' },
-	robots: { index: true, follow: true },
-}
+export const metadata: Metadata = legalMeta(
+	'Согласие на обработку персональных данных',
+	'Текст согласия на обработку персональных данных, которое пользователь даёт при входе в Ovrly через Twitch: состав данных, цели, срок, порядок отзыва.',
+	'/legal/consent',
+)
 
 export default function ConsentPage() {
 	return (

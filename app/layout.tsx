@@ -6,7 +6,7 @@ import { siteUrl } from '@/lib/site'
 const base = siteUrl()
 
 const description =
-	'Панель управления оверлеем OBS: картинки, видео, GIF, сайты, YouTube и Twitch, текст и таймеры — перетаскивание в реальном времени, зона предзагрузки за кадром, управление источниками OBS и доступы для модераторов.'
+	'Панель управления оверлеем OBS: картинки, видео, GIF, сайты, YouTube и Twitch, текст и таймеры. Перетаскивание в реальном времени и доступы для модераторов.'
 
 export const metadata: Metadata = {
 	metadataBase: new URL(base),
@@ -16,18 +16,6 @@ export const metadata: Metadata = {
 	},
 	description,
 	applicationName: 'Ovrly',
-	keywords: [
-		'OBS',
-		'оверлей',
-		'панель управления оверлеем',
-		'панель модератора',
-		'стрим',
-		'Twitch',
-		'YouTube',
-		'overlay',
-		'OBS WebSocket',
-		'браузер-источник',
-	],
 	authors: [
 		{ name: 'jettle_', url: 'https://www.twitch.tv/jettle_' },
 		{ name: 'nezory_1', url: 'https://www.twitch.tv/nezory_1' },

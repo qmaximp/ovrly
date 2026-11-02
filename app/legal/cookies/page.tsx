@@ -1,14 +1,12 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { LEGAL_DATE, OPERATOR, operatorTitle } from '@/lib/legal'
+import { LEGAL_DATE, OPERATOR, legalMeta, operatorTitle } from '@/lib/legal'
 
-export const metadata: Metadata = {
-	title: 'Политика использования cookie',
-	description:
-		'Какие cookie и localStorage использует Ovrly, зачем они нужны, сколько хранятся и как ими управлять. Аналитики и рекламных трекеров нет.',
-	alternates: { canonical: '/legal/cookies' },
-	robots: { index: true, follow: true },
-}
+export const metadata: Metadata = legalMeta(
+	'Политика использования cookie',
+	'Какие cookie и localStorage использует Ovrly, зачем они нужны, сколько хранятся и как ими управлять. Аналитики и рекламных трекеров нет.',
+	'/legal/cookies',
+)
 
 export default function CookiesPage() {
 	return (

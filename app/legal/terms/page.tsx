@@ -3,16 +3,15 @@ import Link from 'next/link'
 import {
 	LEGAL_DATE,
 	OPERATOR,
+	legalMeta,
 	operatorTitle,
 } from '@/lib/legal'
 
-export const metadata: Metadata = {
-	title: 'Пользовательское соглашение (публичная оферта)',
-	description:
-		'Условия использования Ovrly: бесплатный доступ, правила размещения контента, права и обязанности сторон, ответственность и порядок разрешения споров.',
-	alternates: { canonical: '/legal/terms' },
-	robots: { index: true, follow: true },
-}
+export const metadata: Metadata = legalMeta(
+	'Пользовательское соглашение (публичная оферта)',
+	'Условия использования Ovrly: бесплатный доступ, правила размещения контента, права и обязанности сторон, ответственность и порядок разрешения споров.',
+	'/legal/terms',
+)
 
 export default function TermsPage() {
 	return (
@@ -375,6 +374,10 @@ export default function TermsPage() {
 					{OPERATOR.telegramLabel}
 				</a>
 				. Уведомления Пользователя направляются на email Оператора.
+			</p>
+			<p>
+				17.4. Оферта действует бессрочно до её отзыва Оператором. Отзыв не
+				влияет на соглашения, заключённые до его опубликования.
 			</p>
 
 			<h2>18. Реквизиты и контакты</h2>
