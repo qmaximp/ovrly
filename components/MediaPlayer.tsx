@@ -318,6 +318,18 @@ export function TwitchFrame({ el, onPlayer }: { el: StreamElement; onPlayer: (id
 				else if (info.kind === 'twitch-vod') opts.video = info.id
 				else if (info.kind === 'twitch-clip') opts.clip = info.slug
 				const p = new Tw.Player(divId, opts)
+				// Автозапуск в iframe часто залипает: после READY явно стартуем
+				// без звука — иначе браузер оставляет чёрный кадр.
+				const tryPlay = () => {
+					try {
+						p.setMuted(true)
+						if (el.autoplay) void p.play()
+					} catch {}
+				}
+				p.addEventListener(Tw.Player.READY, tryPlay)
+				// READY иногда приходит до подписки или теряется — повторяем
+				window.setTimeout(tryPlay, 1200)
+				window.setTimeout(tryPlay, 3500)
 				onPlayer(el.id, p)
 			} catch {
 				if (!cancelled) setFailed(true)

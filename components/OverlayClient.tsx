@@ -620,6 +620,15 @@ function TwitchOverlayFrame({ el }: { el: StreamElement }) {
 				else if (info.kind === 'twitch-vod') opts.video = info.id
 				else if (info.kind === 'twitch-clip') opts.clip = info.slug
 				const p = new Tw.Player(divId, opts)
+				const tryPlay = () => {
+					try {
+						p.setMuted(true)
+						if (el.autoplay) void p.play()
+					} catch {}
+				}
+				p.addEventListener(Tw.Player.READY, tryPlay)
+				window.setTimeout(tryPlay, 1200)
+				window.setTimeout(tryPlay, 3500)
 				twitchPlayers.set(el.id, p)
 				p.addEventListener(Tw.Player.PLAY, () => twitchSt.set(el.id, 1))
 				p.addEventListener(Tw.Player.PAUSE, () => twitchSt.set(el.id, 2))
