@@ -1854,6 +1854,16 @@ html.light .admin-room-badge.dirty { color: #b45309; }
   animation: streamers-scroll 42s linear infinite;
 }
 .streamers-marquee:hover .streamers-track { animation-play-state: paused; }
+.streamers-track.is-static {
+  width: auto;
+  flex-wrap: wrap;
+  justify-content: center;
+  animation: none;
+}
+.streamers-marquee:has(.streamers-track.is-static) {
+  mask-image: none;
+  -webkit-mask-image: none;
+}
 .streamer-card {
   display: flex;
   align-items: center;

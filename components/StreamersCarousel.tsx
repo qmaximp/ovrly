@@ -30,13 +30,15 @@ export default function StreamersCarousel() {
 
 	if (!items.length) return null
 
-	// Одна половина ленты — минимум 6 карточек, вторая — её точная копия:
-	// тогда сдвиг на -50% даёт бесшовный цикл.
-	const base =
-		items.length >= 6
+	// Для 1–2 стримеров анимация не нужна: иначе одна и та же карточка
+	// повторяется десяток раз. Ленту включаем от трёх участников.
+	const animate = items.length >= 3
+	const base = animate
+		? items.length >= 6
 			? items
 			: Array.from({ length: Math.ceil(6 / items.length) }, () => items).flat()
-	const row = [...base, ...base]
+		: items
+	const row = animate ? [...base, ...base] : base
 
 	return (
 		<section className='container section streamers-section'>
@@ -48,7 +50,7 @@ export default function StreamersCarousel() {
 				</p>
 			</div>
 			<div className='streamers-marquee' aria-label='Стримеры Ovrly'>
-				<div className='streamers-track'>
+				<div className={`streamers-track${animate ? '' : ' is-static'}`}>
 					{row.map((s, i) => (
 						<a
 							key={`${s.login}-${i}`}
