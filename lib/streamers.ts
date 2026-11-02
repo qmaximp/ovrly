@@ -19,7 +19,7 @@ export type StreamersState = {
 }
 
 const KEY = 'streamers'
-export const DEFAULT_THRESHOLD = 100
+export const DEFAULT_THRESHOLD = 50
 
 function normalize(value: unknown): StreamersState {
 	let raw: any = value
@@ -121,12 +121,48 @@ export async function addStreamer(login: string): Promise<StreamerEntry | null> 
 	return syncStreamer({ login: key })
 }
 
+// Первый запуск после обновления: в settings ещё нет карусели, но аккаунты
+// панели уже существуют. Один раз подтягиваем их подписчиков, чтобы блок
+// появился без повторного входа каждого стримера.
+export async function syncAllStreamers(): Promise<number> {
+	const state = await getStreamersState()
+	const links = await storage.getLinks()
+	let changed = 0
+	for (const link of links) {
+		const login = link.login?.toLowerCase()
+		if (!login) continue
+		const [followers, avatars] = await Promise.all([
+			getFollowerCount(login),
+			getTwitchAvatars([login]),
+		])
+		if (followers === null) continue
+		const prev = state.users[login]
+		state.users[login] = {
+			login,
+			displayName: prev?.displayName || login,
+			avatar: avatars[login] || prev?.avatar || '',
+			followers,
+			visible: prev?.visible ?? followers >= state.threshold,
+			featured: prev?.featured ?? false,
+			updatedAt: new Date().toISOString(),
+		}
+		changed += 1
+	}
+	if (changed) await saveStreamersState(state)
+	return changed
+}
+
 export async function listAdminStreamers(): Promise<StreamersState> {
 	return getStreamersState()
 }
 
 export async function listPublicStreamers(): Promise<StreamersState> {
-	const state = await getStreamersState()
+	let state = await getStreamersState()
+	// ленивый бэкфилл для уже зарегистрированных пользователей
+	if (Object.keys(state.users).length === 0) {
+		await syncAllStreamers()
+		state = await getStreamersState()
+	}
 	const users = Object.values(state.users)
 		.filter(u => u.visible && u.followers >= state.threshold)
 		.sort((a, b) => {

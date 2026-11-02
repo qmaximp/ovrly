@@ -116,7 +116,7 @@ export default function AdminClient({
 	const [widgetQuery, setWidgetQuery] = useState('')
 	const [openWidget, setOpenWidget] = useState<string | null>(null)
 	const [streamers, setStreamers] = useState<StreamerEntry[]>([])
-	const [streamerThreshold, setStreamerThreshold] = useState(100)
+	const [streamerThreshold, setStreamerThreshold] = useState(50)
 	const [streamerLogin, setStreamerLogin] = useState('')
 	const [streamerBusy, setStreamerBusy] = useState(false)
 	const [streamerError, setStreamerError] = useState('')
@@ -183,7 +183,7 @@ export default function AdminClient({
 			if (!res.ok) throw new Error(data?.error || 'Не удалось загрузить стримеров')
 			const list = data?.users ? Object.values(data.users) : []
 			setStreamers(list as StreamerEntry[])
-			setStreamerThreshold(Number(data?.threshold) || 100)
+			setStreamerThreshold(Number(data?.threshold) || 50)
 		} catch (e: any) {
 			setStreamerError(e?.message || 'Не удалось загрузить стримеров')
 		}
