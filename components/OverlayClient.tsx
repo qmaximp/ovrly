@@ -627,8 +627,7 @@ function TwitchOverlayFrame({ el }: { el: StreamElement }) {
 					} catch {}
 				}
 				p.addEventListener(Tw.Player.READY, tryPlay)
-				window.setTimeout(tryPlay, 1200)
-				window.setTimeout(tryPlay, 3500)
+				window.setTimeout(tryPlay, 1500)
 				twitchPlayers.set(el.id, p)
 				p.addEventListener(Tw.Player.PLAY, () => twitchSt.set(el.id, 1))
 				p.addEventListener(Tw.Player.PAUSE, () => twitchSt.set(el.id, 2))

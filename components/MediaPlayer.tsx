@@ -327,9 +327,19 @@ export function TwitchFrame({ el, onPlayer }: { el: StreamElement; onPlayer: (id
 					} catch {}
 				}
 				p.addEventListener(Tw.Player.READY, tryPlay)
-				// READY иногда приходит до подписки или теряется — повторяем
-				window.setTimeout(tryPlay, 1200)
-				window.setTimeout(tryPlay, 3500)
+				// READY иногда приходит до подписки — одна страховочная попытка
+				window.setTimeout(tryPlay, 1500)
+				// Twitch не запускает autoplay, пока iframe вне видимой области
+				// (панель можно проскроллить) — стартуем, когда элемент показан.
+				if (typeof IntersectionObserver !== 'undefined' && ref.current) {
+					const io = new IntersectionObserver(entries => {
+						if (entries.some(e => e.isIntersecting)) {
+							io.disconnect()
+							tryPlay()
+						}
+					}, { threshold: 0.15 })
+					io.observe(ref.current)
+				}
 				onPlayer(el.id, p)
 			} catch {
 				if (!cancelled) setFailed(true)

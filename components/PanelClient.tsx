@@ -4358,10 +4358,6 @@ export default function PanelClient({
 												`${el.rotation ? `rotate(${el.rotation}deg)` : ''}${el.flipH || el.flipV ? ` scale(${el.flipH ? -1 : 1}, ${el.flipV ? -1 : 1})` : ''}` ||
 												undefined,
 											touchAction: 'none',
-											// тяжёлые превью (iframe, видео) не рендерятся, пока элемент
-											// вне видимой облас
-											contentVisibility: 'auto',
-											containIntrinsicSize: `${el.width}px ${el.height}px`,
 										}}
 										onPointerEnter={
 											isMedia
