@@ -51,7 +51,7 @@ function normalize(value: unknown): StreamersState {
 			updatedAt: String(item.updatedAt || new Date().toISOString()),
 		}
 	}
-	return { version: 3, threshold, users }
+	return { version: 4, threshold, users }
 }
 
 export async function getStreamersState(): Promise<StreamersState> {
@@ -118,6 +118,13 @@ export async function updateStreamer(
 	return state
 }
 
+export async function removeStreamer(login: string): Promise<StreamersState> {
+	const state = await getStreamersState()
+	delete state.users[login.trim().toLowerCase()]
+	await saveStreamersState(state)
+	return state
+}
+
 export async function addStreamer(login: string): Promise<StreamerEntry | null> {
 	const key = login.trim().toLowerCase().replace(/^@/, '')
 	if (!key) return null
@@ -127,31 +134,53 @@ export async function addStreamer(login: string): Promise<StreamerEntry | null> 
 // Первый запуск после обновления: в settings ещё нет карусели, но аккаунты
 // панели уже существуют. Один раз подтягиваем их подписчиков, чтобы блок
 // появился без повторного входа каждого стримера.
+async function mapLimit<T, R>(
+	items: T[],
+	limit: number,
+	fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+	const out = new Array<R>(items.length)
+	let next = 0
+	async function worker() {
+		while (next < items.length) {
+			const index = next++
+			out[index] = await fn(items[index])
+		}
+	}
+	const workers = Array.from(
+		{ length: Math.min(Math.max(1, limit), items.length) },
+		worker,
+	)
+	await Promise.all(workers)
+	return out
+}
+
 export async function syncAllStreamers(): Promise<number> {
 	const state = await getStreamersState()
+	// Все аккаунты берём из БД (links): не только те, кто зашёл после обновления.
 	const links = await storage.getLinks()
-	let changed = 0
-	for (const link of links) {
-		const login = link.login?.toLowerCase()
-		if (!login) continue
-		const [followers, avatars] = await Promise.all([
-			getFollowerCount(login),
-			getTwitchAvatars([login]),
-		])
+	const logins = [...new Set(links.map(l => l.login?.toLowerCase()).filter(Boolean))] as string[]
+	if (!logins.length) return 0
+
+	// Аватары — одним запросом Helix, подписчиков — параллельно по 8.
+	const avatars = await getTwitchAvatars(logins)
+	const followers = await mapLimit(logins, 8, login => getFollowerCount(login))
+
+	logins.forEach((login, i) => {
 		const prev = state.users[login]
+		const count = followers[i] ?? prev?.followers ?? 0
 		state.users[login] = {
 			login,
 			displayName: prev?.displayName || login,
 			avatar: avatars[login] || prev?.avatar || '',
-			followers: followers ?? prev?.followers ?? 0,
-			visible: prev?.visible ?? true,
+			followers: count,
+			visible: prev?.visible ?? count >= state.threshold,
 			featured: prev?.featured ?? false,
 			updatedAt: new Date().toISOString(),
 		}
-		changed += 1
-	}
-	if (changed) await saveStreamersState(state)
-	return changed
+	})
+	await saveStreamersState(state)
+	return logins.length
 }
 
 export async function listAdminStreamers(): Promise<StreamersState> {
@@ -160,16 +189,14 @@ export async function listAdminStreamers(): Promise<StreamersState> {
 
 export async function listPublicStreamers(): Promise<StreamersState> {
 	let state = await getStreamersState()
-	// Ленивый бэкфилл: состояния до 2.2.2 показывали только тех, кто прошёл
-	// порог. Теперь в карусель автоматически попадают все зарегистрированные.
+	// Ленивый бэкфилл: состояния до версии 4 не содержали всех аккаунтов из БД.
 	const raw: any = await storage.getSetting(KEY)
-	if (!raw || (typeof raw === 'object' && raw.version !== 3)) {
+	if (!raw || (typeof raw === 'object' && raw.version !== 4)) {
 		await syncAllStreamers()
 		state = await getStreamersState()
 	}
 	const users = Object.values(state.users)
-		// порог больше не ограничивает показ — только ручное скрытие
-		.filter(u => u.visible)
+		.filter(u => u.visible && u.followers >= state.threshold)
 		.sort((a, b) => {
 			if (a.featured !== b.featured) return a.featured ? -1 : 1
 			return b.followers - a.followers || a.login.localeCompare(b.login)

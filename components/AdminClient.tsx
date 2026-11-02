@@ -116,6 +116,7 @@ export default function AdminClient({
 	const [widgetQuery, setWidgetQuery] = useState('')
 	const [openWidget, setOpenWidget] = useState<string | null>(null)
 	const [streamers, setStreamers] = useState<StreamerEntry[]>([])
+	const [streamerThreshold, setStreamerThreshold] = useState(50)
 	const [streamerLogin, setStreamerLogin] = useState('')
 	const [streamerBusy, setStreamerBusy] = useState(false)
 	const [streamerError, setStreamerError] = useState('')
@@ -182,6 +183,9 @@ export default function AdminClient({
 			if (!res.ok) throw new Error(data?.error || 'Не удалось загрузить стримеров')
 			const list = data?.users ? Object.values(data.users) : []
 			setStreamers(list as StreamerEntry[])
+			if (typeof data?.threshold === 'number') {
+				setStreamerThreshold(data.threshold)
+			}
 		} catch (e: any) {
 			setStreamerError(e?.message || 'Не удалось загрузить стримеров')
 		}
@@ -201,7 +205,10 @@ export default function AdminClient({
 				if (!res.ok) throw new Error(data?.error || 'Не удалось сохранить')
 				const list = data?.users ? Object.values(data.users) : []
 				setStreamers(list as StreamerEntry[])
-					} catch (e: any) {
+				if (typeof data?.threshold === 'number') {
+					setStreamerThreshold(data.threshold)
+				}
+			} catch (e: any) {
 				setStreamerError(e?.message || 'Не удалось сохранить')
 			} finally {
 				setStreamerBusy(false)
@@ -556,10 +563,42 @@ export default function AdminClient({
 										</button>
 									</div>
 									<p className='cabinet-muted'>
-										Все, кто вошёл в панель, автоматически попадают в карусель.
-										Скрыть или выделить стримера можно вручную.
+										В карусель попадают зарегистрированные стримеры с числом
+										подписчиков не меньше порога. Скрыть или выделить можно
+										вручную.
 									</p>
 									<div className='admin-notice-row'>
+										<label className='flex items-center gap-2 text-sm'>
+											<span className='text-gray-400'>Порог</span>
+											<input
+												type='number'
+												min={0}
+												value={streamerThreshold}
+												onChange={e =>
+													setStreamerThreshold(Number(e.target.value) || 0)
+												}
+												className='admin-input w-24'
+											/>
+										</label>
+										<button
+											className='btn btn-ghost btn-sm'
+											disabled={streamerBusy}
+											onClick={() =>
+												void saveStreamer({
+													action: 'threshold',
+													threshold: streamerThreshold,
+												})
+											}
+										>
+											Сохранить порог
+										</button>
+										<button
+											className='btn btn-ghost btn-sm'
+											disabled={streamerBusy}
+											onClick={() => void saveStreamer({ action: 'sync' })}
+										>
+											Загрузить всех из БД
+										</button>
 										<div className='flex items-center gap-2'>
 											<input
 												value={streamerLogin}
@@ -648,6 +687,20 @@ export default function AdminClient({
 														/>
 														Избранный
 													</label>
+													<button
+														type='button'
+														className='btn btn-ghost btn-sm text-red-400'
+														disabled={streamerBusy}
+														onClick={() => {
+															if (!confirm(`Удалить ${s.login} из карусели?`)) return
+															void saveStreamer({
+																action: 'remove',
+																login: s.login,
+															})
+														}}
+													>
+														Удалить
+													</button>
 												</div>
 											))}
 										</div>

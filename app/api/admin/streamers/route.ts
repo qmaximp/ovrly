@@ -3,7 +3,9 @@ import { verifySession } from '@/lib/session'
 import {
 	addStreamer,
 	listAdminStreamers,
+	removeStreamer,
 	setThreshold,
+	syncAllStreamers,
 	updateStreamer,
 } from '@/lib/streamers'
 
@@ -59,6 +61,13 @@ export async function POST(req: Request) {
 						: {}),
 				}),
 			)
+		}
+		if (body?.action === 'sync') {
+			await syncAllStreamers()
+			return json(await listAdminStreamers())
+		}
+		if (body?.action === 'remove' && body.login) {
+			return json(await removeStreamer(String(body.login)))
 		}
 		if (body?.action === 'add' && body.login) {
 			const entry = await addStreamer(String(body.login))
