@@ -51,7 +51,7 @@ function normalize(value: unknown): StreamersState {
 			updatedAt: String(item.updatedAt || new Date().toISOString()),
 		}
 	}
-	return { version: 4, threshold, users }
+	return { version: 5, threshold, users }
 }
 
 export async function getStreamersState(): Promise<StreamersState> {
@@ -199,7 +199,7 @@ export async function listPublicStreamers(): Promise<StreamersState> {
 			raw = null
 		}
 	}
-	if (!raw || raw.version !== 4) {
+	if (!raw || raw.version !== 5) {
 		await syncAllStreamers()
 		state = await getStreamersState()
 	}
