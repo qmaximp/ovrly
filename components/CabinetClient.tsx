@@ -137,6 +137,7 @@ export default function CabinetClient({
 	const [inv, setInv] = useState<InvitesPayload | null>(null)
 	const [invError, setInvError] = useState('')
 	const [inviteNick, setInviteNick] = useState('')
+	const [importingMods, setImportingMods] = useState(false)
 
 	// подтягиваем сохранённые ссылки при загрузке страницы
 	useEffect(() => {
@@ -200,6 +201,29 @@ export default function CabinetClient({
 		if (!inviteNick.trim()) return
 		const ok = await act({ action: 'invite', login: inviteNick.trim() })
 		if (ok) setInviteNick('')
+	}
+
+	const importMods = async () => {
+		setImportingMods(true)
+		setInvError('')
+		try {
+			const r = await fetch('/api/invites/import', { method: 'POST' })
+			const d = await r.json()
+			if (r.status === 403 && d?.error === 'reauth') {
+				throw new Error(
+					'Нужен новый вход через Twitch: добавлено разрешение на чтение модераторов.',
+				)
+			}
+			if (!r.ok) throw new Error(d?.error || 'Не удалось импортировать модераторов')
+			loadInvites()
+			if (!d.imported) {
+				setInvError('Новых модераторов не найдено — все уже в списке.')
+			}
+		} catch (e: any) {
+			setInvError(e?.message || 'Не удалось импортировать модераторов')
+		} finally {
+			setImportingMods(false)
+		}
 	}
 
 	const generate = async () => {
@@ -554,6 +578,16 @@ export default function CabinetClient({
 													Пригласить
 												</button>
 											</div>
+											<button
+												type='button'
+												onClick={importMods}
+												disabled={importingMods}
+												className='btn btn-ghost btn-sm mt-2'
+											>
+												{importingMods
+													? 'Импортирую…'
+													: 'Импортировать модераторов из Twitch'}
+											</button>
 											<div className='mt-3 space-y-2'>
 												{inv.moderators.length === 0 ? (
 													<p className='cabinet-muted'>

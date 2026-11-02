@@ -23,6 +23,17 @@ import {
 	parseMediaUrl,
 	youtubeEmbedUrl,
 } from '@/lib/media'
+import {
+	DEFAULT_SHORTCUTS,
+	SHORTCUT_DEFS,
+	comboFromEvent,
+	loadShortcuts,
+	matchesShortcut,
+	resetShortcuts,
+	saveShortcuts,
+	shortcutKeys,
+	type ShortcutId,
+} from '@/lib/shortcuts'
 import { analyzeSound, playTimerSound, type SoundAnalysis } from '@/lib/sound'
 import { ensureFontLoaded, textBoxStyle } from '@/lib/textStyle'
 import type {
@@ -63,7 +74,7 @@ import {
 } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import type { ReactNode } from 'react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { io as ioInit, Socket } from 'socket.io-client'
 
@@ -194,6 +205,51 @@ export default function PanelClient({
 	const [tab, setTab] = useState<
 		'elements' | 'widgets' | 'obs' | 'chat' | 'settings'
 	>('elements')
+	const [settingsTab, setSettingsTab] = useState<'general' | 'keys'>('general')
+	const [shortcuts, setShortcuts] = useState<Record<ShortcutId, string>>({
+		...DEFAULT_SHORTCUTS,
+	})
+	const shortcutsRef = useRef(shortcuts)
+	shortcutsRef.current = shortcuts
+	const [listeningShortcut, setListeningShortcut] = useState<ShortcutId | null>(
+		null,
+	)
+	const listeningShortcutRef = useRef<ShortcutId | null>(null)
+	useEffect(() => {
+		setShortcuts(loadShortcuts())
+	}, [])
+	useEffect(() => {
+		listeningShortcutRef.current = listeningShortcut
+	}, [listeningShortcut])
+	const changeShortcut = useCallback((id: ShortcutId, combo: string) => {
+		setShortcuts(prev => {
+			const next = { ...prev, [id]: combo }
+			saveShortcuts(next)
+			return next
+		})
+	}, [])
+	const resetAllShortcuts = useCallback(() => {
+		setShortcuts(resetShortcuts())
+	}, [])
+	useEffect(() => {
+		if (!listeningShortcut) return
+		const onKey = (e: KeyboardEvent) => {
+			e.preventDefault()
+			e.stopImmediatePropagation()
+			if (e.code === 'Escape') {
+				setListeningShortcut(null)
+				listeningShortcutRef.current = null
+				return
+			}
+			const combo = comboFromEvent(e)
+			if (!combo) return
+			changeShortcut(listeningShortcut, combo)
+			setListeningShortcut(null)
+			listeningShortcutRef.current = null
+		}
+		window.addEventListener('keydown', onKey, true)
+		return () => window.removeEventListener('keydown', onKey, true)
+	}, [listeningShortcut, changeShortcut])
 	// ObsPanel монтируем при первом открытии вкладки и больше не размонтируем:
 	// так соединение с OBS не рвётся при переключении, а чанк не грузится зря
 	const [obsMounted, setObsMounted] = useState(false)
@@ -284,6 +340,10 @@ export default function PanelClient({
 	useEffect(() => {
 		setMounted(true)
 	}, [])
+	const isMac =
+		mounted &&
+		typeof navigator !== 'undefined' &&
+		/Mac|iPhone|iPad/.test(navigator.platform)
 	const parentHost =
 		typeof window !== 'undefined' ? window.location.hostname : 'localhost'
 	const [emoteOpen, setEmoteOpen] = useState(false)
@@ -3017,17 +3077,30 @@ export default function PanelClient({
 					t.isContentEditable)
 			)
 				return
+			// пока в настройках записывается новая комбинация, панель не реагирует
+			if (listeningShortcutRef.current) return
 
-			const mod = e.ctrlKey || e.metaKey
-			if (mod && e.code === 'KeyZ') {
+			const keys = shortcutsRef.current
+			if (matchesShortcut(e, keys.undo)) {
 				e.preventDefault()
-				if (e.shiftKey) redo()
-				else undo()
+				undo()
 				return
 			}
-			if (mod && e.code === 'KeyY') {
+			if (matchesShortcut(e, keys.redo)) {
 				e.preventDefault()
 				redo()
+				return
+			}
+			// старый Ctrl+Y оставляем как привычный дубль повтора
+			if (e.ctrlKey && !e.shiftKey && e.code === 'KeyY') {
+				e.preventDefault()
+				redo()
+				return
+			}
+			if (matchesShortcut(e, keys.deselect)) {
+				e.preventDefault()
+				setSelectedId(null)
+				setSelectedIds(new Set())
 				return
 			}
 
@@ -3035,7 +3108,10 @@ export default function PanelClient({
 			if (selectedId) ids.add(selectedId)
 			if (!ids.size) return
 
-			if (e.key === 'Delete' || e.key === 'Backspace') {
+			if (
+				matchesShortcut(e, keys.delete) ||
+				(e.code === 'Backspace' && keys.delete !== 'Backspace')
+			) {
 				e.preventDefault()
 				remember()
 				ids.forEach(id => emit('element:delete', id))
@@ -3044,22 +3120,42 @@ export default function PanelClient({
 				return
 			}
 
-			const dirs: Record<string, [number, number]> = {
-				ArrowLeft: [-1, 0],
-				ArrowRight: [1, 0],
-				ArrowUp: [0, -1],
-				ArrowDown: [0, 1],
-			}
-			const dir = dirs[e.key]
-			if (!dir) return
-			// стрелки — точный сдвиг: мышью попасть в пиксель почти невозможно.
+			// стрелки — точный сдвиг; Shift (или своя быстрая комбинация) — 10 px.
 			// Заблокированные и занятые другим модератором элементы пропускаем
+			let dir: [number, number] | null = null
+			let step = 1
+			for (const [id, vector] of [
+				['fastLeft', [-1, 0]],
+				['fastRight', [1, 0]],
+				['fastUp', [0, -1]],
+				['fastDown', [0, 1]],
+			] as Array<[ShortcutId, [number, number]]>) {
+				if (matchesShortcut(e, keys[id])) {
+					dir = vector
+					step = 10
+					break
+				}
+			}
+			if (!dir) {
+				const dirs: Array<[ShortcutId, [number, number]]> = [
+					['left', [-1, 0]],
+					['right', [1, 0]],
+					['up', [0, -1]],
+					['down', [0, 1]],
+				]
+				for (const [id, vector] of dirs) {
+					if (matchesShortcut(e, keys[id])) {
+						dir = vector
+						break
+					}
+				}
+			}
+			if (!dir) return
 			const movable = stateRef.current.elements.filter(
 				el => ids.has(el.id) && !el.locked && !isLockedByOther(el.id),
 			)
 			if (!movable.length) return
 			e.preventDefault()
-			const step = e.shiftKey ? 10 : 1
 			const moves = movable.map(el => ({
 				id: el.id,
 				x: el.x + dir[0] * step,
@@ -3272,6 +3368,14 @@ export default function PanelClient({
 		const vp = canvasEl
 		if (!vp) return
 		const onWheel = (e: WheelEvent) => {
+			// Списки внутри холста (например, «Элементы» в минималистичном меню)
+			// должны прокручиваться сами, а не масштабировать всю панель.
+			const target = e.target
+			if (
+				target instanceof Element &&
+				target.closest('[data-wheel-scroll], [data-nopan]')
+			)
+				return
 			e.preventDefault()
 			const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15
 			const { x, y, s } = viewRef.current
@@ -4234,6 +4338,10 @@ export default function PanelClient({
 												`${el.rotation ? `rotate(${el.rotation}deg)` : ''}${el.flipH || el.flipV ? ` scale(${el.flipH ? -1 : 1}, ${el.flipV ? -1 : 1})` : ''}` ||
 												undefined,
 											touchAction: 'none',
+											// тяжёлые превью (iframe, видео) не рендерятся, пока элемент
+											// вне видимой облас
+											contentVisibility: 'auto',
+											containIntrinsicSize: `${el.width}px ${el.height}px`,
 										}}
 										onPointerEnter={
 											isMedia
@@ -5107,87 +5215,287 @@ export default function PanelClient({
 			<div
 				className={`flex-1 overflow-auto ${tab === 'settings' ? '' : 'hidden'}`}
 			>
-				<div className='max-w-2xl mx-auto p-5 sm:p-8'>
+				<div className='max-w-3xl mx-auto p-5 sm:p-8'>
 					<h2 className='text-lg font-semibold text-[color:var(--c-on-bg)]'>
 						Настройки
 					</h2>
 					<p className='mt-1 text-sm text-gray-500'>
-						Внешний вид панели сохраняется в этом браузере.
+						Параметры панели и горячие клавиши сохраняются в этом браузере.
 					</p>
-					<div className='mt-5 rounded-2xl border border-border bg-panel p-4 sm:p-5'>
-						<div className='flex items-start gap-3 sm:gap-4'>
-							<span className='w-10 h-10 shrink-0 rounded-xl bg-accent/15 text-accent2 flex items-center justify-center'>
-								<Settings size={19} />
-							</span>
-							<div className='min-w-0 flex-1'>
-								<div className='flex flex-wrap items-center gap-2'>
-									<h3 className='text-sm font-semibold text-[color:var(--c-on-bg)]'>
-										Минималистичное меню
-									</h3>
+
+					<div
+						role='tablist'
+						aria-label='Разделы настроек'
+						className='mt-5 inline-flex rounded-xl border border-border bg-panel p-1'
+					>
+						<button
+							role='tab'
+							aria-selected={settingsTab === 'general'}
+							onClick={() => setSettingsTab('general')}
+							className={`rounded-lg px-4 py-2 text-sm transition-colors ${
+								settingsTab === 'general'
+									? 'bg-accent text-white'
+									: 'text-gray-400 hover:text-white'
+							}`}
+						>
+							Общее
+						</button>
+						<button
+							role='tab'
+							aria-selected={settingsTab === 'keys'}
+							onClick={() => setSettingsTab('keys')}
+							className={`rounded-lg px-4 py-2 text-sm transition-colors ${
+								settingsTab === 'keys'
+									? 'bg-accent text-white'
+									: 'text-gray-400 hover:text-white'
+							}`}
+						>
+							Сочетания клавиш
+						</button>
+					</div>
+
+					{settingsTab === 'general' ? (
+						<>
+							<div className='mt-5 rounded-2xl border border-border bg-panel p-4 sm:p-5'>
+								<div className='flex items-start gap-3 sm:gap-4'>
+									<span className='w-10 h-10 shrink-0 rounded-xl bg-accent/15 text-accent2 flex items-center justify-center'>
+										<Layers size={19} />
+									</span>
+									<div className='min-w-0 flex-1'>
+										<h3 className='text-sm font-semibold text-[color:var(--c-on-bg)]'>
+											Минималистичное меню
+										</h3>
+										<p className='mt-1 text-sm leading-relaxed text-gray-500'>
+											Компактное меню добавления элементов внизу и сворачиваемый
+											список элементов. Выключено — привычная панель с боковым
+											меню.
+										</p>
+									</div>
+									<button
+										role='switch'
+										aria-checked={betaUI}
+										aria-label='Минималистичное меню'
+										onClick={toggleBetaUI}
+										className={`relative w-11 h-6 shrink-0 rounded-full transition-colors ${
+											betaUI ? 'bg-accent' : 'bg-gray-600'
+										}`}
+									>
+										<span
+											className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${
+												betaUI ? 'left-[22px]' : 'left-0.5'
+											}`}
+										/>
+									</button>
 								</div>
-								<p className='mt-1 text-sm leading-relaxed text-gray-500'>
-									Компактное меню добавления элементов внизу и сворачиваемый
-									список элементов. Выключено — привычная панель с боковым меню.
+								<p className='mt-3 border-t border-border pt-3 text-xs leading-relaxed text-gray-500'>
+									{betaUI
+										? 'Включено: элементы добавляются с нижней панели, список — в левом верхнем углу и свёрнут.'
+										: 'Выключено: используется панель с боковым меню.'}
 								</p>
 							</div>
-							<button
-								role='switch'
-								aria-checked={betaUI}
-								aria-label='Минималистичное меню'
-								onClick={toggleBetaUI}
-								className={`relative w-11 h-6 shrink-0 rounded-full transition-colors ${
-									betaUI ? 'bg-accent' : 'bg-gray-600'
-								}`}
-							>
-								<span
-									className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${
-										betaUI ? 'left-[22px]' : 'left-0.5'
-									}`}
-								/>
-							</button>
-						</div>
-						<p className='mt-3 border-t border-border pt-3 text-xs leading-relaxed text-gray-500'>
-							{betaUI
-								? 'Включено: элементы добавляются с нижней панели, список — в левом верхнем углу и свёрнут.'
-								: 'Выключено: используется панель с боковым меню.'}
-						</p>
-					</div>
-					<div className='mt-4 rounded-2xl border border-border bg-panel p-4 sm:p-5'>
-						<div className='flex items-start gap-3 sm:gap-4'>
-							<span className='w-10 h-10 shrink-0 rounded-xl bg-accent/15 text-accent2 flex items-center justify-center'>
-								<Monitor size={19} />
-							</span>
-							<div className='min-w-0 flex-1'>
-								<h3 className='text-sm font-semibold text-[color:var(--c-on-bg)]'>
-									Управление OBS
-								</h3>
-								<p className='mt-1 text-sm leading-relaxed text-gray-500'>
-									Показывать вкладку «Управление OBS» в панели. По умолчанию она
-									скрыта и не мешает работе.
+
+							<div className='mt-4 rounded-2xl border border-border bg-panel p-4 sm:p-5'>
+								<div className='flex items-start gap-3 sm:gap-4'>
+									<span className='w-10 h-10 shrink-0 rounded-xl bg-accent/15 text-accent2 flex items-center justify-center'>
+										<Monitor size={19} />
+									</span>
+									<div className='min-w-0 flex-1'>
+										<h3 className='text-sm font-semibold text-[color:var(--c-on-bg)]'>
+											Управление OBS
+										</h3>
+										<p className='mt-1 text-sm leading-relaxed text-gray-500'>
+											Показывать вкладку «Управление OBS» в панели. По умолчанию
+											она скрыта и не мешает работе.
+										</p>
+									</div>
+									<button
+										role='switch'
+										aria-checked={showObsTab}
+										aria-label='Показывать вкладку Управление OBS'
+										onClick={toggleObsTab}
+										className={`relative w-11 h-6 shrink-0 rounded-full transition-colors ${
+											showObsTab ? 'bg-accent' : 'bg-gray-600'
+										}`}
+									>
+										<span
+											className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${
+												showObsTab ? 'left-[22px]' : 'left-0.5'
+											}`}
+										/>
+									</button>
+								</div>
+								<p className='mt-3 border-t border-border pt-3 text-xs leading-relaxed text-gray-500'>
+									{showObsTab
+										? 'Включено: вкладка OBS показывается после «Виджет».'
+										: 'Выключено: вкладка OBS скрыта.'}
 								</p>
 							</div>
-							<button
-								role='switch'
-								aria-checked={showObsTab}
-								aria-label='Показывать вкладку Управление OBS'
-								onClick={toggleObsTab}
-								className={`relative w-11 h-6 shrink-0 rounded-full transition-colors ${
-									showObsTab ? 'bg-accent' : 'bg-gray-600'
-								}`}
-							>
-								<span
-									className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${
-										showObsTab ? 'left-[22px]' : 'left-0.5'
-									}`}
-								/>
-							</button>
+
+							<div className='mt-4 rounded-2xl border border-border bg-panel p-4 sm:p-5'>
+								<div className='flex items-start gap-3 sm:gap-4'>
+									<span className='w-10 h-10 shrink-0 rounded-xl bg-accent/15 text-accent2 flex items-center justify-center'>
+										{theme === 'dark' ? <MoonIcon /> : <SunIcon />}
+									</span>
+									<div className='min-w-0 flex-1'>
+										<h3 className='text-sm font-semibold text-[color:var(--c-on-bg)]'>
+											Тема оформления
+										</h3>
+										<p className='mt-1 text-sm leading-relaxed text-gray-500'>
+											Сейчас включена {theme === 'dark' ? 'тёмная' : 'светлая'} тема.
+										</p>
+									</div>
+									<button
+										role='switch'
+										aria-checked={theme === 'light'}
+										aria-label='Светлая тема'
+										onClick={() => applyTheme(theme === 'dark' ? 'light' : 'dark')}
+										className={`relative w-11 h-6 shrink-0 rounded-full transition-colors ${
+											theme === 'light' ? 'bg-accent' : 'bg-gray-600'
+										}`}
+									>
+										<span
+											className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${
+												theme === 'light' ? 'left-[22px]' : 'left-0.5'
+											}`}
+										/>
+									</button>
+								</div>
+							</div>
+
+							<div className='mt-4 rounded-2xl border border-border bg-panel p-4 sm:p-5'>
+								<div className='flex items-start gap-3 sm:gap-4'>
+									<span className='w-10 h-10 shrink-0 rounded-xl bg-accent/15 text-accent2 flex items-center justify-center'>
+										<MessageCircle size={19} />
+									</span>
+									<div className='min-w-0 flex-1'>
+										<h3 className='text-sm font-semibold text-[color:var(--c-on-bg)]'>
+											Плавающий чат
+										</h3>
+										<p className='mt-1 text-sm leading-relaxed text-gray-500'>
+											Окно чата справа на компьютере. На телефоне чат открывается
+											отдельной вкладкой.
+										</p>
+									</div>
+									<button
+										role='switch'
+										aria-checked={chatOn}
+										aria-label='Плавающий чат'
+										onClick={toggleChat}
+										className={`relative w-11 h-6 shrink-0 rounded-full transition-colors ${
+											chatOn ? 'bg-accent' : 'bg-gray-600'
+										}`}
+									>
+										<span
+											className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${
+												chatOn ? 'left-[22px]' : 'left-0.5'
+											}`}
+										/>
+									</button>
+								</div>
+							</div>
+
+							{!isMobile && (
+								<div className='mt-4 rounded-2xl border border-border bg-panel p-4 sm:p-5'>
+									<div className='flex items-start gap-3 sm:gap-4'>
+										<span className='w-10 h-10 shrink-0 rounded-xl bg-accent/15 text-accent2 flex items-center justify-center'>
+											<Layers size={19} />
+										</span>
+										<div className='min-w-0 flex-1'>
+											<h3 className='text-sm font-semibold text-[color:var(--c-on-bg)]'>
+												Боковая панель
+											</h3>
+											<p className='mt-1 text-sm leading-relaxed text-gray-500'>
+												Список элементов и свойств слева. Если скрыть — холст
+												занимает всю ширину.
+											</p>
+										</div>
+										<button
+											role='switch'
+											aria-checked={sidebarOpen}
+											aria-label='Боковая панель'
+											onClick={toggleSidebar}
+											className={`relative w-11 h-6 shrink-0 rounded-full transition-colors ${
+												sidebarOpen ? 'bg-accent' : 'bg-gray-600'
+											}`}
+										>
+											<span
+												className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${
+													sidebarOpen ? 'left-[22px]' : 'left-0.5'
+												}`}
+											/>
+										</button>
+									</div>
+								</div>
+							)}
+						</>
+					) : (
+						<div className='mt-5'>
+							<div className='flex flex-wrap items-center justify-between gap-2'>
+								<p className='text-sm text-gray-500'>
+									Нажмите «Изменить» и введите новое сочетание. Esc — отмена.
+								</p>
+								<button
+									onClick={resetAllShortcuts}
+									className='rounded-lg border border-border px-3 py-1.5 text-xs text-gray-300 transition-colors hover:bg-border'
+								>
+									Сбросить всё
+								</button>
+							</div>
+							<div className='mt-3 space-y-2'>
+								{SHORTCUT_DEFS.map(def => {
+									const keys = shortcutKeys(shortcuts[def.id], isMac)
+									const listening = listeningShortcut === def.id
+									return (
+										<div
+											key={def.id}
+											className='flex flex-wrap items-center gap-3 rounded-2xl border border-border bg-panel p-3 sm:p-4'
+										>
+											<div className='min-w-0 flex-1'>
+												<div className='text-sm font-semibold text-[color:var(--c-on-bg)]'>
+													{def.label}
+												</div>
+												<p className='mt-0.5 text-xs text-gray-500'>{def.hint}</p>
+											</div>
+											<div
+												className={`order-3 flex w-full items-center justify-center gap-1.5 sm:order-none sm:w-auto ${
+													listening ? 'sc-listening' : ''
+												}`}
+												aria-hidden='true'
+											>
+												{keys.map((key, i) => (
+													<kbd
+														key={`${key}-${i}`}
+														className='sc-key'
+														style={{ animationDelay: `${i * 0.32}s` }}
+													>
+														{key}
+													</kbd>
+												))}
+											</div>
+											<button
+												onClick={() => {
+													if (listening) {
+														setListeningShortcut(null)
+														listeningShortcutRef.current = null
+													} else {
+														setListeningShortcut(def.id)
+														listeningShortcutRef.current = def.id
+													}
+												}}
+												className={`shrink-0 rounded-lg border px-3 py-1.5 text-xs transition-colors ${
+													listening
+														? 'border-accent bg-accent text-white'
+														: 'border-border text-gray-300 hover:bg-border'
+												}`}
+											>
+												{listening ? 'Нажмите…' : 'Изменить'}
+											</button>
+										</div>
+									)
+								})}
+							</div>
 						</div>
-						<p className='mt-3 border-t border-border pt-3 text-xs leading-relaxed text-gray-500'>
-							{showObsTab
-								? 'Включено: вкладка OBS показывается после «Виджет».'
-								: 'Выключено: вкладка OBS скрыта.'}
-						</p>
-					</div>
+					)}
 				</div>
 			</div>
 			{isMobile && menuOpen && (
@@ -6678,7 +6986,7 @@ function MoonIcon() {
 	)
 }
 
-function PreviewElement({
+function PreviewElementInner({
 	el,
 	scale,
 	interactive,
@@ -6794,6 +7102,7 @@ function PreviewElement({
 								)}
 								title='media'
 								data-id={el.id}
+								loading='lazy'
 								className='w-full h-full'
 								style={{ border: 0, pointerEvents: 'none' }}
 								allow='autoplay; fullscreen'
@@ -6833,6 +7142,7 @@ function PreviewElement({
 					}
 					title='embed'
 					data-id={el.id}
+					loading='lazy'
 					className='w-full h-full'
 					style={{ border: 0, pointerEvents: interactive ? 'auto' : 'none' }}
 					allow='autoplay; encrypted-media; picture-in-picture; fullscreen'
@@ -6873,6 +7183,19 @@ function PreviewElement({
 	if (el.type === 'timer') return <TimerPreview el={el} scale={1} />
 	return null
 }
+
+// Элементы на холсте перерисовываются только при изменении самого элемента:
+// выбор, наведение и перетаскивание других элементов не дёргают все превью.
+const PreviewElement = memo(
+	PreviewElementInner,
+	(prev, next) =>
+		prev.el === next.el &&
+		prev.scale === next.scale &&
+		prev.interactive === next.interactive &&
+		prev.mounted === next.mounted &&
+		prev.mediaSt === next.mediaSt &&
+		prev.channel === next.channel,
+)
 
 // обычное видео в панели: играет локально и отдаёт своё состояние (позиция, звук,
 // пауза) в общий поток медиа-состояний — благодаря этому плашка управления и

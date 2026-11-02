@@ -2,6 +2,7 @@ import LogoMark from '@/components/LogoMark'
 import ThemeToggle from '@/components/ThemeToggle'
 import CookieBanner from '@/components/CookieBanner'
 import ConsentDialog from '@/components/ConsentDialog'
+import StreamersCarousel from '@/components/StreamersCarousel'
 import { verifySession } from '@/lib/session'
 import { siteUrl } from '@/lib/site'
 import type { Metadata } from 'next'
@@ -426,6 +427,8 @@ export default async function Home({
 						))}
 					</div>
 				</section>
+
+				<StreamersCarousel />
 
 				<section id='how' className='container section'>
 					<div className='section-head'>

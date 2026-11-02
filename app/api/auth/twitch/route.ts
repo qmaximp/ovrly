@@ -26,8 +26,9 @@ export async function GET(req: Request) {
   authUrl.searchParams.set("client_id", clientId);
   authUrl.searchParams.set("redirect_uri", redirectUri);
   authUrl.searchParams.set("response_type", "code");
-  // email не запрашиваем: он не используется, а 152-ФЗ требует минимизации
-  authUrl.searchParams.set("scope", "user:read:emotes");
+  // email не запрашиваем: он не используется, а 152-ФЗ требует минимизации.
+  // moderation:read — только для импорта списка модераторов канала.
+  authUrl.searchParams.set("scope", "user:read:emotes moderation:read");
   authUrl.searchParams.set("state", state);
   const res = NextResponse.redirect(authUrl.toString());
   // Secure только на https (на http://localhost браузер cookie с Secure отбросил бы)

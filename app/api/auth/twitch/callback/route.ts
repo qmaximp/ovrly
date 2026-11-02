@@ -3,6 +3,7 @@ import path from "path";
 import { getOrigin, seeOther, signSession, tokenForLogin } from "@/lib/session";
 import { readLinks, writeLinks, readOwner, writeOwner } from "@/lib/links";
 import { LEGAL_VERSION } from "@/lib/legal";
+import { syncStreamer } from "@/lib/streamers";
 
 export async function GET(req: Request) {
   const clientId = process.env.TWITCH_CLIENT_ID;
@@ -96,6 +97,14 @@ export async function GET(req: Request) {
     }
   } catch {
     // журнал не должен ломать вход: сбой записи игнорируем
+  }
+
+  // карусель на главной: сохраняем число подписчиков и аватар. Сбой не должен
+  // ломать вход — просто не попадёт в карусель до следующего входа.
+  try {
+    await syncStreamer({ login: u.login, displayName: u.display_name || u.login });
+  } catch {
+    // ignore
   }
 
   // возврат на исходную страницу (по умолчанию кабинет)

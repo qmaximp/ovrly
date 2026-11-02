@@ -3,6 +3,7 @@
 import LogoMark from '@/components/LogoMark'
 import ThemeToggle from '@/components/ThemeToggle'
 import WidgetFrame from '@/components/WidgetFrame'
+import type { StreamerEntry } from '@/lib/streamers'
 import type { WidgetDefinition } from '@/lib/types'
 import { widgetHasTwitchIntegration } from '@/lib/widgets'
 import { Eye, EyeOff, Search, Trash2 } from 'lucide-react'
@@ -114,6 +115,11 @@ export default function AdminClient({
 	const [widgetsError, setWidgetsError] = useState('')
 	const [widgetQuery, setWidgetQuery] = useState('')
 	const [openWidget, setOpenWidget] = useState<string | null>(null)
+	const [streamers, setStreamers] = useState<StreamerEntry[]>([])
+	const [streamerThreshold, setStreamerThreshold] = useState(100)
+	const [streamerLogin, setStreamerLogin] = useState('')
+	const [streamerBusy, setStreamerBusy] = useState(false)
+	const [streamerError, setStreamerError] = useState('')
 	const socketRef = useRef<ReturnType<typeof ioInit> | null>(null)
 
 	useEffect(() => {
@@ -169,9 +175,48 @@ export default function AdminClient({
 		}
 	}, [])
 
+	const loadStreamers = useCallback(async () => {
+		setStreamerError('')
+		try {
+			const res = await fetch('/api/admin/streamers')
+			const data = await res.json()
+			if (!res.ok) throw new Error(data?.error || 'Не удалось загрузить стримеров')
+			const list = data?.users ? Object.values(data.users) : []
+			setStreamers(list as StreamerEntry[])
+			setStreamerThreshold(Number(data?.threshold) || 100)
+		} catch (e: any) {
+			setStreamerError(e?.message || 'Не удалось загрузить стримеров')
+		}
+	}, [])
+
+	const saveStreamer = useCallback(
+		async (body: Record<string, unknown>) => {
+			setStreamerBusy(true)
+			setStreamerError('')
+			try {
+				const res = await fetch('/api/admin/streamers', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify(body),
+				})
+				const data = await res.json()
+				if (!res.ok) throw new Error(data?.error || 'Не удалось сохранить')
+				const list = data?.users ? Object.values(data.users) : []
+				setStreamers(list as StreamerEntry[])
+				if (typeof data?.threshold === 'number') setStreamerThreshold(data.threshold)
+			} catch (e: any) {
+				setStreamerError(e?.message || 'Не удалось сохранить')
+			} finally {
+				setStreamerBusy(false)
+			}
+		},
+		[],
+	)
+
 	useEffect(() => {
 		void loadAdminWidgets()
-	}, [loadAdminWidgets])
+		void loadStreamers()
+	}, [loadAdminWidgets, loadStreamers])
 
 	const deleteAdminWidget = useCallback(
 		async (w: AdminWidget) => {
@@ -495,6 +540,148 @@ export default function AdminClient({
 							</div>
 
 							<div className='admin-grid'>
+								<section
+									className='glass-card admin-card'
+									style={{ gridColumn: '1 / -1' }}
+								>
+									<div className='admin-card-head'>
+										<div>
+											<span className='kicker'>Главная</span>
+											<h2 className='admin-card-title'>
+												Стримеры в карусели ({streamers.length})
+											</h2>
+										</div>
+										<button
+											onClick={() => void loadStreamers()}
+											className='btn btn-ghost btn-sm'
+										>
+											↻ Обновить
+										</button>
+									</div>
+									<p className='cabinet-muted'>
+										В карусель автоматически попадают вошедшие в панель
+										стримеры с числом подписчиков не меньше порога. Видимость
+										и «избранное» можно менять вручную.
+									</p>
+									<div className='admin-notice-row'>
+										<label className='flex items-center gap-2 text-sm'>
+											<span className='text-gray-400'>Порог подписчиков</span>
+											<input
+												type='number'
+												min={0}
+												value={streamerThreshold}
+												onChange={e =>
+													setStreamerThreshold(Number(e.target.value) || 0)
+												}
+												className='admin-input w-24'
+											/>
+										</label>
+										<button
+											className='btn btn-ghost btn-sm'
+											disabled={streamerBusy}
+											onClick={() =>
+												void saveStreamer({
+													action: 'threshold',
+													threshold: streamerThreshold,
+												})
+											}
+										>
+											Сохранить порог
+										</button>
+										<div className='flex items-center gap-2'>
+											<input
+												value={streamerLogin}
+												onChange={e => setStreamerLogin(e.target.value)}
+												placeholder='Добавить логин Twitch'
+												className='admin-input'
+											/>
+											<button
+												className='btn btn-ghost btn-sm'
+												disabled={streamerBusy || !streamerLogin.trim()}
+												onClick={() => {
+													void saveStreamer({
+														action: 'add',
+														login: streamerLogin.trim(),
+													})
+													setStreamerLogin('')
+												}}
+											>
+												Добавить
+											</button>
+										</div>
+									</div>
+									{streamerError && (
+										<p className='alert mt-3'>{streamerError}</p>
+									)}
+									{streamers.length === 0 ? (
+										<p className='admin-empty'>
+											Пока никто не вошёл в панель — карусель пустая.
+										</p>
+									) : (
+										<div className='mt-3 flex flex-col gap-2'>
+											{streamers.map(s => (
+												<div
+													key={s.login}
+													className='flex flex-wrap items-center gap-3 rounded-xl border border-white/10 px-3 py-2'
+												>
+													{s.avatar ? (
+														// eslint-disable-next-line @next/next/no-img-element
+														<img
+															src={s.avatar}
+															alt=''
+															className='h-9 w-9 rounded-full object-cover'
+														/>
+													) : (
+														<div className='h-9 w-9 rounded-full bg-white/10' />
+													)}
+													<div className='min-w-0 flex-1'>
+														<p className='truncate text-sm font-medium'>
+															{s.displayName}
+															{s.featured && (
+																<span className='ml-2 text-[10px] text-accent2'>
+																	избранный
+																</span>
+															)}
+														</p>
+														<p className='text-xs text-gray-500'>
+															@{s.login} · {s.followers.toLocaleString('ru-RU')}{' '}
+															подписчиков
+														</p>
+													</div>
+													<label className='flex items-center gap-1.5 text-xs'>
+														<input
+															type='checkbox'
+															checked={s.visible}
+															onChange={e =>
+																void saveStreamer({
+																	action: 'update',
+																	login: s.login,
+																	visible: e.target.checked,
+																})
+															}
+														/>
+														Показывать
+													</label>
+													<label className='flex items-center gap-1.5 text-xs'>
+														<input
+															type='checkbox'
+															checked={s.featured}
+															onChange={e =>
+																void saveStreamer({
+																	action: 'update',
+																	login: s.login,
+																	featured: e.target.checked,
+																})
+															}
+														/>
+														Избранный
+													</label>
+												</div>
+											))}
+										</div>
+									)}
+								</section>
+
 								<section className='glass-card admin-card'>
 									<div className='admin-card-head'>
 										<div>

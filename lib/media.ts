@@ -31,6 +31,7 @@ const TWITCH_NON_CHANNEL = new Set([
 	'about',
 	'p',
 	'activate',
+	'embed',
 	'bits',
 	'payments',
 	'security',
@@ -78,6 +79,8 @@ export function parseMediaUrl(raw: string): MediaInfo | null {
 			const parts = u.pathname.split('/').filter(Boolean)
 			const seg = (parts[0] || '').toLowerCase()
 			if (!seg) return null
+			// /канал/chat — это чат-виджет, его встраивает toEmbedUrl, а не плеер
+			if ((parts[1] || '').toLowerCase() === 'chat') return null
 			// служебные разделы — НЕ каналы: раньше они превращались в канал с именем
 			// «directory»/«videos», плеер не находил такой канал и оставался пустым
 			if (TWITCH_NON_CHANNEL.has(seg)) return null

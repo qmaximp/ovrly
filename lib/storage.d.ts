@@ -46,6 +46,8 @@ export function upsertLink(
 export function findOwnerByToken(token: string): Promise<string | null>
 export function getOwner(): Promise<string | null>
 export function setOwner(login: string): Promise<void>
+export function getSetting<T = unknown>(key: string): Promise<T | null>
+export function setSetting(key: string, value: unknown): Promise<void>
 export function getAllInvites(): Promise<InviteRecord[]>
 export function getInvite(
 	owner: string,

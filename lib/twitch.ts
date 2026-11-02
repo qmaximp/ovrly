@@ -106,6 +106,47 @@ const userIdCache = new Map<string, string>();
 const userIdMiss = new Map<string, number>();
 const MISS_TTL_MS = 5 * 60 * 1000;
 
+// логин -> число подписчиков. Helix users/follows отдаёт total без
+// модераторских scope — достаточно app access token.
+const followerCache = new Map<string, { total: number | null; expires: number }>();
+const FOLLOWER_TTL_MS = 30 * 60 * 1000;
+
+export async function getFollowerCount(login: string): Promise<number | null> {
+  const key = login.toLowerCase();
+  const cached = followerCache.get(key);
+  if (cached && cached.expires > Date.now()) return cached.total;
+  // ivr.fi отдаёт followers публично и не требует scope; Helix —
+  // запасной вариант, если сторонний API недоступен.
+  let total: number | null = null;
+  try {
+    const res = await fetch(
+      `https://api.ivr.fi/v2/twitch/user?login=${encodeURIComponent(key)}`,
+      { headers: { 'User-Agent': 'Ovrly (+https://ovrly.ru)' }, cache: 'no-store' },
+    );
+    if (res.ok) {
+      const arr = await res.json();
+      if (Array.isArray(arr) && typeof arr[0]?.followers === 'number') {
+        total = arr[0].followers;
+      }
+    }
+  } catch {
+    // ниже попробуем Helix
+  }
+  if (total === null) {
+    const id = await twitchUserId(key);
+    if (!id) return null;
+    const data = await helix(
+      `users/follows?to_id=${encodeURIComponent(id)}&first=1`,
+    );
+    total = data && typeof data.total === 'number' ? Number(data.total) : null;
+  }
+  followerCache.set(key, {
+    total,
+    expires: Date.now() + (total === null ? 60 * 1000 : FOLLOWER_TTL_MS),
+  });
+  return total;
+}
+
 export async function twitchUserId(login: string): Promise<string | null> {
   const key = login.toLowerCase();
   const hit = userIdCache.get(key);

@@ -31,6 +31,48 @@ export function toEmbedUrl(raw: string): string {
       return u.toString();
     }
 
+    // Twitch: обычную страницу канала нельзя встроить, только player/embed.
+    // parent обязателен и должен совпадать с доменом страницы (в OBS — тоже).
+    const parent =
+      typeof window !== "undefined" ? window.location.hostname : "ovrly.ru";
+    if (host === "twitch.tv" || host.endsWith(".twitch.tv")) {
+      const parts = u.pathname.split("/").filter(Boolean);
+      const p = new URLSearchParams({ parent });
+      if (host === "clips.twitch.tv") {
+        const slug = parts[0] || "";
+        if (slug) {
+          p.set("clip", slug);
+          return `https://clips.twitch.tv/embed?${p.toString()}`;
+        }
+      }
+      if (host === "player.twitch.tv") {
+        u.searchParams.set("parent", parent);
+        return u.toString();
+      }
+      if (parts[0] === "videos" && parts[1]) {
+        p.set("video", parts[1]);
+        return `https://player.twitch.tv/?${p.toString()}`;
+      }
+      if (parts[0] === "embed") {
+        if (parts[1]) p.set("channel", parts[1]);
+        if (!u.search.includes("parent=")) u.searchParams.set("parent", parent);
+        return u.toString();
+      }
+      if (parts[1] === "chat" && parts[0]) {
+        p.set("parent", parent);
+        return `https://www.twitch.tv/embed/${encodeURIComponent(parts[0])}/chat?${p.toString()}`;
+      }
+      if (parts[1] === "clip" && parts[2]) {
+        p.set("clip", parts[2]);
+        return `https://clips.twitch.tv/embed?${p.toString()}`;
+      }
+      if (parts[0]) {
+        p.set("channel", parts[0]);
+        p.set("autoplay", "true");
+        return `https://player.twitch.tv/?${p.toString()}`;
+      }
+    }
+
     // Vimeo: /video/<id>, /channels/<...>/<id>, /<id>
     if (host === "vimeo.com" || host === "player.vimeo.com") {
       const m = u.pathname.match(/(\d{6,})/);
