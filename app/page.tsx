@@ -1,5 +1,7 @@
 import LogoMark from '@/components/LogoMark'
 import ThemeToggle from '@/components/ThemeToggle'
+import CookieBanner from '@/components/CookieBanner'
+import ConsentDialog from '@/components/ConsentDialog'
 import { verifySession } from '@/lib/session'
 import { siteUrl } from '@/lib/site'
 import type { Metadata } from 'next'
@@ -164,11 +166,18 @@ function MenuIcon() {
 export default async function Home({
 	searchParams,
 }: {
-	searchParams?: Promise<{ error?: string }>
+	searchParams?: Promise<{ error?: string; consent?: string; next?: string }>
 }) {
+	const params = await searchParams
+	const consent = params?.consent === '1'
 	const session = verifySession((await cookies()).get('sc_session')?.value)
-	if (session) redirect('/cabinet')
-	const error = (await searchParams)?.error
+	// при показе согласия не уводим в кабинет: иначе пользователь со старой
+	// сессией не сможет пройти обязательный шаг согласия
+	if (session && !consent) redirect('/cabinet')
+	const error = params?.error
+	const nextRaw = params?.next || '/cabinet'
+	const nextSafe =
+		nextRaw.startsWith('/') && !nextRaw.startsWith('//') ? nextRaw : '/cabinet'
 
 	// структурированные данные для поиска: что это за приложение
 	const site = siteUrl()
@@ -515,6 +524,10 @@ export default async function Home({
 					<span>© 2026 jettle_, nezory_1 · Версия 2.1</span>
 					<div className='footer-links'>
 						<a href='/guide'>Инструкция</a>
+						<a href='/legal/privacy'>Политика ПДн</a>
+						<a href='/legal/terms'>Соглашение</a>
+						<a href='/legal/cookies'>Cookie</a>
+						<a href='/legal'>Реквизиты</a>
 						<a
 							href='https://t.me/ovrly_control'
 							target='_blank'
@@ -539,6 +552,9 @@ export default async function Home({
 						</a>
 					</div>
 				</footer>
+
+				<CookieBanner />
+				<ConsentDialog open={consent} next={nextSafe} />
 			</div>
 		</main>
 	)

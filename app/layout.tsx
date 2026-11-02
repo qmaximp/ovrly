@@ -41,6 +41,9 @@ export const metadata: Metadata = {
 		// подтверждаем мета-тегом (токен публичный, не секрет)
 		google: 'MZsoxSyzkByqeUKdZfIvXvhfFwttYxmX0nxb5qUSnOA',
 	},
+	// У приложения своя тёмная/светлая тема. Без лока Dark Reader внедряет
+	// data-darkreader-* атрибуты в SVG до гидрации и React ругается на mismatch.
+	other: { 'darkreader-lock': 'true' },
 	robots: {
 		index: true,
 		follow: true,

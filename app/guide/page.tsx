@@ -1,5 +1,6 @@
 import LogoMark from '@/components/LogoMark'
 import ThemeToggle from '@/components/ThemeToggle'
+import CookieBanner from '@/components/CookieBanner'
 import { GUIDE_STEPS } from '@/lib/guide'
 import { siteUrl } from '@/lib/site'
 import type { Metadata } from 'next'
@@ -228,6 +229,10 @@ export default function GuidePage() {
 					<span>© 2026 jettle_, nezory_1 · Ovrly</span>
 					<div className='footer-links'>
 						<a href='/'>Главная</a>
+						<a href='/legal/privacy'>Политика ПДн</a>
+						<a href='/legal/terms'>Соглашение</a>
+						<a href='/legal/cookies'>Cookie</a>
+						<a href='/legal'>Реквизиты</a>
 						<a
 							href='https://t.me/ovrly_control'
 							target='_blank'
@@ -244,6 +249,8 @@ export default function GuidePage() {
 						</a>
 					</div>
 				</footer>
+
+				<CookieBanner />
 			</div>
 		</main>
 	)

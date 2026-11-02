@@ -4931,9 +4931,15 @@ export default function PanelClient({
 							</div>
 						)}
 						{isMobile ? (
-							// мобильный: левый нижний угол — «− +» в ряд (шириной с «Сбросить»), «Сбросить» под ними
+							// мобильный: левый нижний угол — «− +» в ряд (шириной с «Сбросить»), «Сбросить» под ними.
+							// fixed и тот же нижний отступ, что у мобильного тулбара: блок стоит
+							// в нижней полосе экрана у левого края. absolute внутри холста на
+							// коротких ландшафтных экранах уводил его почти к шапке.
 							<div
-								className='absolute left-4 bottom-20 z-10 flex flex-col items-stretch gap-1.5'
+								className='fixed left-2 z-40 flex flex-col items-stretch gap-1.5'
+								style={{
+									bottom: 'max(0.75rem, env(safe-area-inset-bottom))',
+								}}
 								data-nopan='1'
 								onPointerDown={e => e.stopPropagation()}
 							>
@@ -5191,7 +5197,7 @@ export default function PanelClient({
 						onClick={closeBurger}
 					/>
 					<div
-						className={`fixed top-[60px] left-2 z-50 w-64 bg-panel border border-border rounded-xl p-2 shadow-xl space-y-1 ${menuClosing ? 'pop-out' : 'pop-in'}`}
+						className={`fixed top-[60px] left-2 z-50 w-64 max-h-[calc(100dvh-5rem)] overflow-y-auto overscroll-contain bg-panel border border-border rounded-xl p-2 shadow-xl space-y-1 ${menuClosing ? 'pop-out' : 'pop-in'}`}
 						style={{ transformOrigin: 'top left' }}
 					>
 						<button
@@ -5279,9 +5285,11 @@ export default function PanelClient({
 			)}
 
 			{/* мобильный тулбар: добавление элементов одним касанием.
-			    на вкладке чата его нет — иначе он перекрывает поле ввода Twitch
-			    и защита Twitch блокирует чат владельцу/модераторам */}
-			{isMobile && tab !== 'chat' && (
+			    только на холсте («Элементы оверлея»): на остальных вкладках
+			    (виджеты, OBS, чат, настройки) он не нужен и перекрывает контент.
+			    на вкладке чата его нет ещё и потому, что он перекрывает поле
+			    ввода Twitch — защита Twitch блокирует чат владельцу/модераторам */}
+			{isMobile && tab === 'elements' && (
 				<div
 					className='fixed inset-x-0 bottom-0 z-40 flex items-center justify-center px-2 pointer-events-none'
 					style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}

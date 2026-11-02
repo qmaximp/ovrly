@@ -1,4 +1,5 @@
 import type { WidgetDefinition } from './types'
+import { CHAT_WIDGET_TEMPLATE } from './widgetTemplates.chat'
 
 export type WidgetTemplate = WidgetDefinition & { description: string }
 
@@ -221,69 +222,8 @@ function onLiveVariableUpdate(name, v) {
 			{ name: 'color', type: 'color', value: '#38bdf8', live: true },
 		],
 	},
-	{
-		id: 'tpl-chat',
-		name: 'Чат Twitch',
-		description: 'Последние сообщения чата канала. Включает интеграцию Twitch.',
-		width: 380,
-		height: 340,
-		header: '',
-		body: '<div id="title">{title}</div><div id="list"></div>',
-		style: `${baseStyle}
-body {
-  display: block;
-  box-sizing: border-box;
-  padding: 10px;
-  color: {color};
-  background: rgba(12, 16, 26, .72);
-  border-radius: 12px;
-}
-#title {
-  margin-bottom: 8px;
-  font-size: 13px;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-  opacity: .7;
-}
-#list { display: flex; flex-direction: column; gap: 4px; overflow: hidden; }
-.row {
-  display: flex;
-  gap: 6px;
-  font-size: 14px;
-  line-height: 1.25;
-  text-shadow: 0 1px 3px rgba(0,0,0,.7);
-}
-.name { font-weight: 700; flex-shrink: 0; }
-.text { min-width: 0; overflow-wrap: anywhere; }
-`,
-		script: `var list = document.getElementById('list');
-var title = document.getElementById('title');
-function onTwitchMessage(data) {
-  var row = document.createElement('div');
-  row.className = 'row';
-  var name = document.createElement('span');
-  name.className = 'name';
-  name.textContent = data.username || '';
-  if (data.color) name.style.color = data.color;
-  var text = document.createElement('span');
-  text.className = 'text';
-  text.textContent = (data.isAction ? '* ' : '') + (data.message || '');
-  row.appendChild(name);
-  row.appendChild(text);
-  list.appendChild(row);
-  while (list.children.length > 12) list.removeChild(list.firstChild);
-}
-function onLiveVariableUpdate(name, value) {
-  if (name === 'title') title.textContent = value;
-  if (name === 'color') document.body.style.color = value;
-}
-`,
-		variables: [
-			{ name: 'title', type: 'string', value: 'Чат', live: true },
-			{ name: 'color', type: 'color', value: '#ffffff', live: true },
-		],
-		integrations: { twitchChat: true },
-	},
+	// Красивый чат Twitch вынесен в widgetTemplates.chat.ts
+	CHAT_WIDGET_TEMPLATE,
 	{
 		id: 'tpl-twitch-alert',
 		name: 'Twitch алерт',

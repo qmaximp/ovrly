@@ -1,7 +1,7 @@
 const isDev = process.env.NODE_ENV !== 'production'
 
 // CSP: приложение само встраивает сторонние сайты (YouTube, Twitch, «Сайт»-элементы),
-// поэтому frame-src открыт, а скрипты — только свои и плееров Twitch.
+// поэтому frame-src разрешает https, а скрипты — только свои и плееров Twitch.
 // 'unsafe-inline' нужен Next для бутстрап-скриптов и стилей (у элементов оверлея
 // много инлайновых style), 'unsafe-eval' — только в dev (webpack HMR).
 const csp = [
@@ -14,10 +14,14 @@ const csp = [
 	// картинки/медиа: свои, файлы с ПК (data:/blob:) и любые https-ссылки
 	"img-src 'self' data: blob: https:",
 	"media-src 'self' data: blob: https:",
-	// встраиваемые сайты, YouTube и плееры Twitch
-	'frame-src *',
-	// сокеты и внешние API (Twitch helix, ivr.fi и т.п.)
-	"connect-src 'self' ws: wss: https:",
+	// встраиваемые сайты, YouTube и плееры Twitch. В проде — только https:
+	// (http-сайты в iframe на https-странице всё равно блокируются браузером)
+	isDev ? 'frame-src *' : "frame-src 'self' https:",
+	// сокеты и внешние API (Twitch helix, ivr.fi и т.п.). В проде ws: не нужен:
+	// Socket.io работает по wss:, а незашифрованный сокет браузер всё равно срежет
+	isDev
+		? "connect-src 'self' ws: wss: https:"
+		: "connect-src 'self' wss: https:",
 	"object-src 'none'",
 	"base-uri 'self'",
 	"form-action 'self'",
@@ -31,6 +35,9 @@ const securityHeaders = [
 	{ key: 'X-Content-Type-Options', value: 'nosniff' },
 	{ key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
 	{ key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+	// Браузер запоминает HTTPS на год. includeSubDomains/preload не включаем,
+	// пока не проверены все поддомены: снять флаг потом сложно.
+	{ key: 'Strict-Transport-Security', value: 'max-age=31536000' },
 	{ key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' },
 	{ key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
 ]

@@ -1,5 +1,8 @@
+import { appendFile, mkdir } from "fs/promises";
+import path from "path";
 import { getOrigin, seeOther, signSession, tokenForLogin } from "@/lib/session";
 import { readLinks, writeLinks, readOwner, writeOwner } from "@/lib/links";
+import { LEGAL_VERSION } from "@/lib/legal";
 
 export async function GET(req: Request) {
   const clientId = process.env.TWITCH_CLIENT_ID;
@@ -64,6 +67,36 @@ export async function GET(req: Request) {
 
   // первый вошедший аккаунт считается владельцем панели
   if (!(await readOwner())) await writeOwner(u.login);
+
+  // Журнал согласий: доказываем, что до OAuth пользователь поставил обе
+  // отметки (соглашение + обработка ПДн). Данные — минимум для доказывания:
+  // логин, время, версия документов, IP и user-agent. Не мешает входу.
+  try {
+    const consent = req.headers.get("cookie")?.match(/(?:^|;\s*)sc_consent=([^;]+)/)?.[1];
+    if (consent === LEGAL_VERSION) {
+      const dir = path.join(process.cwd(), "data");
+      await mkdir(dir, { recursive: true });
+      const ip =
+        (req.headers.get("x-forwarded-for") || "").split(",")[0].trim() ||
+        req.headers.get("x-real-ip") ||
+        "";
+      await appendFile(
+        path.join(dir, "consents.jsonl"),
+        JSON.stringify({
+          event: "login",
+          at: new Date().toISOString(),
+          login: u.login,
+          version: LEGAL_VERSION,
+          docs: ["terms", "privacy", "consent"],
+          ip,
+          ua: (req.headers.get("user-agent") || "").slice(0, 300),
+        }) + "\n",
+        "utf8",
+      );
+    }
+  } catch {
+    // журнал не должен ломать вход: сбой записи игнорируем
+  }
 
   // возврат на исходную страницу (по умолчанию кабинет)
   const nextRaw = req.headers.get("cookie")?.match(/(?:^|;\s*)sc_next=([^;]+)/)?.[1];

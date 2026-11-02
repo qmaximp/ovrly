@@ -2,6 +2,7 @@
 
 import LogoMark from '@/components/LogoMark'
 import ThemeToggle from '@/components/ThemeToggle'
+import CookieBanner from '@/components/CookieBanner'
 import { GUIDE_STEPS } from '@/lib/guide'
 import { useCallback, useEffect, useState } from 'react'
 
@@ -727,6 +728,10 @@ export default function CabinetClient({
 						<span>Ovrly развивается бесплатно — поддержка очень помогает</span>
 					</div>
 					<div className='footer-links'>
+						<a href='/legal/privacy'>Политика ПДн</a>
+						<a href='/legal/terms'>Соглашение</a>
+						<a href='/legal/cookies'>Cookie</a>
+						<a href='/legal'>Реквизиты</a>
 						<a
 							href='https://t.me/ovrly_control'
 							target='_blank'
@@ -752,6 +757,8 @@ export default function CabinetClient({
 						<span>© 2026 jettle_, nezory_1 · Версия 2.1</span>
 					</div>
 				</footer>
+
+				<CookieBanner />
 			</div>
 		</main>
 	)
