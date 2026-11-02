@@ -51,7 +51,7 @@ function normalize(value: unknown): StreamersState {
 			updatedAt: String(item.updatedAt || new Date().toISOString()),
 		}
 	}
-	return { version: 2, threshold, users }
+	return { version: 3, threshold, users }
 }
 
 export async function getStreamersState(): Promise<StreamersState> {
@@ -79,17 +79,16 @@ export async function syncStreamer(input: {
 		getFollowerCount(login),
 		getTwitchAvatars([login]),
 	])
-	if (followers === null) return null
 	const state = await getStreamersState()
 	const prev = state.users[login]
 	const entry: StreamerEntry = {
 		login,
 		displayName: input.displayName?.trim() || prev?.displayName || login,
 		avatar: avatars[login] || prev?.avatar || '',
-		followers,
-		// новый участник попадает в карусель сам, если прошёл порог;
-		// ручной скрытый/показанный статус не перетираем
-		visible: prev?.visible ?? followers >= state.threshold,
+		followers: followers ?? prev?.followers ?? 0,
+		// все зарегистрированные видны сразу; ручной скрытый/показанный
+		// статус из админки не перетираем
+		visible: prev?.visible ?? true,
 		featured: prev?.featured ?? false,
 		updatedAt: new Date().toISOString(),
 	}
@@ -139,14 +138,13 @@ export async function syncAllStreamers(): Promise<number> {
 			getFollowerCount(login),
 			getTwitchAvatars([login]),
 		])
-		if (followers === null) continue
 		const prev = state.users[login]
 		state.users[login] = {
 			login,
 			displayName: prev?.displayName || login,
 			avatar: avatars[login] || prev?.avatar || '',
-			followers,
-			visible: prev?.visible ?? followers >= state.threshold,
+			followers: followers ?? prev?.followers ?? 0,
+			visible: prev?.visible ?? true,
 			featured: prev?.featured ?? false,
 			updatedAt: new Date().toISOString(),
 		}
@@ -162,16 +160,16 @@ export async function listAdminStreamers(): Promise<StreamersState> {
 
 export async function listPublicStreamers(): Promise<StreamersState> {
 	let state = await getStreamersState()
-	// Ленивый бэкфилл для уже зарегистрированных пользователей: состояние без
-	// version — это данные до 2.2.1, где порог был 100 и не все аккаунты
-	// успели сохраниться.
+	// Ленивый бэкфилл: состояния до 2.2.2 показывали только тех, кто прошёл
+	// порог. Теперь в карусель автоматически попадают все зарегистрированные.
 	const raw: any = await storage.getSetting(KEY)
-	if (!raw || (typeof raw === 'object' && raw.version !== 2)) {
+	if (!raw || (typeof raw === 'object' && raw.version !== 3)) {
 		await syncAllStreamers()
 		state = await getStreamersState()
 	}
 	const users = Object.values(state.users)
-		.filter(u => u.visible && u.followers >= state.threshold)
+		// порог больше не ограничивает показ — только ручное скрытие
+		.filter(u => u.visible)
 		.sort((a, b) => {
 			if (a.featured !== b.featured) return a.featured ? -1 : 1
 			return b.followers - a.followers || a.login.localeCompare(b.login)

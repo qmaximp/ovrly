@@ -116,7 +116,6 @@ export default function AdminClient({
 	const [widgetQuery, setWidgetQuery] = useState('')
 	const [openWidget, setOpenWidget] = useState<string | null>(null)
 	const [streamers, setStreamers] = useState<StreamerEntry[]>([])
-	const [streamerThreshold, setStreamerThreshold] = useState(50)
 	const [streamerLogin, setStreamerLogin] = useState('')
 	const [streamerBusy, setStreamerBusy] = useState(false)
 	const [streamerError, setStreamerError] = useState('')
@@ -183,7 +182,6 @@ export default function AdminClient({
 			if (!res.ok) throw new Error(data?.error || 'Не удалось загрузить стримеров')
 			const list = data?.users ? Object.values(data.users) : []
 			setStreamers(list as StreamerEntry[])
-			setStreamerThreshold(Number(data?.threshold) || 50)
 		} catch (e: any) {
 			setStreamerError(e?.message || 'Не удалось загрузить стримеров')
 		}
@@ -203,8 +201,7 @@ export default function AdminClient({
 				if (!res.ok) throw new Error(data?.error || 'Не удалось сохранить')
 				const list = data?.users ? Object.values(data.users) : []
 				setStreamers(list as StreamerEntry[])
-				if (typeof data?.threshold === 'number') setStreamerThreshold(data.threshold)
-			} catch (e: any) {
+					} catch (e: any) {
 				setStreamerError(e?.message || 'Не удалось сохранить')
 			} finally {
 				setStreamerBusy(false)
@@ -559,35 +556,10 @@ export default function AdminClient({
 										</button>
 									</div>
 									<p className='cabinet-muted'>
-										В карусель автоматически попадают вошедшие в панель
-										стримеры с числом подписчиков не меньше порога. Видимость
-										и «избранное» можно менять вручную.
+										Все, кто вошёл в панель, автоматически попадают в карусель.
+										Скрыть или выделить стримера можно вручную.
 									</p>
 									<div className='admin-notice-row'>
-										<label className='flex items-center gap-2 text-sm'>
-											<span className='text-gray-400'>Порог подписчиков</span>
-											<input
-												type='number'
-												min={0}
-												value={streamerThreshold}
-												onChange={e =>
-													setStreamerThreshold(Number(e.target.value) || 0)
-												}
-												className='admin-input w-24'
-											/>
-										</label>
-										<button
-											className='btn btn-ghost btn-sm'
-											disabled={streamerBusy}
-											onClick={() =>
-												void saveStreamer({
-													action: 'threshold',
-													threshold: streamerThreshold,
-												})
-											}
-										>
-											Сохранить порог
-										</button>
 										<div className='flex items-center gap-2'>
 											<input
 												value={streamerLogin}
