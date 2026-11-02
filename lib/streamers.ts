@@ -190,8 +190,16 @@ export async function listAdminStreamers(): Promise<StreamersState> {
 export async function listPublicStreamers(): Promise<StreamersState> {
 	let state = await getStreamersState()
 	// Ленивый бэкфилл: состояния до версии 4 не содержали всех аккаунтов из БД.
-	const raw: any = await storage.getSetting(KEY)
-	if (!raw || (typeof raw === 'object' && raw.version !== 4)) {
+	let raw: any = await storage.getSetting(KEY)
+	// в Postgres значение приходит строкой JSON, в JSON-хранилище — объектом
+	if (typeof raw === 'string') {
+		try {
+			raw = JSON.parse(raw)
+		} catch {
+			raw = null
+		}
+	}
+	if (!raw || raw.version !== 4) {
 		await syncAllStreamers()
 		state = await getStreamersState()
 	}
