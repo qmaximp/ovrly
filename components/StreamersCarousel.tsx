@@ -104,7 +104,7 @@ export default function StreamersCarousel() {
 				<span className='kicker'>Сообщество</span>
 				<h2 className='section-title'>Нам доверяют</h2>
 				<p className='section-sub'>
-					Стримеры, которые уже используют Ovrly в своих эфирах.
+					Стримеры, которые доверяют Ovrly.
 				</p>
 			</div>
 			<div className='streamers-rows'>
