@@ -1877,7 +1877,8 @@ html.light .admin-room-badge.dirty { color: #b45309; }
   mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
   -webkit-mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
 }
-.streamers-rows { display: grid; gap: 0.6rem; }
+.streamers-rows { display: grid; gap: 0.6rem; min-width: 0; }
+.streamers-marquee { width: 100%; min-width: 0; max-width: 100%; }
 .streamers-track {
   display: flex;
   width: max-content;
