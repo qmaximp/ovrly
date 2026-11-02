@@ -108,6 +108,25 @@ export const DEFAULT_SHORTCUTS: Record<ShortcutId, string> =
 	)
 
 const STORAGE_KEY = 'panel:shortcuts'
+const ENABLED_KEY = 'panel:shortcuts-enabled'
+
+// Глобальный выключатель: когда выключен, панель не перехватывает ни одну
+// комбинацию, но сами настройки сочетаний сохраняются.
+export function loadShortcutsEnabled(): boolean {
+	try {
+		return localStorage.getItem(ENABLED_KEY) !== '0'
+	} catch {
+		return true
+	}
+}
+
+export function saveShortcutsEnabled(enabled: boolean) {
+	try {
+		localStorage.setItem(ENABLED_KEY, enabled ? '1' : '0')
+	} catch {
+		// приватный режим — просто не запоминаем
+	}
+}
 
 export function loadShortcuts(): Record<ShortcutId, string> {
 	try {

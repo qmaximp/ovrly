@@ -28,9 +28,11 @@ import {
 	SHORTCUT_DEFS,
 	comboFromEvent,
 	loadShortcuts,
+	loadShortcutsEnabled,
 	matchesShortcut,
 	resetShortcuts,
 	saveShortcuts,
+	saveShortcutsEnabled,
 	shortcutKeys,
 	type ShortcutId,
 } from '@/lib/shortcuts'
@@ -51,6 +53,7 @@ import {
 	Film,
 	Globe,
 	ImagePlus,
+	Keyboard,
 	Layers,
 	Link2,
 	ListVideo,
@@ -211,6 +214,21 @@ export default function PanelClient({
 	})
 	const shortcutsRef = useRef(shortcuts)
 	shortcutsRef.current = shortcuts
+	const [shortcutsEnabled, setShortcutsEnabled] = useState(true)
+	const shortcutsEnabledRef = useRef(true)
+	useEffect(() => {
+		const enabled = loadShortcutsEnabled()
+		setShortcutsEnabled(enabled)
+		shortcutsEnabledRef.current = enabled
+	}, [])
+	const toggleShortcutsEnabled = useCallback(() => {
+		setShortcutsEnabled(prev => {
+			const next = !prev
+			shortcutsEnabledRef.current = next
+			saveShortcutsEnabled(next)
+			return next
+		})
+	}, [])
 	const [listeningShortcut, setListeningShortcut] = useState<ShortcutId | null>(
 		null,
 	)
@@ -3079,6 +3097,8 @@ export default function PanelClient({
 				return
 			// пока в настройках записывается новая комбинация, панель не реагирует
 			if (listeningShortcutRef.current) return
+			// глобальный выключатель в «Общих» настройках
+			if (!shortcutsEnabledRef.current) return
 
 			const keys = shortcutsRef.current
 			if (matchesShortcut(e, keys.undo)) {
@@ -5329,6 +5349,39 @@ export default function PanelClient({
 										? 'Включено: вкладка OBS показывается после «Виджет».'
 										: 'Выключено: вкладка OBS скрыта.'}
 								</p>
+							</div>
+
+							<div className='mt-4 rounded-2xl border border-border bg-panel p-4 sm:p-5'>
+								<div className='flex items-start gap-3 sm:gap-4'>
+									<span className='w-10 h-10 shrink-0 rounded-xl bg-accent/15 text-accent2 flex items-center justify-center'>
+										<Keyboard size={19} />
+									</span>
+									<div className='min-w-0 flex-1'>
+										<h3 className='text-sm font-semibold text-[color:var(--c-on-bg)]'>
+											Горячие клавиши
+										</h3>
+										<p className='mt-1 text-sm leading-relaxed text-gray-500'>
+											{shortcutsEnabled
+												? 'Включены: стрелки, Delete, Ctrl+Z и остальные сочетания работают.'
+												: 'Отключены: панель не перехватывает клавиши. Настройки сочетаний сохранены.'}
+										</p>
+									</div>
+									<button
+										role='switch'
+										aria-checked={shortcutsEnabled}
+										aria-label='Горячие клавиши'
+										onClick={toggleShortcutsEnabled}
+										className={`relative w-11 h-6 shrink-0 rounded-full transition-colors ${
+											shortcutsEnabled ? 'bg-accent' : 'bg-gray-600'
+										}`}
+									>
+										<span
+											className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${
+												shortcutsEnabled ? 'left-[22px]' : 'left-0.5'
+											}`}
+										/>
+									</button>
+								</div>
 							</div>
 
 							<div className='mt-4 rounded-2xl border border-border bg-panel p-4 sm:p-5'>
