@@ -24,7 +24,10 @@ const csp = [
 		: "connect-src 'self' wss: https:",
 	"object-src 'none'",
 	"base-uri 'self'",
-	"form-action 'self'",
+	// Форма согласия уходит на /api/consent → /api/auth/twitch → id.twitch.tv →
+	// www.twitch.tv/login. CSP проверяет всю цепочку редиректов формы, поэтому
+	// нужны все хосты Twitch, иначе браузер обрывает вход и возвращает на ?consent=1.
+	"form-action 'self' https://twitch.tv https://*.twitch.tv",
 	// страницы нельзя встраивать в чужие сайты (оверлей в OBS грузится как отдельная
 	// страница, а не как iframe, поэтому ограничение ему не мешает)
 	"frame-ancestors 'self'",
