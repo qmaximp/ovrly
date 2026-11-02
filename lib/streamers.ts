@@ -14,6 +14,7 @@ export type StreamerEntry = {
 }
 
 export type StreamersState = {
+	version?: number
 	threshold: number
 	users: Record<string, StreamerEntry>
 }
@@ -30,10 +31,13 @@ function normalize(value: unknown): StreamersState {
 			raw = null
 		}
 	}
-	const threshold =
+	let threshold =
 		typeof raw?.threshold === 'number' && Number.isFinite(raw.threshold)
 			? Math.max(0, Math.floor(raw.threshold))
 			: DEFAULT_THRESHOLD
+	// Миграция 2.2.1: раньше порог по умолчанию был 100. Если состояние ещё
+	// не помечено новой версией, 100 — это старое значение по умолчанию.
+	if (raw?.version !== 2 && threshold === 100) threshold = DEFAULT_THRESHOLD
 	const users: Record<string, StreamerEntry> = {}
 	for (const [login, item] of Object.entries<any>(raw?.users || {})) {
 		if (!item || typeof item !== 'object') continue
@@ -47,7 +51,7 @@ function normalize(value: unknown): StreamersState {
 			updatedAt: String(item.updatedAt || new Date().toISOString()),
 		}
 	}
-	return { threshold, users }
+	return { version: 2, threshold, users }
 }
 
 export async function getStreamersState(): Promise<StreamersState> {
@@ -158,8 +162,11 @@ export async function listAdminStreamers(): Promise<StreamersState> {
 
 export async function listPublicStreamers(): Promise<StreamersState> {
 	let state = await getStreamersState()
-	// ленивый бэкфилл для уже зарегистрированных пользователей
-	if (Object.keys(state.users).length === 0) {
+	// Ленивый бэкфилл для уже зарегистрированных пользователей: состояние без
+	// version — это данные до 2.2.1, где порог был 100 и не все аккаунты
+	// успели сохраниться.
+	const raw: any = await storage.getSetting(KEY)
+	if (!raw || (typeof raw === 'object' && raw.version !== 2)) {
 		await syncAllStreamers()
 		state = await getStreamersState()
 	}
