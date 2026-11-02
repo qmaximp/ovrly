@@ -17,6 +17,8 @@ export type StreamersState = {
 	version?: number
 	threshold: number
 	users: Record<string, StreamerEntry>
+	// логины, удалённые вручную: автосинхронизация не должна их возвращать
+	blocked?: string[]
 }
 
 const KEY = 'streamers'
@@ -51,7 +53,10 @@ function normalize(value: unknown): StreamersState {
 			updatedAt: String(item.updatedAt || new Date().toISOString()),
 		}
 	}
-	return { version: 5, threshold, users }
+	const blocked = Array.isArray(raw?.blocked)
+		? raw.blocked.map((l: unknown) => String(l).toLowerCase())
+		: []
+	return { version: 5, threshold, users, blocked }
 }
 
 export async function getStreamersState(): Promise<StreamersState> {
@@ -80,6 +85,7 @@ export async function syncStreamer(input: {
 		getTwitchAvatars([login]),
 	])
 	const state = await getStreamersState()
+	if (state.blocked?.includes(login)) return null
 	const prev = state.users[login]
 	const entry: StreamerEntry = {
 		login,
@@ -120,7 +126,9 @@ export async function updateStreamer(
 
 export async function removeStreamer(login: string): Promise<StreamersState> {
 	const state = await getStreamersState()
-	delete state.users[login.trim().toLowerCase()]
+	const key = login.trim().toLowerCase()
+	delete state.users[key]
+	state.blocked = [...new Set([...(state.blocked || []), key])]
 	await saveStreamersState(state)
 	return state
 }
@@ -128,6 +136,11 @@ export async function removeStreamer(login: string): Promise<StreamersState> {
 export async function addStreamer(login: string): Promise<StreamerEntry | null> {
 	const key = login.trim().toLowerCase().replace(/^@/, '')
 	if (!key) return null
+	const state = await getStreamersState()
+	if (state.blocked?.includes(key)) {
+		state.blocked = state.blocked.filter(l => l !== key)
+		await saveStreamersState(state)
+	}
 	return syncStreamer({ login: key })
 }
 
@@ -159,7 +172,10 @@ export async function syncAllStreamers(): Promise<number> {
 	const state = await getStreamersState()
 	// Все аккаунты берём из БД (links): не только те, кто зашёл после обновления.
 	const links = await storage.getLinks()
-	const logins = [...new Set(links.map(l => l.login?.toLowerCase()).filter(Boolean))] as string[]
+	const blocked = new Set(state.blocked || [])
+	const logins = [
+		...new Set(links.map(l => l.login?.toLowerCase()).filter(Boolean)),
+	].filter(login => !blocked.has(login as string)) as string[]
 	if (!logins.length) return 0
 
 	// Аватары — одним запросом Helix, подписчиков — параллельно по 8.
