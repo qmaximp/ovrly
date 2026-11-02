@@ -497,11 +497,6 @@ function OverlayElement({ el, ytStarted }: { el: StreamElement; ytStarted: boole
 					)}
 				</div>
 			)
-		if (info) return (
-			<div style={style}>
-				<TwitchOverlayFrame el={el} />
-			</div>
-		)
 		const embedSrc = toEmbedUrl(el.src || '')
 		// готовый YouTube-плейлист запускаем сразу и со звуком: в OBS автозапуск
 		// разрешён, а без autoplay плейлист остался бы на постере
@@ -516,7 +511,12 @@ function OverlayElement({ el, ytStarted }: { el: StreamElement; ytStarted: boole
 							: embedSrc
 					}
 					title='embed'
-					style={{ width: '100%', height: '100%', border: 'none' }}
+					style={{
+						width: '100%',
+						height: '100%',
+						border: 'none',
+						background: '#000',
+					}}
 					allow='autoplay; encrypted-media; picture-in-picture; fullscreen'
 					allowFullScreen
 				/>

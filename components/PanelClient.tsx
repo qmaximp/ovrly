@@ -7063,8 +7063,10 @@ function PreviewElementInner({
 	}
 	if (el.type === 'iframe') {
 		const info = parseMediaUrl(el.src || '')
+		// Twitch в iframe лучше отдавать прямым плеером: SDK-плеер в панели
+		// рисует только полосу управления без видео
 		if (
-			info &&
+			info?.kind === 'youtube' &&
 			chromeRegister &&
 			mediaToggle &&
 			mediaSelect &&
@@ -7128,13 +7130,19 @@ function PreviewElementInner({
 					data-id={el.id}
 					loading='lazy'
 					className='w-full h-full'
-					style={{ border: 0, pointerEvents: interactive ? 'auto' : 'none' }}
+					style={{
+						border: 0,
+						background: '#000',
+						pointerEvents: interactive ? 'auto' : 'none',
+					}}
 					allow='autoplay; encrypted-media; picture-in-picture; fullscreen'
 					allowFullScreen
 				/>
 				{/* частая причина «не работает вывод»: сайт запрещает встраивание
 				    (Twitch-страница, YouTube-страница и т.п.) — говорим об этом прямо */}
-				{!interactive && cannotBeFramed(el.src || '') && (
+				{!interactive &&
+					!parseMediaUrl(el.src || '') &&
+					cannotBeFramed(el.src || '') && (
 					<div className='absolute left-1 top-1 max-w-[92%] rounded-md bg-black/75 px-2 py-1 text-[10px] leading-tight text-amber-300 pointer-events-none'>
 						⚠️ Сайт запрещает встраивание — в рамке он не откроется. Для Twitch
 						нужна ссылка на канал, видео или клип, для YouTube — на видео
