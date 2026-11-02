@@ -550,10 +550,24 @@ export default function CabinetClient({
 								</div>
 
 								<div className='glass-card cabinet-access-card'>
-									<h3 className='cabinet-card-title'>Модераторы моей панели</h3>
-									<p className='cabinet-card-text'>
-										Люди, которым можно доверить оверлей.
-									</p>
+									<div className='flex flex-wrap items-start justify-between gap-3'>
+										<div>
+											<h3 className='cabinet-card-title'>Модераторы моей панели</h3>
+											<p className='cabinet-card-text'>
+												Люди, которым можно доверить оверлей.
+											</p>
+										</div>
+										{inv?.roomToken && (
+											<button
+												type='button'
+												onClick={importMods}
+												disabled={importingMods}
+												className='btn btn-ghost btn-sm shrink-0'
+											>
+												{importingMods ? 'Импортирую…' : 'Модераторы с Twitch'}
+											</button>
+										)}
+									</div>
 									{!inv?.roomToken ? (
 										<p className='cabinet-muted mt-4'>
 											Сначала сгенерируйте ссылки во вкладке «Мои ссылки».
@@ -578,16 +592,6 @@ export default function CabinetClient({
 													Пригласить
 												</button>
 											</div>
-											<button
-												type='button'
-												onClick={importMods}
-												disabled={importingMods}
-												className='btn btn-ghost btn-sm mt-2'
-											>
-												{importingMods
-													? 'Импортирую…'
-													: 'Импортировать модераторов из Twitch'}
-											</button>
 											<div className='mt-3 space-y-2'>
 												{inv.moderators.length === 0 ? (
 													<p className='cabinet-muted'>
@@ -788,7 +792,7 @@ export default function CabinetClient({
 						>
 							AGPL-3.0
 						</a>
-						<span>© 2026 jettle_, nezory_1 · Версия 2.1</span>
+						<span>© 2026 jettle_, nezory_1 · Версия 2.2</span>
 					</div>
 				</footer>
 
