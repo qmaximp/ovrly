@@ -133,6 +133,15 @@ export async function removeStreamer(login: string): Promise<StreamersState> {
 	return state
 }
 
+export async function removeAllStreamers(): Promise<StreamersState> {
+	const state = await getStreamersState()
+	const keys = Object.keys(state.users)
+	state.users = {}
+	state.blocked = [...new Set([...(state.blocked || []), ...keys])]
+	await saveStreamersState(state)
+	return state
+}
+
 export async function addStreamer(login: string): Promise<StreamerEntry | null> {
 	const key = login.trim().toLowerCase().replace(/^@/, '')
 	if (!key) return null

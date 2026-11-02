@@ -1544,6 +1544,36 @@ html.light .admin-status.is-online { color: #15803d; }
 .admin-user { font-size: 0.7rem; color: rgb(var(--c-text) / 0.45); }
 .admin-body { padding: 1.4rem 0 3rem; }
 .admin-stack { display: grid; gap: 1rem; }
+.admin-tabs {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  margin: 0.2rem 0 1rem;
+  padding: 0.28rem;
+  border: 1px solid rgb(var(--c-border) / 0.75);
+  border-radius: 0.9rem;
+  background: rgb(var(--c-panel) / 0.55);
+  width: fit-content;
+  max-width: 100%;
+}
+.admin-tab {
+  border: 0;
+  border-radius: 0.65rem;
+  padding: 0.5rem 0.85rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: rgb(var(--c-muted));
+  background: transparent;
+  cursor: pointer;
+  transition: background .16s, color .16s;
+}
+.admin-tab:hover { color: rgb(var(--c-text)); background: rgb(var(--c-text) / 0.06); }
+.admin-tab.is-active {
+  color: rgb(var(--c-text));
+  background: rgb(var(--c-accent) / 0.18);
+  box-shadow: inset 0 0 0 1px rgb(var(--c-accent2) / 0.35);
+}
+.admin-card-actions { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; }
 .admin-alert {
   display: flex;
   align-items: center;
@@ -1847,11 +1877,16 @@ html.light .admin-room-badge.dirty { color: #b45309; }
   mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
   -webkit-mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
 }
+.streamers-rows { display: grid; gap: 0.6rem; }
 .streamers-track {
   display: flex;
   width: max-content;
   gap: 0.85rem;
   animation: streamers-scroll 42s linear infinite;
+}
+.streamers-track.is-reverse {
+  animation-name: streamers-scroll-right;
+  animation-duration: 48s;
 }
 .streamers-marquee:hover .streamers-track { animation-play-state: paused; }
 .streamers-track.is-static {
@@ -1899,6 +1934,10 @@ html.light .admin-room-badge.dirty { color: #b45309; }
 @keyframes streamers-scroll {
   from { transform: translateX(0); }
   to { transform: translateX(-50%); }
+}
+@keyframes streamers-scroll-right {
+  from { transform: translateX(-50%); }
+  to { transform: translateX(0); }
 }
 @media (prefers-reduced-motion: reduce) {
   .streamers-track { animation: none; flex-wrap: wrap; width: auto; }

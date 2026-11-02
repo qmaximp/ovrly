@@ -3,6 +3,7 @@ import { verifySession } from '@/lib/session'
 import {
 	addStreamer,
 	listAdminStreamers,
+	removeAllStreamers,
 	removeStreamer,
 	setThreshold,
 	syncAllStreamers,
@@ -65,6 +66,9 @@ export async function POST(req: Request) {
 		if (body?.action === 'sync') {
 			await syncAllStreamers()
 			return json(await listAdminStreamers())
+		}
+		if (body?.action === 'remove-all') {
+			return json(await removeAllStreamers())
 		}
 		if (body?.action === 'remove' && body.login) {
 			return json(await removeStreamer(String(body.login)))

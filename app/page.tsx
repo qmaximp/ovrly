@@ -402,6 +402,8 @@ export default async function Home({
 					</div>
 				</section>
 
+				<StreamersCarousel />
+
 				<section id='features' className='container section'>
 					<div className='section-head'>
 						<span className='kicker'>Возможности</span>
@@ -427,8 +429,6 @@ export default async function Home({
 						))}
 					</div>
 				</section>
-
-				<StreamersCarousel />
 
 				<section id='how' className='container section'>
 					<div className='section-head'>

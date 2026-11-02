@@ -115,6 +115,9 @@ export default function AdminClient({
 	const [widgetsError, setWidgetsError] = useState('')
 	const [widgetQuery, setWidgetQuery] = useState('')
 	const [openWidget, setOpenWidget] = useState<string | null>(null)
+	const [adminTab, setAdminTab] = useState<
+		'overview' | 'streamers' | 'widgets' | 'tools'
+	>('overview')
 	const [streamers, setStreamers] = useState<StreamerEntry[]>([])
 	const [streamerThreshold, setStreamerThreshold] = useState(50)
 	const [streamerLogin, setStreamerLogin] = useState('')
@@ -216,6 +219,16 @@ export default function AdminClient({
 		},
 		[],
 	)
+
+	const removeAllStreamers = useCallback(async () => {
+		if (
+			!confirm(
+				'Удалить всех стримеров из карусели? Они не вернутся при синхронизации; добавить можно вручную.',
+			)
+		)
+			return
+		await saveStreamer({ action: 'remove-all' })
+	}, [saveStreamer])
 
 	useEffect(() => {
 		void loadAdminWidgets()
@@ -415,6 +428,26 @@ export default function AdminClient({
 								))}
 							</div>
 
+							<nav className='admin-tabs' role='tablist' aria-label='Разделы админки'>
+								{[
+									{ id: 'overview', label: 'Обзор' },
+									{ id: 'streamers', label: `Стримеры · ${streamers.length}` },
+									{ id: 'widgets', label: `Виджеты · ${adminWidgets.length}` },
+									{ id: 'tools', label: 'Инструменты' },
+								].map(t => (
+									<button
+										key={t.id}
+										role='tab'
+										aria-selected={adminTab === t.id}
+										className={`admin-tab ${adminTab === t.id ? 'is-active' : ''}`}
+										onClick={() => setAdminTab(t.id as typeof adminTab)}
+									>
+										{t.label}
+									</button>
+								))}
+							</nav>
+
+							{adminTab === 'overview' && (
 							<div className='admin-grid'>
 								<section className='glass-card admin-card'>
 									<div className='admin-card-head'>
@@ -542,8 +575,10 @@ export default function AdminClient({
 									)}
 								</section>
 							</div>
+							)}
 
 							<div className='admin-grid'>
+								{adminTab === 'streamers' && (
 								<section
 									className='glass-card admin-card'
 									style={{ gridColumn: '1 / -1' }}
@@ -555,12 +590,21 @@ export default function AdminClient({
 												Стримеры в карусели ({streamers.length})
 											</h2>
 										</div>
-										<button
-											onClick={() => void loadStreamers()}
-											className='btn btn-ghost btn-sm'
-										>
-											↻ Обновить
-										</button>
+										<div className='admin-card-actions'>
+											<button
+												onClick={() => void loadStreamers()}
+												className='btn btn-ghost btn-sm'
+											>
+												↻ Обновить
+											</button>
+											<button
+												onClick={() => void removeAllStreamers()}
+												disabled={streamerBusy || streamers.length === 0}
+												className='btn btn-ghost btn-sm text-red-400'
+											>
+												Удалить всех
+											</button>
+										</div>
 									</div>
 									<p className='cabinet-muted'>
 										В карусель попадают зарегистрированные стримеры с числом
@@ -706,7 +750,9 @@ export default function AdminClient({
 										</div>
 									)}
 								</section>
+								)}
 
+								{adminTab === 'widgets' && (
 								<section className='glass-card admin-card'>
 									<div className='admin-card-head'>
 										<div>
@@ -858,7 +904,9 @@ export default function AdminClient({
 										</div>
 									)}
 								</section>
+								)}
 
+								{adminTab === 'tools' && (
 								<section className='glass-card admin-card'>
 									<div className='admin-card-head'>
 										<div>
@@ -894,6 +942,7 @@ export default function AdminClient({
 										</p>
 									)}
 								</section>
+								)}
 							</div>
 
 							<p className='admin-meta'>
