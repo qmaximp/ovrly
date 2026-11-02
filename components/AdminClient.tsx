@@ -121,6 +121,7 @@ export default function AdminClient({
 	const [streamers, setStreamers] = useState<StreamerEntry[]>([])
 	const [streamerThreshold, setStreamerThreshold] = useState(50)
 	const [streamerLogin, setStreamerLogin] = useState('')
+	const [streamerQuery, setStreamerQuery] = useState('')
 	const [streamerBusy, setStreamerBusy] = useState(false)
 	const [streamerError, setStreamerError] = useState('')
 	const socketRef = useRef<ReturnType<typeof ioInit> | null>(null)
@@ -325,6 +326,14 @@ export default function AdminClient({
 	const visibleRooms = stats
 		? stats.rooms.filter(r => r.owner && r.owner !== '—')
 		: []
+	const filteredStreamers = streamers.filter(s => {
+		const q = streamerQuery.trim().toLowerCase()
+		return (
+			!q ||
+			s.login.toLowerCase().includes(q) ||
+			s.displayName.toLowerCase().includes(q)
+		)
+	})
 
 	return (
 		<main className='landing admin-page'>
@@ -664,6 +673,15 @@ export default function AdminClient({
 												Добавить
 											</button>
 										</div>
+										<div className='flex items-center gap-2'>
+											<input
+												value={streamerQuery}
+												onChange={e => setStreamerQuery(e.target.value)}
+												placeholder='Поиск по нику…'
+												className='admin-input'
+												aria-label='Поиск стримера'
+											/>
+										</div>
 									</div>
 									{streamerError && (
 										<p className='alert mt-3'>{streamerError}</p>
@@ -672,9 +690,11 @@ export default function AdminClient({
 										<p className='admin-empty'>
 											Пока никто не вошёл в панель — карусель пустая.
 										</p>
+									) : filteredStreamers.length === 0 ? (
+										<p className='admin-empty'>Никого не нашли по запросу.</p>
 									) : (
 										<div className='mt-3 flex flex-col gap-2'>
-											{streamers.map(s => (
+											{filteredStreamers.map(s => (
 												<div
 													key={s.login}
 													className='flex flex-wrap items-center gap-3 rounded-xl border border-white/10 px-3 py-2'
