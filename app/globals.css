@@ -1912,7 +1912,12 @@ html.light .admin-room-badge.dirty { color: #b45309; }
   color: inherit;
   transition: border-color .18s, transform .18s;
 }
-.streamer-card:hover { border-color: rgb(var(--c-accent2) / 0.6); transform: translateY(-2px); }
+/* Без translateY: карточка не должна вылезать за обрезающий контейнер */
+.streamer-card:hover {
+  border-color: rgb(var(--c-accent2) / 0.75);
+  background: rgb(var(--c-panel) / 0.92);
+  box-shadow: inset 0 0 0 1px rgb(var(--c-accent2) / 0.18);
+}
 .streamer-card img,
 .streamer-avatar-fallback {
   width: 2.5rem;
