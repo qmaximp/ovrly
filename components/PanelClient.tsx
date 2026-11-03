@@ -388,6 +388,8 @@ export default function PanelClient({
 	const [selectedId, setSelectedId] = useState<string | null>(null)
 	const selectedIdRef = useRef<string | null>(null)
 	selectedIdRef.current = selectedId
+	// первый клик по медиа только выделяет, второй — запускает/ставит паузу
+	const iframeArmRef = useRef<string | null>(null)
 	// мультивыделение: рамкой по пустому холсту (мышь) или ctrl+клик;
 	// драг любого выбранного двигает всю группу, Delete удаляет все выбранные
 	const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -2469,6 +2471,10 @@ export default function PanelClient({
 	const resizeSnapRef = useRef<{ id: string; el: StreamElement } | null>(null)
 
 	const handleDragStart = (e: React.PointerEvent, el: StreamElement) => {
+		// клик по другому элементу сбрасывает «взведённый» медиа-клик
+		if (iframeArmRef.current && iframeArmRef.current !== el.id) {
+			iframeArmRef.current = null
+		}
 		// замок запрещает тащить, но выделять элемент по-прежнему нужно: на телефоне
 		// списка элементов нет, и без выделения заблокированный элемент нельзя
 		// ни разблокировать, ни удалить
@@ -2849,8 +2855,12 @@ export default function PanelClient({
 					// чтобы можно было нажать Play внутри самого iframe
 					setInteractiveIframeId(dr.id)
 				} else if (el && isMediaUrl(el.src || '')) {
-					// клик по медиа (YouTube) — плей/пауза
-					mediaToggle(dr.id)
+					// первый клик — фокус на элементе, второй — play/pause
+					if (iframeArmRef.current !== dr.id) {
+						iframeArmRef.current = dr.id
+					} else {
+						mediaToggle(dr.id)
+					}
 				} else {
 					// клик по сайту без перетаскивания = активируем интерактив (управление сайтом внутри)
 					setInteractiveIframeId(dr.id)
