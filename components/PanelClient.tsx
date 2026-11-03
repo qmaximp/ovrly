@@ -390,6 +390,12 @@ export default function PanelClient({
 	selectedIdRef.current = selectedId
 	// первый клик по медиа только выделяет, второй — запускает/ставит паузу
 	const iframeArmRef = useRef<string | null>(null)
+	useEffect(() => {
+		// смена выделения (в т.ч. клик по пустому холсту) сбрасывает фокус медиа
+		if (iframeArmRef.current && iframeArmRef.current !== selectedId) {
+			iframeArmRef.current = null
+		}
+	}, [selectedId])
 	// мультивыделение: рамкой по пустому холсту (мышь) или ctrl+клик;
 	// драг любого выбранного двигает всю группу, Delete удаляет все выбранные
 	const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -2851,9 +2857,14 @@ export default function PanelClient({
 				const el = stateRef.current.elements.find(x => x.id === dr.id)
 				const tw = el ? parseMediaUrl(el.src || '')?.kind : undefined
 				if (tw?.startsWith('twitch')) {
-					// у прямого Twitch-плеера нет API: включаем взаимодействие,
-					// чтобы можно было нажать Play внутри самого iframe
-					setInteractiveIframeId(dr.id)
+					// первый клик — фокус (элемент ещё можно двигать),
+					// второй — управление внутри плеера
+					if (iframeArmRef.current !== dr.id) {
+						iframeArmRef.current = dr.id
+						setInteractiveIframeId(null)
+					} else {
+						setInteractiveIframeId(dr.id)
+					}
 				} else if (el && isMediaUrl(el.src || '')) {
 					// первый клик — фокус на элементе, второй — play/pause
 					if (iframeArmRef.current !== dr.id) {
