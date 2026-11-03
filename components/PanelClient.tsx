@@ -1736,6 +1736,10 @@ export default function PanelClient({
 			if (isLockedByOther(el.id)) return
 			e.preventDefault()
 			e.stopPropagation()
+			// захват указателя: иначе при движении над iframe события теряются
+			try {
+				;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+			} catch {}
 			emit('element:grab', { id: el.id })
 			remember()
 			if (!viewportRef.current) return
@@ -3224,6 +3228,10 @@ export default function PanelClient({
 		if (isLockedByOther(el.id)) return
 		e.preventDefault()
 		e.stopPropagation()
+		// без захвата ресайз «дёргается», когда курсор уходит на iframe
+		try {
+			;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+		} catch {}
 		emit('element:grab', { id: el.id })
 		document.body.classList.add('dragging')
 		remember()
