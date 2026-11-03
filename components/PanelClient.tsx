@@ -7171,7 +7171,10 @@ function PreviewElementInner({
 							!!info?.kind?.startsWith('twitch') && embedTooSmall
 								? 'hidden'
 								: 'visible',
-						pointerEvents: interactive ? 'auto' : 'none',
+						// Twitch нельзя запустить программно: пусть получает клики
+						// всегда, иначе кнопка Play недоступна
+						pointerEvents:
+							interactive || info?.kind?.startsWith('twitch') ? 'auto' : 'none',
 					}}
 					allow='autoplay; encrypted-media; picture-in-picture; fullscreen'
 					allowFullScreen
