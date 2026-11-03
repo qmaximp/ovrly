@@ -7138,10 +7138,8 @@ function PreviewElementInner({
 					style={{
 						border: 0,
 						background: '#000',
-						// Twitch нельзя запустить программно: пусть получает клики
-						// всегда, иначе кнопка Play недоступна
-						pointerEvents:
-							interactive || info?.kind?.startsWith('twitch') ? 'auto' : 'none',
+						// первый клик выделяет элемент, второй — уже внутри iframe
+						pointerEvents: interactive ? 'auto' : 'none',
 					}}
 					allow='autoplay; encrypted-media; picture-in-picture; fullscreen'
 					allowFullScreen
