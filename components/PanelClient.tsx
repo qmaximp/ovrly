@@ -7125,6 +7125,18 @@ function PreviewElementInner({
 			!!el.autoplay && /\/embed\/videoseries/.test(embedSrc)
 		return (
 			<>
+				{!!info?.kind?.startsWith('twitch') && interactive && (
+					// полоса для перетаскивания: сам iframe забирает клики, поэтому
+					// двигать элемент мышью можно за эту полоску
+					<div
+						className='absolute left-0 right-0 top-0 z-10 h-5 cursor-move'
+						style={{
+							background:
+								'linear-gradient(180deg, rgba(0,0,0,0.55), rgba(0,0,0,0))',
+						}}
+						title='Перетащить элемент'
+					/>
+				)}
 				<iframe
 					src={
 						autoplayPlaylist
