@@ -2342,6 +2342,11 @@ export default function PanelClient({
 				text: '',
 				autoplay: isLiveLink(url),
 			})
+			// Twitch не запускается при видимом размере меньше 400×300, а холст
+			// по умолчанию сильно уменьшен — сразу показываем плеер в 100%
+			if (parseMediaUrl(url)?.kind?.startsWith('twitch')) {
+				setView(v => (v.s < 1 ? { ...v, s: 1 } : v))
+			}
 		}
 	}, [addElement])
 
@@ -2835,8 +2840,13 @@ export default function PanelClient({
 				mediaToggle(dr.id)
 			} else if (dr.type === 'iframe') {
 				const el = stateRef.current.elements.find(x => x.id === dr.id)
-				if (el && isMediaUrl(el.src || '')) {
-					// клик по медиа (YouTube/Twitch) — плей/пауза (iframe всегда прозрачен для курсора)
+				const tw = el ? parseMediaUrl(el.src || '')?.kind : undefined
+				if (tw?.startsWith('twitch')) {
+					// у прямого Twitch-плеера нет API: включаем взаимодействие,
+					// чтобы можно было нажать Play внутри самого iframe
+					setInteractiveIframeId(dr.id)
+				} else if (el && isMediaUrl(el.src || '')) {
+					// клик по медиа (YouTube) — плей/пауза
 					mediaToggle(dr.id)
 				} else {
 					// клик по сайту без перетаскивания = активируем интерактив (управление сайтом внутри)
