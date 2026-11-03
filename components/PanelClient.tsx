@@ -2536,6 +2536,10 @@ export default function PanelClient({
 		if (selectedIdsRef.current.size) setSelectedIds(new Set())
 		e.preventDefault()
 		e.stopPropagation()
+		// тянем за полоску над iframe: захват не даёт событиям уйти в плеер
+		try {
+			;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+		} catch {}
 		remember()
 		emit('element:grab', { id: el.id })
 		const { x: vx, y: vy, s } = viewRef.current
