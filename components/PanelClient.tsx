@@ -2342,11 +2342,6 @@ export default function PanelClient({
 				text: '',
 				autoplay: isLiveLink(url),
 			})
-			// Twitch не запускается при видимом размере меньше 400×300, а холст
-			// по умолчанию сильно уменьшен — сразу показываем плеер в 100%
-			if (parseMediaUrl(url)?.kind?.startsWith('twitch')) {
-				setView(v => (v.s < 1 ? { ...v, s: 1 } : v))
-			}
 		}
 	}, [addElement])
 
@@ -7011,29 +7006,6 @@ function PreviewElementInner({
 	useEffect(() => {
 		if (el.type === 'text') ensureFontLoaded(el.fontFamily)
 	}, [el.type, el.fontFamily])
-	// Twitch не запускает видео, если видимый размер плеера меньше 400×300
-	const embedRef = useRef<HTMLIFrameElement | null>(null)
-	const [embedTooSmall, setEmbedTooSmall] = useState(false)
-	useEffect(() => {
-		const node = embedRef.current
-		if (!node || el.type !== 'iframe') return
-		const check = () => {
-			const r = node.getBoundingClientRect()
-			setEmbedTooSmall(r.width < 400 || r.height < 300)
-		}
-		check()
-		const ro = new ResizeObserver(check)
-		ro.observe(node)
-		window.addEventListener('resize', check)
-		// масштаб холста меняется через transform и не вызывает resize — проверяем
-		// видимый размер периодически, иначе подсказка не исчезает при зуме
-		const timer = window.setInterval(check, 400)
-		return () => {
-			ro.disconnect()
-			window.removeEventListener('resize', check)
-			window.clearInterval(timer)
-		}
-	}, [el.type, el.src])
 	if (el.type === 'widget' && el.widget)
 		return (
 			<WidgetFrame
@@ -7154,7 +7126,6 @@ function PreviewElementInner({
 		return (
 			<>
 				<iframe
-					ref={embedRef}
 					src={
 						autoplayPlaylist
 							? `${embedSrc}${embedSrc.includes('?') ? '&' : '?'}autoplay=1&mute=1`
@@ -7162,15 +7133,11 @@ function PreviewElementInner({
 					}
 					title='embed'
 					data-id={el.id}
-					loading='lazy'
+					loading={info?.kind?.startsWith('twitch') ? 'eager' : 'lazy'}
 					className='w-full h-full'
 					style={{
 						border: 0,
 						background: '#000',
-						visibility:
-							!!info?.kind?.startsWith('twitch') && embedTooSmall
-								? 'hidden'
-								: 'visible',
 						// Twitch нельзя запустить программно: пусть получает клики
 						// всегда, иначе кнопка Play недоступна
 						pointerEvents:
@@ -7179,12 +7146,6 @@ function PreviewElementInner({
 					allow='autoplay; encrypted-media; picture-in-picture; fullscreen'
 					allowFullScreen
 				/>
-				{!!info?.kind?.startsWith('twitch') && embedTooSmall && (
-					<div className='absolute inset-0 flex items-center justify-center bg-black/80 p-3 text-center text-[11px] leading-snug text-amber-200 pointer-events-none'>
-						Twitch требует плеер не меньше 400×300 px. Увеличьте элемент или
-						масштаб холста до 100%.
-					</div>
-				)}
 				{/* частая причина «не работает вывод»: сайт запрещает встраивание
 				    (Twitch-страница, YouTube-страница и т.п.) — говорим об этом прямо */}
 				{!interactive &&
