@@ -4113,9 +4113,9 @@ export default function PanelClient({
 						className={`flex-1 relative overflow-clip ${panning ? 'cursor-grabbing' : ''}`}
 						style={{
 							touchAction: 'none',
-							background: 'var(--c-canvas)',
+							background: 'rgb(var(--c-canvas))',
 							backgroundImage:
-								'radial-gradient(var(--c-dot) 1px, transparent 1px)',
+								'radial-gradient(rgb(var(--c-dot)) 1px, transparent 1px)',
 							backgroundSize: `${Math.max(4, 22 * view.s)}px ${Math.max(4, 22 * view.s)}px`,
 							backgroundPosition: `${view.x}px ${view.y}px`,
 						}}
