@@ -711,7 +711,15 @@ export default function AdminClient({
 													)}
 													<div className='min-w-0 flex-1'>
 														<p className='truncate text-sm font-medium'>
-															{s.displayName}
+															<a
+																href={`https://www.twitch.tv/${s.login}`}
+																target='_blank'
+																rel='noopener noreferrer'
+																className='hover:text-accent2 hover:underline'
+																title={`Открыть twitch.tv/${s.login}`}
+															>
+																{s.displayName}
+															</a>
 															{s.featured && (
 																<span className='ml-2 text-[10px] text-accent2'>
 																	избранный
@@ -719,7 +727,15 @@ export default function AdminClient({
 															)}
 														</p>
 														<p className='text-xs text-gray-500'>
-															@{s.login} · {s.followers.toLocaleString('ru-RU')}{' '}
+															<a
+																href={`https://www.twitch.tv/${s.login}`}
+																target='_blank'
+																rel='noopener noreferrer'
+																className='hover:text-accent2 hover:underline'
+															>
+																@{s.login}
+															</a>{' '}
+															· {s.followers.toLocaleString('ru-RU')}{' '}
 															подписчиков
 														</p>
 													</div>

@@ -7,6 +7,7 @@ import {
   listModerators,
   removeModerator,
   setModeratorSuspended,
+  setModeratorObs,
 } from "@/lib/invites";
 import { getTwitchAvatars, safe, twitchUserId } from "@/lib/twitch";
 import { verifySession } from "@/lib/session";
@@ -55,7 +56,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const session = sessionFrom(req);
   if (!session) return json({ error: "unauthorized" }, 401);
-  let body: { action?: string; login?: string; owner?: string };
+  let body: { action?: string; login?: string; owner?: string; obs?: string };
   try {
     body = await req.json();
   } catch {
@@ -77,7 +78,9 @@ export async function POST(req: Request) {
 
   if (body.action === "accept") {
     const owner = body.owner ?? "";
-    if (!(await getInviteStatus(owner, session.login))) return json({ error: "Приглашение не найдено" }, 404);
+    const invite = await getInviteStatus(owner, session.login);
+    if (!invite || invite.status !== "pending") return json({ error: "Приглашение не найдено" }, 404);
+    if (invite.suspended) return json({ error: "Доступ приостановлен" }, 403);
     await acceptInvite(owner, session.login);
     return json({ ok: true });
   }
@@ -98,6 +101,15 @@ export async function POST(req: Request) {
     if (body.action === "resume") await setModeratorSuspended(session.login, login, false);
     if (body.action === "revoke") await removeModerator(session.login, login);
     return json({ ok: true });
+  }
+
+  // право на OBS: 'none' — вкладки нет, 'control' — полный пульт
+  if (body.action === "obs") {
+    const login = (body.login ?? "").trim().toLowerCase();
+    if (!login || !(await getInviteStatus(session.login, login))) return json({ error: "Модератор не найден" }, 404);
+    const obs = body.obs === "none" ? "none" : "control";
+    await setModeratorObs(session.login, login, obs);
+    return json({ ok: true, obs });
   }
 
   return json({ error: "unknown action" }, 400);

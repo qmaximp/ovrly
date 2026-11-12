@@ -4,7 +4,7 @@ import type { StreamElement, SyncState } from '@/lib/types'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import WidgetFrame from '@/components/WidgetFrame'
 import { toEmbedUrl } from '@/lib/embed'
-import { parseMediaUrl, youtubeEmbedUrl, loadTwitchSdk } from '@/lib/media'
+import { parseMediaUrl, youtubeEmbedUrl } from '@/lib/media'
 import { playTimerSound } from '@/lib/sound'
 import { noteServerClock, serverClockLag } from '@/lib/clock'
 import { colorWithOpacity } from '@/lib/color'
@@ -246,6 +246,8 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 	// отчёты YouTube-плееров: позиция/состояние; при дрейфе от превью > 2с — перемотка
 	useEffect(() => {
 		const onMsg = (e: MessageEvent) => {
+			// только официальные плееры YouTube: source уже сверяем, origin — второй заслон
+			if (e.origin !== 'https://www.youtube.com' && e.origin !== 'https://www.youtube-nocookie.com') return
 			let id: string | null = null
 			for (const [key, f] of ytFrames) if (f.contentWindow === e.source) { id = key; break }
 			if (!id) return
@@ -377,9 +379,29 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 	)
 }
 
+// Звук конца таймера — только в эффекте: вызов из рендера дублировался при
+// повторном/прерванном рендере (StrictMode, конкурентный режим).
+function TimerSound({ el, remaining }: { el: StreamElement; remaining: number | null }) {
+	const playedRef = useRef(false)
+	useEffect(() => {
+		if (remaining === null || remaining > 0 || !el.isRunning) {
+			playedRef.current = false
+			return
+		}
+		if (playedRef.current) return
+		playedRef.current = true
+		playTimerSound({
+			src: el.soundSrc,
+			volume: el.soundVolume,
+			duration: el.soundDuration,
+			start: el.soundStart,
+		})
+	}, [remaining, el.isRunning, el.soundSrc, el.soundVolume, el.soundDuration, el.soundStart])
+	return null
+}
+
 function OverlayElement({ el, ytStarted }: { el: StreamElement; ytStarted: boolean }) {
 	const [, force] = useState(0)
-	const playedRef = useRef(false)
 	// стабильный ref-колбэк: инлайн-колбэк менял бы идентичность на каждый рендер
 	// и React снимал/ставил бы ref заново (лишняя работа на каждом кадре таймера)
 	const setYtFrame = useCallback(
@@ -542,21 +564,9 @@ function OverlayElement({ el, ytStarted }: { el: StreamElement; ytStarted: boole
 				: formatTime(elapsedSec)
 		// одиночный звуковой сигнал в момент, когда обратный отсчёт дошёл до нуля
 		const remaining = el.timerDirection === 'down' && el.duration ? el.duration - elapsedSec : null
-		if (remaining !== null && remaining <= 0) {
-			if (el.isRunning && !playedRef.current) {
-				playedRef.current = true
-				playTimerSound({
-					src: el.soundSrc,
-					volume: el.soundVolume,
-					duration: el.soundDuration,
-					start: el.soundStart,
-				})
-			}
-			if (!el.isRunning) playedRef.current = false
-		} else {
-			playedRef.current = false
-		}
 		return (
+			<>
+				<TimerSound el={el} remaining={remaining} />
 			<div
 				style={{
 					...style,
@@ -596,51 +606,10 @@ function OverlayElement({ el, ytStarted }: { el: StreamElement; ytStarted: boole
 					{display}
 				</div>
 			</div>
+			</>
 		)
 	}
 	return null
-}
-
-// SDK-плеер Twitch на оверлее: чистый кадр (без родных контролов с мышью — их нет),
-// управляется командами из панели
-function TwitchOverlayFrame({ el }: { el: StreamElement }) {
-	const ref = useRef<HTMLDivElement | null>(null)
-	useEffect(() => {
-		let cancelled = false
-		const divId = 'twitchov-' + el.id
-		;(async () => {
-			try {
-				const Tw = await loadTwitchSdk()
-				if (cancelled || !ref.current) return
-				const info = parseMediaUrl(el.src || '')
-				if (!info || info.kind === 'youtube') return
-				ref.current.id = divId
-				const opts: any = { parent: location.hostname, width: '100%', height: '100%', autoplay: !!el.autoplay, muted: true }
-				if (info.kind === 'twitch-channel') opts.channel = info.channel
-				else if (info.kind === 'twitch-vod') opts.video = info.id
-				else if (info.kind === 'twitch-clip') opts.clip = info.slug
-				const p = new Tw.Player(divId, opts)
-				const tryPlay = () => {
-					try {
-						p.setMuted(true)
-						if (el.autoplay) void p.play()
-					} catch {}
-				}
-				p.addEventListener(Tw.Player.READY, tryPlay)
-				window.setTimeout(tryPlay, 1500)
-				twitchPlayers.set(el.id, p)
-				p.addEventListener(Tw.Player.PLAY, () => twitchSt.set(el.id, 1))
-				p.addEventListener(Tw.Player.PAUSE, () => twitchSt.set(el.id, 2))
-			} catch {}
-		})()
-		return () => {
-			cancelled = true
-			twitchPlayers.delete(el.id)
-			twitchSt.delete(el.id)
-		}
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [el.id, el.src])
-	return <div ref={ref} style={{ width: '100%', height: '100%', pointerEvents: 'none' }} />
 }
 
 function AudioOverlay({ el }: { el: StreamElement }) {

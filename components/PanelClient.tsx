@@ -59,7 +59,6 @@ import {
 	ListVideo,
 	Lock,
 	MessageCircle,
-	Monitor,
 	Pause,
 	Pencil,
 	Play,
@@ -186,12 +185,15 @@ export default function PanelClient({
 	room,
 	userLogin,
 	ghost,
+	obsAllowed = false,
 }: {
 	channel?: string | null
 	room?: string | null
 	userLogin?: string | null
 	// невидимый вход администратора: сервер не показывает его другим участникам
 	ghost?: boolean
+	// право управлять OBS: владелец всегда, модератор — по настройке в кабинете
+	obsAllowed?: boolean
 }) {
 	const [state, setState] = useState<SyncState>({
 		elements: [],
@@ -268,31 +270,13 @@ export default function PanelClient({
 		window.addEventListener('keydown', onKey, true)
 		return () => window.removeEventListener('keydown', onKey, true)
 	}, [listeningShortcut, changeShortcut])
-	// ObsPanel монтируем при первом открытии вкладки и больше не размонтируем:
-	// так соединение с OBS не рвётся при переключении, а чанк не грузится зря
-	const [obsMounted, setObsMounted] = useState(false)
+	const [obsAllowedLive, setObsAllowedLive] = useState(obsAllowed)
+	useEffect(() => setObsAllowedLive(obsAllowed), [obsAllowed])
+	// вкладка есть только при праве на OBS (владелец — всегда); отзыв права
+	// применяется сразу, без перезагрузки страницы
 	useEffect(() => {
-		if (tab === 'obs') setObsMounted(true)
-	}, [tab])
-	// вкладка OBS временно скрыта по умолчанию; включается тоглом в настройках
-	const [showObsTab, setShowObsTab] = useState(false)
-	useEffect(() => {
-		try {
-			if (localStorage.getItem('panel:obs-tab') === '1') setShowObsTab(true)
-		} catch {}
-	}, [])
-	useEffect(() => {
-		if (!showObsTab) setTab(t => (t === 'obs' ? 'elements' : t))
-	}, [showObsTab])
-	const toggleObsTab = useCallback(() => {
-		setShowObsTab(v => {
-			const next = !v
-			try {
-				localStorage.setItem('panel:obs-tab', next ? '1' : '0')
-			} catch {}
-			return next
-		})
-	}, [])
+		if (!obsAllowedLive) setTab(t => (t === 'obs' ? 'elements' : t))
+	}, [obsAllowedLive])
 	// студия виджетов: монтируем при первом открытии, чтобы не терять черновик
 	const [widgetStudioMounted, setWidgetStudioMounted] = useState(false)
 	// мини-окно выбора виджета из «Моих виджетов» для добавления на холст
@@ -498,13 +482,6 @@ export default function PanelClient({
 		},
 		[elementLocks, userLogin, canOverrideLocks],
 	)
-	const [isCoarse, setIsCoarse] = useState(false)
-	useEffect(() => {
-		setIsCoarse(
-			window.matchMedia?.('(pointer: coarse)').matches ||
-				navigator.maxTouchPoints > 0,
-		)
-	}, [])
 	const viewportRef = useRef<HTMLDivElement | null>(null)
 	// канвас появляется/исчезает при повороте телефона — эффекты панорамы/зума должны
 	// перепривязываться к фактическому монтированию, а не только к первому рендеру
@@ -523,6 +500,9 @@ export default function PanelClient({
 	// свежий стейт для колбэков, замороженных useCallback'ом (паркинг считает каскад по актуальным элементам)
 	const stateRef = useRef(state)
 	stateRef.current = state
+	// элементы, добавленные этим клиентом после последнего снимка истории:
+	// только их можно удалять при Ctrl+Z, чужие добавления не трогаем
+	const localAddRef = useRef({ expected: 0, ids: new Set<string>() })
 
 	// мобильные устройства: портрет блокируется экраном «поверни телефон», ландшафт — компактный тулбар
 	const [isPortrait, setIsPortrait] = useState(false)
@@ -857,7 +837,12 @@ export default function PanelClient({
 		// Отмена/повтор сначала добавляет элемент локально, а затем сервер присылает
 		// эхо element:added. Без проверки id это давало второй такой же элемент
 		// в списке и на холсте (Ctrl+Z «дублировал» картинки).
-		socket.on('element:added', (el: StreamElement) =>
+		socket.on('element:added', (el: StreamElement) => {
+			const local = localAddRef.current
+			if (local.expected > 0) {
+				local.expected--
+				local.ids.add(el.id)
+			}
 			setState(p => {
 				const exists = p.elements.some(e => e.id === el.id)
 				return {
@@ -866,8 +851,8 @@ export default function PanelClient({
 						? p.elements.map(e => (e.id === el.id ? { ...e, ...el } : e))
 						: [...p.elements, el],
 				}
-			}),
-		)
+			})
+		})
 		socket.on('element:updated', (el: StreamElement) => {
 			noteServerClock(el)
 			setState(p => ({
@@ -1065,13 +1050,17 @@ export default function PanelClient({
 	})
 	const lastHistRef = useRef(0)
 	const remember = useCallback(() => {
+		const h = historyRef.current
+		// любая новая правка отменяет ветку redo, даже если снимок не попадёт
+		// в стек из-за троттлинга
+		h.future.length = 0
 		const now = Date.now()
 		if (now - lastHistRef.current < 700) return
 		lastHistRef.current = now
-		const h = historyRef.current
 		h.past.push(stateRef.current.elements.map(e => ({ ...e })))
 		if (h.past.length > 40) h.past.shift()
-		h.future.length = 0
+		// всё, что добавлено до этого снимка, уже в нём — при отмене не удаляем
+		localAddRef.current.ids.clear()
 	}, [])
 
 	const updateElement = useCallback(
@@ -1099,10 +1088,18 @@ export default function PanelClient({
 		(target: StreamElement[]) => {
 			const cur = stateRef.current.elements
 			const byId = new Map(target.map(e => [e.id, e]))
-			for (const el of cur) if (!byId.has(el.id)) emit('element:delete', el.id)
+			// удаляем только то, что добавили сами после снимка: элементы,
+			// появившиеся у других модераторов, отмена не должна трогать
+			const local = localAddRef.current.ids
+			for (const el of cur) if (!byId.has(el.id) && local.has(el.id)) emit('element:delete', el.id)
+			// отложенные правки перезаписали бы восстановленное состояние
+			for (const { timer } of pendingUpdatesRef.current.values()) clearTimeout(timer)
+			pendingUpdatesRef.current.clear()
 			for (const el of target) {
 				const prev = cur.find(c => c.id === el.id)
 				if (!prev) {
+					// восстановленный элемент снова «наш» — следующий undo его уберёт
+					local.add(el.id)
 					emit('element:add', el)
 					continue
 				}
@@ -1125,6 +1122,9 @@ export default function PanelClient({
 		const h = historyRef.current
 		const prev = h.past.pop()
 		if (!prev) return
+		// следующая правка должна создать новый снимок, а не попасть в окно
+		// троттлинга предыдущей
+		lastHistRef.current = 0
 		h.future.push(stateRef.current.elements.map(e => ({ ...e })))
 		applySnapshot(prev)
 	}, [applySnapshot])
@@ -1133,6 +1133,7 @@ export default function PanelClient({
 		const h = historyRef.current
 		const next = h.future.pop()
 		if (!next) return
+		lastHistRef.current = 0
 		h.past.push(stateRef.current.elements.map(e => ({ ...e })))
 		applySnapshot(next)
 	}, [applySnapshot])
@@ -1549,6 +1550,7 @@ export default function PanelClient({
 		let cancelled = false
 		const timers: ReturnType<typeof setTimeout>[] = []
 		let watchdog: ReturnType<typeof setInterval> | null = null
+		let player: any = null
 
 		// ВАЖНО: методы Twitch-плеера возвращают Promise (isPaused, getMuted, play…).
 		// Раньше мы сравнивали их результат с boolean напрямую — условие всегда было
@@ -1567,7 +1569,7 @@ export default function PanelClient({
 			try {
 				const Tw = await loadTwitchSdk()
 				if (cancelled || !twitchPreviewRef.current) return
-				const player = new Tw.Player('twitch-preview', {
+				const created = new Tw.Player('twitch-preview', {
 					width: '100%',
 					height: '100%',
 					channel,
@@ -1575,7 +1577,8 @@ export default function PanelClient({
 					autoplay: true,
 					muted: true,
 				})
-				twitchPlayerRef.current = player
+				player = created
+				twitchPlayerRef.current = created
 
 				// «разбудить» плеер: сначала гарантированно mute (без него браузер
 				// блокирует запуск), затем play(). Оба вызова — синхронно, в том же
@@ -1591,12 +1594,6 @@ export default function PanelClient({
 					} catch {}
 				}
 				resumeRef.current = resume
-				const isPaused = async () => {
-					const v = await unwrap(player.isPaused?.())
-					// если метод вообще не отдал значение — считаем, что на паузе,
-					// и пробуем разбудить (play() на играющем плеере безвреден)
-					return v === undefined ? true : v === true
-				}
 
 				player.addEventListener(Tw.Player.READY, () => {
 					void resume()
@@ -1667,6 +1664,10 @@ export default function PanelClient({
 			timers.forEach(clearTimeout)
 			window.removeEventListener('pointerdown', onInteract, true)
 			window.removeEventListener('keydown', onInteract, true)
+			// destroy() снимает таймеры/сетевые соединения плеера: без него
+			// выключенное превью продолжало жить в памяти
+			try { player?.destroy?.() } catch {}
+			player = null
 			twitchPlayerRef.current = null
 			if (twitchPreviewRef.current) twitchPreviewRef.current.innerHTML = ''
 		}
@@ -1707,6 +1708,7 @@ export default function PanelClient({
 	const addElement = useCallback(
 		(el: Omit<StreamElement, 'id' | 'zIndex' | 'visible'>) => {
 			remember()
+			localAddRef.current.expected++
 			emit('element:add', { ...el, visible: true })
 		},
 		[emit, remember],
@@ -1807,7 +1809,7 @@ export default function PanelClient({
 	// по горизонтали — по центру того, что сейчас видно; на ПК — как раньше (0, 1200).
 	// Каскад по уже запаркованным: элементы не ложатся в одну точку стопкой
 	// (иначе добавленные подряд два видео неотличимы от «одного загрузившегося»)
-	const parkingSpot = (w = 0, h = 0) => {
+	const parkingSpot = (w = 0, _h = 0) => {
 		const st = stateRef.current
 		const k = st.elements.filter(e => e.y > st.canvasH).length % 8
 		if (isMobileRef.current) {
@@ -3756,7 +3758,7 @@ export default function PanelClient({
 			{accessRevoked && (
 				<div className='fixed inset-0 z-[200] bg-bg flex flex-col items-center justify-center text-center px-4'>
 					<div className='text-5xl mb-4'>🚫</div>
-					<h1 className='text-xl font-semibold text-[color:var(--c-on-bg)] mb-2'>
+					<h1 className='text-xl font-semibold text-[color:rgb(var(--c-on-bg))] mb-2'>
 						Доступ отозван
 					</h1>
 					<p className='text-sm text-gray-500 max-w-sm mb-6'>
@@ -3926,28 +3928,28 @@ export default function PanelClient({
 			>
 				<button
 					onClick={() => setTab('elements')}
-					className={`flex items-center gap-1.5 px-4 py-2 text-sm rounded-t-lg transition-colors ${tab === 'elements' ? 'bg-bg text-[color:var(--c-on-bg)] border-b-2 border-accent' : 'text-gray-500 hover:text-gray-300'}`}
+					className={`flex items-center gap-1.5 px-4 py-2 text-sm rounded-t-lg transition-colors ${tab === 'elements' ? 'bg-bg text-[color:rgb(var(--c-on-bg))] border-b-2 border-accent' : 'text-gray-500 hover:text-gray-300'}`}
 				>
 					Элементы оверлея
 				</button>
 				<button
 					onClick={() => setTab('widgets')}
-					className={`flex items-center gap-1.5 px-4 py-2 text-sm rounded-t-lg transition-colors ${tab === 'widgets' ? 'bg-bg text-[color:var(--c-on-bg)] border-b-2 border-accent' : 'text-gray-500 hover:text-gray-300'}`}
+					className={`flex items-center gap-1.5 px-4 py-2 text-sm rounded-t-lg transition-colors ${tab === 'widgets' ? 'bg-bg text-[color:rgb(var(--c-on-bg))] border-b-2 border-accent' : 'text-gray-500 hover:text-gray-300'}`}
 				>
 					<Blocks size={15} />
 					Виджеты
 				</button>
-				{showObsTab && (
+				{obsAllowedLive && (
 					<button
 						onClick={() => setTab('obs')}
-						className={`flex items-center gap-1.5 px-4 py-2 text-sm rounded-t-lg transition-colors ${tab === 'obs' ? 'bg-bg text-[color:var(--c-on-bg)] border-b-2 border-accent' : 'text-gray-500 hover:text-gray-300'}`}
+						className={`flex items-center gap-1.5 px-4 py-2 text-sm rounded-t-lg transition-colors ${tab === 'obs' ? 'bg-bg text-[color:rgb(var(--c-on-bg))] border-b-2 border-accent' : 'text-gray-500 hover:text-gray-300'}`}
 					>
 						Управление OBS
 					</button>
 				)}
 				<button
 					onClick={() => setTab('settings')}
-					className={`flex items-center gap-1.5 px-4 py-2 text-sm rounded-t-lg transition-colors ${tab === 'settings' ? 'bg-bg text-[color:var(--c-on-bg)] border-b-2 border-accent' : 'text-gray-500 hover:text-gray-300'}`}
+					className={`flex items-center gap-1.5 px-4 py-2 text-sm rounded-t-lg transition-colors ${tab === 'settings' ? 'bg-bg text-[color:rgb(var(--c-on-bg))] border-b-2 border-accent' : 'text-gray-500 hover:text-gray-300'}`}
 				>
 					<Settings size={15} />
 					Настройки
@@ -4918,7 +4920,7 @@ export default function PanelClient({
 										className='w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-border/40 transition-colors'
 									>
 										<Layers size={15} className='text-accent2 shrink-0' />
-										<span className='text-sm font-medium text-[color:var(--c-on-bg)]'>
+										<span className='text-sm font-medium text-[color:rgb(var(--c-on-bg))]'>
 											Элементы
 										</span>
 										<span className='text-xs text-gray-500'>
@@ -5240,8 +5242,17 @@ export default function PanelClient({
 				)}
 			</div>
 
-			<div className={`flex-1 overflow-auto ${tab === 'obs' ? '' : 'hidden'}`}>
-				{obsMounted && <ObsPanel />}
+			<div
+				className={`flex-1 ${tab === 'obs' ? 'overflow-hidden' : 'overflow-auto'} ${tab === 'obs' ? '' : 'hidden'}`}
+			>
+				{(isStreamer || obsAllowedLive) && (
+					<ObsPanel
+						room={room}
+						isStreamer={isStreamer}
+						onAccessRevoked={() => setObsAllowedLive(false)}
+						onAccessGranted={() => setObsAllowedLive(true)}
+					/>
+				)}
 			</div>
 
 			{/* чат канала во вкладке: iframe живёт только пока вкладка открыта,
@@ -5270,7 +5281,7 @@ export default function PanelClient({
 				className={`flex-1 overflow-auto ${tab === 'settings' ? '' : 'hidden'}`}
 			>
 				<div className='max-w-3xl mx-auto p-5 sm:p-8'>
-					<h2 className='text-lg font-semibold text-[color:var(--c-on-bg)]'>
+					<h2 className='text-lg font-semibold text-[color:rgb(var(--c-on-bg))]'>
 						Настройки
 					</h2>
 					<p className='mt-1 text-sm text-gray-500'>
@@ -5316,7 +5327,7 @@ export default function PanelClient({
 										<Layers size={19} />
 									</span>
 									<div className='min-w-0 flex-1'>
-										<h3 className='text-sm font-semibold text-[color:var(--c-on-bg)]'>
+										<h3 className='text-sm font-semibold text-[color:rgb(var(--c-on-bg))]'>
 											Минималистичное меню
 										</h3>
 										<p className='mt-1 text-sm leading-relaxed text-gray-500'>
@@ -5351,47 +5362,10 @@ export default function PanelClient({
 							<div className='mt-4 rounded-2xl border border-border bg-panel p-4 sm:p-5'>
 								<div className='flex items-start gap-3 sm:gap-4'>
 									<span className='w-10 h-10 shrink-0 rounded-xl bg-accent/15 text-accent2 flex items-center justify-center'>
-										<Monitor size={19} />
-									</span>
-									<div className='min-w-0 flex-1'>
-										<h3 className='text-sm font-semibold text-[color:var(--c-on-bg)]'>
-											Управление OBS
-										</h3>
-										<p className='mt-1 text-sm leading-relaxed text-gray-500'>
-											Показывать вкладку «Управление OBS» в панели. По умолчанию
-											она скрыта и не мешает работе.
-										</p>
-									</div>
-									<button
-										role='switch'
-										aria-checked={showObsTab}
-										aria-label='Показывать вкладку Управление OBS'
-										onClick={toggleObsTab}
-										className={`relative w-11 h-6 shrink-0 rounded-full transition-colors ${
-											showObsTab ? 'bg-accent' : 'bg-gray-600'
-										}`}
-									>
-										<span
-											className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${
-												showObsTab ? 'left-[22px]' : 'left-0.5'
-											}`}
-										/>
-									</button>
-								</div>
-								<p className='mt-3 border-t border-border pt-3 text-xs leading-relaxed text-gray-500'>
-									{showObsTab
-										? 'Включено: вкладка OBS показывается после «Виджет».'
-										: 'Выключено: вкладка OBS скрыта.'}
-								</p>
-							</div>
-
-							<div className='mt-4 rounded-2xl border border-border bg-panel p-4 sm:p-5'>
-								<div className='flex items-start gap-3 sm:gap-4'>
-									<span className='w-10 h-10 shrink-0 rounded-xl bg-accent/15 text-accent2 flex items-center justify-center'>
 										<Keyboard size={19} />
 									</span>
 									<div className='min-w-0 flex-1'>
-										<h3 className='text-sm font-semibold text-[color:var(--c-on-bg)]'>
+										<h3 className='text-sm font-semibold text-[color:rgb(var(--c-on-bg))]'>
 											Горячие клавиши
 										</h3>
 										<p className='mt-1 text-sm leading-relaxed text-gray-500'>
@@ -5424,7 +5398,7 @@ export default function PanelClient({
 										{theme === 'dark' ? <MoonIcon /> : <SunIcon />}
 									</span>
 									<div className='min-w-0 flex-1'>
-										<h3 className='text-sm font-semibold text-[color:var(--c-on-bg)]'>
+										<h3 className='text-sm font-semibold text-[color:rgb(var(--c-on-bg))]'>
 											Тема оформления
 										</h3>
 										<p className='mt-1 text-sm leading-relaxed text-gray-500'>
@@ -5473,7 +5447,7 @@ export default function PanelClient({
 											className='flex flex-wrap items-center gap-3 rounded-2xl border border-border bg-panel p-3 sm:p-4'
 										>
 											<div className='min-w-0 flex-1'>
-												<div className='text-sm font-semibold text-[color:var(--c-on-bg)]'>
+												<div className='text-sm font-semibold text-[color:rgb(var(--c-on-bg))]'>
 													{def.label}
 												</div>
 												<p className='mt-0.5 text-xs text-gray-500'>{def.hint}</p>
@@ -5549,7 +5523,7 @@ export default function PanelClient({
 							<Blocks size={15} />
 							Виджеты
 						</button>
-						{showObsTab && (
+						{obsAllowedLive && (
 							<button
 								onClick={() => {
 									setTab('obs')
@@ -5759,7 +5733,7 @@ export default function PanelClient({
 					<div className='relative w-full max-w-md rounded-2xl border border-border bg-panel p-4 shadow-2xl pop-in'>
 						<div className='flex items-start justify-between gap-3'>
 							<div className='min-w-0'>
-								<h3 className='text-sm font-semibold text-[color:var(--c-on-bg)]'>
+								<h3 className='text-sm font-semibold text-[color:rgb(var(--c-on-bg))]'>
 									Добавить виджет
 								</h3>
 								<p className='mt-0.5 text-[11px] leading-relaxed text-gray-500'>
@@ -5810,7 +5784,7 @@ export default function PanelClient({
 											<Blocks size={15} />
 										</span>
 										<span className='min-w-0 flex-1'>
-											<span className='block truncate text-sm font-medium text-[color:var(--c-on-bg)]'>
+											<span className='block truncate text-sm font-medium text-[color:rgb(var(--c-on-bg))]'>
 												{def.name}
 											</span>
 											<span className='mt-0.5 block text-[10px] text-gray-500'>
@@ -5937,7 +5911,7 @@ export default function PanelClient({
 								<ListVideo size={18} />
 							</span>
 							<div className='min-w-0 flex-1'>
-								<h3 className='text-sm font-semibold text-[color:var(--c-on-bg)]'>
+								<h3 className='text-sm font-semibold text-[color:rgb(var(--c-on-bg))]'>
 									YouTube плейлист
 								</h3>
 								<p className='mt-0.5 text-xs leading-relaxed text-gray-500'>
@@ -7604,16 +7578,20 @@ function PropertyEditor({
 				</button>
 			</div>
 			<button
-				onClick={() =>
+				onClick={() => {
 					emit('element:add', {
 						...el,
 						id: undefined,
 						zIndex: undefined,
 						locked: false,
+						// копия не должна наследовать ход таймера
+						isRunning: false,
+						startTime: null,
+						elapsed: 0,
 						x: el.x + 30,
 						y: el.y + 30,
 					})
-				}
+				}}
 				className='w-full px-3 py-2 bg-border hover:bg-gray-600 text-white text-sm rounded-lg'
 			>
 				⧉ Дублировать элемент

@@ -91,6 +91,7 @@ type Moderator = {
 	login: string
 	status: InviteStatus
 	suspended: boolean
+	obs: 'none' | 'control'
 	invitedAt: string
 	visitedAt?: string
 	acceptedAt?: string
@@ -152,7 +153,7 @@ export default function CabinetClient({
 
 	const loadInvites = useCallback(() => {
 		setInvError('')
-		fetch('/api/invites')
+		return fetch('/api/invites')
 			.then(async r => {
 				const d = await r.json()
 				if (!r.ok) throw new Error(d?.error || 'Ошибка загрузки')
@@ -165,12 +166,25 @@ export default function CabinetClient({
 		loadInvites()
 	}, [loadInvites])
 
-	// живое обновление: статусы инвайтов и модераторов подтягиваются без перезагрузки страницы
+	// живое обновление: статусы подтягиваются без перезагрузки, но не чаще
+	// раза в 15с и только для видимой вкладки; параллельные запросы не копим
 	useEffect(() => {
-		const t = setInterval(() => {
-			if (document.visibilityState === 'visible') loadInvites()
-		}, 5000)
-		return () => clearInterval(t)
+		let busy = false
+		const tick = async () => {
+			if (busy || document.visibilityState !== 'visible') return
+			busy = true
+			try {
+				await loadInvites()
+			} finally {
+				busy = false
+			}
+		}
+		const t = setInterval(tick, 15000)
+		document.addEventListener('visibilitychange', tick)
+		return () => {
+			clearInterval(t)
+			document.removeEventListener('visibilitychange', tick)
+		}
 	}, [loadInvites])
 
 	const act = useCallback(
@@ -450,9 +464,7 @@ export default function CabinetClient({
 										disabled={busy}
 										className='cabinet-regenerate'
 									>
-										{busy
-											? 'Генерация…'
-											: 'Сгенерировать заново (старые ссылки перестанут работать, ссылки у модераторов обновятся автоматически)'}
+										{busy ? 'Генерация…' : 'Сгенерировать новую ссылку'}
 									</button>
 								</>
 							)}
@@ -466,10 +478,6 @@ export default function CabinetClient({
 									<span className='kicker'>Команда</span>
 									<h2 className='cabinet-section-title'>Доступ к панели</h2>
 								</div>
-								<p className='cabinet-muted'>
-									Приглашайте модераторов по Twitch-нику — без паролей и лишних
-									аккаунтов.
-								</p>
 							</div>
 							{invError && <p className='alert'>{invError}</p>}
 							<div className='cabinet-access-grid'>
@@ -617,6 +625,42 @@ export default function CabinetClient({
 																</p>
 															</div>
 															<div className='cabinet-card-actions flex flex-wrap gap-1.5 justify-end'>
+																{m.status === 'accepted' && !m.suspended && (
+																	<span
+																		className='cabinet-obs-switch'
+																		title={
+																			m.obs === 'none'
+																				? 'OBS-пульт выключен — включить'
+																				: 'OBS-пульт включён — отключить'
+																		}
+																	>
+																		<span className='cabinet-obs-switch__label'>OBS</span>
+																		<button
+																			type='button'
+																			role='switch'
+																			aria-checked={m.obs !== 'none'}
+																			aria-label='Доступ к управлению OBS'
+																			disabled={busy}
+																			onClick={() =>
+																				act({
+																					action: 'obs',
+																					login: m.login,
+																					obs:
+																						m.obs === 'none'
+																							? 'control'
+																							: 'none',
+																				})
+																			}
+																			className={`cabinet-obs-switch__track ${
+																				m.obs === 'none'
+																					? ''
+																					: 'is-on'
+																			}`}
+																		>
+																			<span className='cabinet-obs-switch__knob' />
+																		</button>
+																	</span>
+																)}
 																{m.status === 'accepted' && (
 																	<button
 																		onClick={() =>
@@ -766,10 +810,7 @@ export default function CabinetClient({
 						<span>Ovrly развивается бесплатно — поддержка очень помогает</span>
 					</div>
 					<div className='footer-links'>
-						<a href='/legal/privacy'>Политика ПДн</a>
-						<a href='/legal/terms'>Оферта</a>
-						<a href='/legal/cookies'>Cookie</a>
-						<a href='/legal'>Реквизиты</a>
+						<a href='/legal'>Документы</a>
 						<a
 							href='https://t.me/ovrly_control'
 							target='_blank'
@@ -783,14 +824,6 @@ export default function CabinetClient({
 							rel='noopener noreferrer'
 						>
 							GitHub
-						</a>
-						<a
-							href='https://github.com/qmaximp/ovrly/blob/main/LICENSE'
-							target='_blank'
-							rel='noopener noreferrer'
-							title='GNU Affero General Public License v3.0'
-						>
-							AGPL-3.0
 						</a>
 						<span>© 2026 jettle_, nezory_1 · Версия 2.2</span>
 					</div>

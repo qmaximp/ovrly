@@ -2,11 +2,12 @@
 
 .legal-shell {
 	min-height: 100vh;
+	min-height: 100dvh;
 	background:
 		radial-gradient(1100px 560px at 12% -8%, rgb(var(--c-accent) / 0.16), transparent 62%),
 		radial-gradient(900px 480px at 92% 4%, rgb(var(--c-warm) / 0.08), transparent 60%),
 		rgb(var(--c-bg));
-	color: var(--c-text);
+	color: rgb(var(--c-text));
 }
 
 .legal-top {

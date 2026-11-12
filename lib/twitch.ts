@@ -39,6 +39,18 @@ export async function helix(path: string): Promise<any | null> {
 // логин -> аватар профиля Twitch. Кабинет опрашивает доступы каждые 5 секунд,
 // поэтому кэшируем ответы Helix: успешные — на час, промахи — на 10 минут.
 // null аватара означает «показывай букву», картинка не обязательна для работы.
+// Ограниченный кэш «ключ → значение»: старые записи вытесняются, иначе
+// произвольные логины в запросах растили бы Map бесконечно (утечка памяти).
+function capSet<K, V>(map: Map<K, V>, key: K, value: V, max: number) {
+  map.delete(key);
+  map.set(key, value);
+  if (map.size <= max) return;
+  for (const k of map.keys()) {
+    if (map.size <= max) break;
+    map.delete(k);
+  }
+}
+
 const avatarCache = new Map<string, { url: string | null; expires: number }>();
 const AVATAR_TTL_MS = 60 * 60 * 1000;
 const AVATAR_MISS_TTL_MS = 10 * 60 * 1000;
@@ -76,7 +88,7 @@ export async function getTwitchAvatars(
     if (!data) {
       // временная ошибка Helix/токена: не долбим API каждые 5 секунд
       for (const login of chunk) {
-        avatarCache.set(login, { url: null, expires: now + AVATAR_ERROR_TTL_MS });
+        capSet(avatarCache, login, { url: null, expires: now + AVATAR_ERROR_TTL_MS }, 1000);
       }
       continue;
     }
@@ -89,10 +101,10 @@ export async function getTwitchAvatars(
     for (const login of chunk) {
       const url = found.get(login) ?? null;
       if (url) result[login] = url;
-      avatarCache.set(login, {
+      capSet(avatarCache, login, {
         url,
         expires: now + (url ? AVATAR_TTL_MS : AVATAR_MISS_TTL_MS),
-      });
+      }, 1000);
     }
   }
 
@@ -140,10 +152,10 @@ export async function getFollowerCount(login: string): Promise<number | null> {
     );
     total = data && typeof data.total === 'number' ? Number(data.total) : null;
   }
-  followerCache.set(key, {
+  capSet(followerCache, key, {
     total,
     expires: Date.now() + (total === null ? 60 * 1000 : FOLLOWER_TTL_MS),
-  });
+  }, 1000);
   return total;
 }
 
@@ -155,15 +167,15 @@ export async function twitchUserId(login: string): Promise<string | null> {
   if (missAt && Date.now() - missAt < MISS_TTL_MS) return null;
   const helixData = await helix(`users?login=${encodeURIComponent(key)}`);
   const id = helixData?.data?.[0]?.id ?? null;
-  if (id) { userIdCache.set(key, id); userIdMiss.delete(key); return id; }
+  if (id) { capSet(userIdCache, key, id, 1000); userIdMiss.delete(key); return id; }
   const ivr = await safe(() =>
     fetch(`https://api.ivr.fi/v2/twitch/user?login=${encodeURIComponent(key)}`).then((r) => r.json())
   );
   if (Array.isArray(ivr) && ivr[0]?.id) {
-    userIdCache.set(key, ivr[0].id);
+    capSet(userIdCache, key, ivr[0].id, 1000);
     userIdMiss.delete(key);
     return ivr[0].id;
   }
-  userIdMiss.set(key, Date.now());
+  capSet(userIdMiss, key, Date.now(), 1000);
   return null;
 }

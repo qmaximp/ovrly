@@ -236,10 +236,7 @@ export default function GuidePage() {
 					<span>© 2026 jettle_, nezory_1 · Ovrly</span>
 					<div className='footer-links'>
 						<a href='/'>Главная</a>
-						<a href='/legal/privacy'>Политика ПДн</a>
-						<a href='/legal/terms'>Оферта</a>
-						<a href='/legal/cookies'>Cookie</a>
-						<a href='/legal'>Реквизиты</a>
+						<a href='/legal'>Документы</a>
 						<a
 							href='https://t.me/ovrly_control'
 							target='_blank'

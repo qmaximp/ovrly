@@ -64,7 +64,9 @@ export default async function Panel({
 				channel={owner}
 				room={room}
 				userLogin={session.login}
-				ghost={ghost}      />
+				ghost={ghost}
+				obsAllowed
+			/>
 			</ErrorBoundary>
 		);
 	}
@@ -85,7 +87,12 @@ export default async function Panel({
 
   return (
       <ErrorBoundary>
-        <PanelClient channel={owner} room={room} userLogin={session.login} />
+        <PanelClient
+          channel={owner}
+          room={room}
+          userLogin={session.login}
+          obsAllowed={entry.obs !== "none"}
+        />
       </ErrorBoundary>
     );
 }

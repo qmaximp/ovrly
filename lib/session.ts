@@ -1,6 +1,15 @@
 import crypto from "crypto";
 
-const SECRET = process.env.SESSION_SECRET || process.env.TWITCH_CLIENT_SECRET || "ovrly-dev-secret";
+// Подпись сессий. Без явного секрета нельзя запускаться в проде: иначе любой
+// может подделать cookie с чужим (в т.ч. админским) логином. В dev/локально
+// секрет случайный на процесс (globalThis — общий для всех бандлов Next).
+const explicitSecret = process.env.SESSION_SECRET || process.env.TWITCH_CLIENT_SECRET
+if (!explicitSecret && process.env.NODE_ENV === "production") {
+  throw new Error("SESSION_SECRET (или TWITCH_CLIENT_SECRET) обязателен в production");
+}
+const g = globalThis as typeof globalThis & { __ovrlySessionSecret?: string };
+const SECRET =
+  explicitSecret || (g.__ovrlySessionSecret ??= crypto.randomBytes(32).toString("hex"));
 
 export interface TwitchSession {
   login: string;

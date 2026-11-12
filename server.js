@@ -5,6 +5,7 @@ const crypto = require('crypto')
 const path = require('path')
 const WebSocket = require('ws')
 const roomStore = require('./lib/roomStore')
+const obsAccess = require('./lib/obsAccess')
 
 // режим запуска: npm run dev (--dev) / npm start (--prod).
 // Флаги вместо NODE_ENV=... в скрипте: одна и та же команда работает и на Windows
@@ -53,6 +54,64 @@ function sessionSecret() {
 // разрешены лишь служебные, состояние оверлея меняют только авторизованные панели
 const READ_ONLY_EVENTS = new Set(['cursor:move', 'overlay:hello'])
 
+// Команды OBS от зрителя: только фиксированный набор, без произвольных запросов.
+// Всё, что не описано здесь, до моста не доходит.
+function cleanObsCmd(d) {
+	if (!d || typeof d !== 'object') return null
+	const s = v => (typeof v === 'string' ? v.slice(0, 128) : '')
+	const id = Number.isInteger(d.id) ? d.id : undefined
+	switch (d.action) {
+		case 'scene.set':
+			return d.scene ? { id, action: 'scene.set', scene: s(d.scene) } : null
+		case 'item.visible':
+			return d.scene && Number.isInteger(d.sceneItemId) && typeof d.visible === 'boolean'
+				? {
+						id,
+						action: 'item.visible',
+						scene: s(d.scene),
+						sceneItemId: d.sceneItemId,
+						visible: d.visible,
+					}
+				: null
+		case 'item.locked':
+			return d.scene && Number.isInteger(d.sceneItemId) && typeof d.locked === 'boolean'
+				? {
+						id,
+						action: 'item.locked',
+						scene: s(d.scene),
+						sceneItemId: d.sceneItemId,
+						locked: d.locked,
+					}
+				: null
+		case 'item.order':
+			return d.scene && Number.isInteger(d.sceneItemId) && Number.isInteger(d.index) && d.index >= 0
+				? {
+						id,
+						action: 'item.order',
+						scene: s(d.scene),
+						sceneItemId: d.sceneItemId,
+						index: d.index,
+					}
+				: null
+		case 'input.mute':
+			return d.input && typeof d.muted === 'boolean'
+				? { id, action: 'input.mute', input: s(d.input), muted: d.muted }
+				: null
+		case 'input.volume': {
+			const db = Number(d.db)
+			if (!d.input || !isFinite(db)) return null
+			return {
+				id,
+				action: 'input.volume',
+				input: s(d.input),
+				db: Math.max(-100, Math.min(26, db)),
+			}
+		}
+		default:
+			return null
+	}
+}
+
 // предел числа комнат: имя комнаты приходит из query и может быть любым, без лимита
 // карта rooms росла бы бесконечно (каждая комната держит элементы своего стейта).
 // При вытеснении комната сначала сохраняется на диск — вернётся, когда в неё зайдут снова
@@ -71,6 +130,37 @@ const MAX_TOTAL_ROOM_BYTES = 768 * 1024 * 1024
 // свой звук таймера хранится в стейте как base64; 3 МБ base64 — примерно 2,2 МБ файла.
 // Клиент ограничивает файл 2 МБ, сервер дополнительно не даёт залить больше
 const MAX_SOUND_DATA = 3 * 1024 * 1024
+
+// элемент — это DOM-узел в оверлее у каждого зрителя; тысячи «пустых» элементов
+// кладут и сервер (обход массива на каждое событие), и OBS. 400 с запасом
+const MAX_ELEMENTS = 400
+
+// прочие (не медиа) поля элемента тоже не должны быть безразмерными: раньше
+// element:update принимал любые ключи, и ими можно было раздуть комнату в обход
+// учёта base64-медиа
+const MAX_ELEMENT_EXTRA = 512 * 1024
+
+// id и координаты из сокета. Без проверки data.id === undefined роняло процесс,
+// а данные приходили в состояние как есть (строки, NaN, объекты).
+function asId(v) {
+	return typeof v === 'string' || (typeof v === 'number' && Number.isFinite(v))
+		? v
+		: null
+}
+function asCoord(v, min = -100000, max = 100000) {
+	return typeof v === 'number' && Number.isFinite(v)
+		? Math.min(max, Math.max(min, v))
+		: null
+}
+// размер «прочих» полей без медиа и уже проверенных widget/playlist
+function extraBytes(obj) {
+	try {
+		const { src, soundSrc, widget, widgetValues, playlist, ...rest } = obj
+		return JSON.stringify(rest).length
+	} catch {
+		return Infinity
+	}
+}
 
 // YouTube-плейлист: в состоянии храним только id роликов, не произвольные URL.
 // Это защищает и от мусора, и от подмены src при playlist:step.
@@ -325,6 +415,12 @@ app.prepare().then(() => {
 	// прямой доступ без ?room= попадает в общую комнату "default"
 	const rooms = new Map() // key -> { key, state, lastActivity, locks, dirty }
 
+	// OBS-мост (прототип): последнее состояние OBS по комнате и id сокета моста.
+	// Только память, на диск не пишется: при перезапуске мост пришлёт состояние сам.
+	const obsRooms = new Map() // room -> { bridgeId, state }
+	// сокеты, которые смотрят/управляют OBS: при отзыве права их выкидываем сразу
+	const obsViews = new Map() // socket.id -> { room, login, allowed }
+
 	const liveSockets = key => io.sockets.adapter.rooms.get(key)?.size ?? 0
 
 	// записать комнату на диск, если есть несохранённые изменения
@@ -511,8 +607,31 @@ app.prepare().then(() => {
 				mods.set(invite.moderator, invite)
 			}
 			access = { at: Date.now(), links: linksByToken, invites: invitesByOwner }
+			syncObsViews()
 		} catch (e) {
 			console.error('[ovrly] не удалось обновить доступы:', e.message)
+		}
+	}
+
+	// смена права в кабинете применяется сразу: доступ отобрали — вкладка гаснет,
+	// вернули — снова включается, без перезагрузки страницы
+	function syncObsViews() {
+		for (const [id, rec] of obsViews) {
+			const socket = io.sockets.sockets.get(id)
+			if (!socket) {
+				obsViews.delete(id)
+				continue
+			}
+			const ok = hasObsAccess(rec.room, rec.login)
+			if (ok === rec.allowed) continue
+			rec.allowed = ok
+			if (ok) {
+				socket.join(`obs:${rec.room}`)
+				socket.emit('obs:access', { allowed: true })
+			} else {
+				socket.leave(`obs:${rec.room}`)
+				socket.emit('obs:access', { allowed: false })
+			}
 		}
 	}
 	refreshAccess(true)
@@ -528,6 +647,14 @@ app.prepare().then(() => {
 		if (login.toLowerCase() === owner.toLowerCase()) return true // стример — всегда
 		const entry = access.invites.get(owner)?.get(login)
 		return !!entry && entry.status === 'accepted' && !entry.suspended
+	}
+	// право управлять OBS: владелец всегда, модератор — если включено в кабинете
+	function hasObsAccess(room, login) {
+		const owner = roomOwner(room)
+		if (!owner) return false
+		if (login.toLowerCase() === owner.toLowerCase()) return true
+		const entry = access.invites.get(owner)?.get(login)
+		return !!entry && entry.status === 'accepted' && !entry.suspended && entry.obs !== 'none'
 	}
 
 	// ===== Twitch-события для виджетов =====
@@ -904,6 +1031,9 @@ app.prepare().then(() => {
 		// комната из handshake (?room=токен), иначе общая default-комната
 		const room = ((socket.handshake.query.room || 'default') + '').slice(0, 64)
 		socket.join(room)
+		// отдельная комната для OBS: только стример и модераторы с правом
+		const obsRoom = `obs:${room}`
+
 		const roomRec = await getRoom(room)
 		const state = roomRec.state
 
@@ -927,6 +1057,81 @@ app.prepare().then(() => {
 			!isGuest && socket.handshake.query.invisible === '1' && isAdminLogin(userLogin)
 		// админ-невидимка может войти в любую комнату без приглашения
 		const hasAccess = isGhost || (!isGuest && hasPanelAccess(room, userLogin))
+
+		// ===== OBS: мост и управление =====
+		// В панели без ссылок и ключей: владелец комнаты (стример) сам становится
+		// мостом, а модератор с доступом к комнате сразу получает управление.
+		// Ключ из obs_access остался только для внешнего дока на ПК стримера.
+		const qkey = String(socket.handshake.query.key || '')
+		const wantsBridge = socket.handshake.query.obsbridge === '1'
+		const wantsControl = socket.handshake.query.obscontrol === '1'
+		const obsKeyOk =
+			(wantsBridge || wantsControl) && qkey ? await obsAccess.verify(room, qkey) : false
+		const canBridge = obsKeyOk || isStreamer || isGhost
+		const canControl =
+			obsKeyOk || isGhost || isStreamer || (!isGuest && hasObsAccess(room, userLogin))
+		if ((wantsBridge && !canBridge) || (wantsControl && !canControl)) {
+			socket.emit('obs:denied')
+			return
+		}
+		const isObsBridge = wantsBridge
+		const isObsControl = wantsControl
+		if (isObsBridge) {
+			// мостов на комнату может быть несколько (две вкладки панели, док OBS):
+			// команды уходят любому живому, при закрытии одного остальные работают
+			let rec = obsRooms.get(room)
+			if (!rec) {
+				rec = { bridges: new Set(), state: null }
+				obsRooms.set(room, rec)
+			}
+			rec.bridges.add(socket.id)
+			socket.join(obsRoom)
+			console.log('[obs] мост подключён, room:', room.slice(0, 12), 'как', userLogin)
+			io.to(obsRoom).emit('obs:presence', { online: true })
+			socket.emit('obs:ready')
+			if (rec.state) socket.emit('obs:state', rec.state)
+			socket.on('obs:state', data => {
+				if (!data || typeof data !== 'object') return
+				// защита от «раздутого» состояния: один кадр не должен съесть память
+				let raw = ''
+				try {
+					raw = JSON.stringify(data)
+				} catch {
+					return
+				}
+				if (raw.length > 256 * 1024) {
+					console.log('[obs] состояние больше 256 КБ, пропускаю:', raw.length)
+					return
+				}
+				rec.state = data
+				socket.broadcast.to(obsRoom).emit('obs:state', data)
+			})
+			// метры не кэшируем: это поток, зритель получает только «сейчас»
+			socket.on('obs:meters', data => {
+				if (!data || typeof data !== 'object') return
+				let raw = ''
+				try {
+					raw = JSON.stringify(data)
+				} catch {
+					return
+				}
+				if (raw.length > 32 * 1024) return
+				socket.broadcast.to(obsRoom).emit('obs:meters', data)
+			})
+			socket.on('obs:result', data => {
+				if (!data || typeof data !== 'object') return
+				socket.broadcast.to(obsRoom).emit('obs:result', data)
+			})
+			socket.on('disconnect', () => {
+				const cur = obsRooms.get(room)
+				if (!cur || !cur.bridges.delete(socket.id)) return
+				if (cur.bridges.size) return
+				obsRooms.delete(room)
+				io.to(obsRoom).emit('obs:presence', { online: false })
+				console.log('[obs] мост отключён, room:', room.slice(0, 12))
+			})
+			return
+		}
 
 		// Админ-панель: служебное соединение (?admin=1) — комнату не занимает, только
 		// статистика и предупреждение всех о деплое
@@ -958,7 +1163,11 @@ app.prepare().then(() => {
 			ghost: isGhost,
 		})
 
-		if (!isGuest && !hasAccess) {
+		// клиент с ключом из obs_access (внешний док) не состоит в комнате, но
+		// должен остаться на связи ради obs:cmd — это не доступ к панели
+		const keyOnly = obsKeyOk && !hasAccess && !isStreamer && !isGhost
+
+		if (!isGuest && !hasAccess && !keyOnly) {
 			console.log('[io] доступ отозван, отключаю:', userLogin, 'room:', room.slice(0, 12))
 			socket.emit('access:revoked')
 			socket.disconnect(true)
@@ -968,7 +1177,7 @@ app.prepare().then(() => {
 		// Список рассылаем всем в комнате при входе и выходе.
 		// Невидимку в список не добавляем вовсе: он есть в комнате, но для всех —
 		// его нет (и в статистике админки он тоже не появится)
-		if (!isGhost) {
+		if (!isGhost && !keyOnly) {
 			roomRec.users.set(socket.id, {
 				login: isGuest ? 'Оверлей (OBS)' : userLogin,
 				role: isGuest ? 'guest' : isStreamer ? 'streamer' : 'moderator',
@@ -999,6 +1208,67 @@ app.prepare().then(() => {
 			broadcastUsers()
 		}
 
+		// ===== OBS: просмотр и управление =====
+		// Смотреть может любой в комнате (гость — тоже), управлять — стример,
+		// модератор с доступом или клиент с ключом прототипа.
+		const obsAllowed =
+			isObsControl || (!isGuest && (isStreamer || hasObsAccess(room, userLogin)))
+		const obsNow = obsRooms.get(room)
+		if (obsAllowed) socket.join(obsRoom)
+		socket.emit('obs:presence', { online: !!obsNow })
+		if (obsAllowed && obsNow?.state) socket.emit('obs:state', obsNow.state)
+		if (obsAllowed) {
+			obsViews.set(socket.id, { room, login: userLogin, allowed: true })
+			socket.on('disconnect', () => obsViews.delete(socket.id))
+			let cmdWin = 0
+			let cmdCount = 0
+			socket.on('obs:cmd', data => {
+				// право проверяем на каждой команде: отзыв в кабинете действует сразу
+				if (!hasObsAccess(room, userLogin) && !isStreamer && !isGhost && !obsKeyOk) {
+					socket.emit('obs:access', { allowed: false })
+					return
+				}
+				const now = Date.now()
+				if (now - cmdWin > 1000) {
+					cmdWin = now
+					cmdCount = 0
+				}
+				if (++cmdCount > 30) return
+				const cmd = cleanObsCmd(data)
+				const rec = obsRooms.get(room)
+				if (!cmd || !rec) {
+					socket.emit('obs:result', {
+						id: data && data.id,
+						ok: false,
+						error: rec ? 'команда отклонена' : 'OBS не подключён',
+					})
+					return
+				}
+				if (process.argv.includes('--dev'))
+					console.log('[obs] cmd:', cmd.action, 'room:', room.slice(0, 12), 'от', userLogin)
+				// право могло быть отозвано после подключения — проверяем каждый раз
+				if (
+					!obsKeyOk &&
+					!isStreamer &&
+					!isGhost &&
+					!hasObsAccess(room, userLogin)
+				) {
+					socket.emit('obs:denied')
+					return
+				}
+				const target = [...rec.bridges].pop()
+				if (!target) {
+					socket.emit('obs:result', {
+						id: data && data.id,
+						ok: false,
+						error: 'OBS не подключён',
+					})
+					return
+				}
+				io.to(target).emit('obs:cmd', cmd)
+			})
+		}
+
 		console.log(
 			'[io] connect:',
 			socket.id,
@@ -1022,6 +1292,8 @@ app.prepare().then(() => {
 					roomRec.dirty = true
 					return next()
 				}
+				// клиент с ключом прототипа управляет OBS без cookie-сессии
+				if (isObsControl && event === 'obs:cmd') return next()
 				if (READ_ONLY_EVENTS.has(event)) return next()
 				console.log('[io] гостю доступно только чтение, отклоняю:', event)
 				return next(new Error('read-only'))
@@ -1122,6 +1394,10 @@ app.prepare().then(() => {
 				console.log('[io] звук больше лимита, элемент не добавлен:', room.slice(0, 12))
 				return
 			}
+			if (extraBytes(el) > MAX_ELEMENT_EXTRA) {
+				console.log('[io] лишние поля элемента слишком большие:', room.slice(0, 12))
+				return
+			}
 			// предохранитель по памяти: комната с тяжёлыми base64-файлами не должна
 			// разрастись до OOM (это убило бы и её саму, и соседние комнаты).
 			// Считаем с учётом нового элемента, а не только текущего размера.
@@ -1129,6 +1405,10 @@ app.prepare().then(() => {
 			// второй: иначе Ctrl+Z раздувал комнату дублями.
 			el.id = el.id || Date.now() + '-' + Math.random().toString(36).slice(2, 9)
 			const existing = state.elements.findIndex(e => e.id === el.id)
+			if (existing < 0 && state.elements.length >= MAX_ELEMENTS) {
+				console.log('[io] лимит элементов комнаты:', room.slice(0, 12))
+				return
+			}
 			const current = roomStore.roomBytes(state)
 			const withNew =
 				current -
@@ -1202,6 +1482,10 @@ app.prepare().then(() => {
 					partial.playlistIndex = 0
 				}
 			}
+			if (extraBytes(partial) > MAX_ELEMENT_EXTRA) {
+				console.log('[io] лишние поля элемента слишком большие:', room.slice(0, 12))
+				return
+			}
 			// медиа можно менять и через update: проверяем, что комната не переполнится
 			if (partial.src !== undefined || partial.soundSrc !== undefined) {
 				const before = roomStore.roomBytes({ elements: [oldEl] })
@@ -1217,46 +1501,57 @@ app.prepare().then(() => {
 		})
 
 		socket.on('element:move', data => {
-			const idx = state.elements.findIndex(e => e.id === data.id)
+			const id = asId(data?.id)
+			const x = asCoord(data?.x)
+			const y = asCoord(data?.y)
+			if (id === null || x === null || y === null) return
+			const idx = state.elements.findIndex(e => e.id === id)
 			if (idx >= 0) {
-				const lock = roomRec.locks.get(data.id)
+				const lock = roomRec.locks.get(id)
 				const now = Date.now()
 				if (lock && lock.socketId !== socket.id && now < lock.until) {
 					if (!isStreamer && !isGhost) return // объект тащит другой
 					// стример/невидимка двигает чужой элемент — лок переходит к нему
-					roomRec.locks.set(data.id, {
+					roomRec.locks.set(id, {
 						socketId: socket.id,
 						login: userLogin,
 						until: now + 5000,
 					})
 					io.to(room).emit('element:lock', {
-						id: data.id,
+						id,
 						by: isGhost ? '' : userLogin,
 						until: now + 5000,
 					})
 				} else if (lock && lock.socketId === socket.id) {
 					lock.until = now + 5000 // продлеваем лок, пока тащат
 				}
-				state.elements[idx].x = data.x
-				state.elements[idx].y = data.y
-				socket.broadcast.to(room).emit('element:moved', data)
+				state.elements[idx].x = x
+				state.elements[idx].y = y
+				socket.broadcast.to(room).emit('element:moved', { id, x, y })
 			}
 		})
 
 		socket.on('element:resize', data => {
-			const idx = state.elements.findIndex(e => e.id === data.id)
+			const id = asId(data?.id)
+			const width = asCoord(data?.width, 1, 100000)
+			const height = asCoord(data?.height, 1, 100000)
+			const x = data?.x === undefined ? null : asCoord(data.x)
+			const y = data?.y === undefined ? null : asCoord(data.y)
+			if (id === null || width === null || height === null) return
+			if ((data.x !== undefined && x === null) || (data.y !== undefined && y === null)) return
+			const idx = state.elements.findIndex(e => e.id === id)
 			if (idx >= 0) {
-				const lock = roomRec.locks.get(data.id)
+				const lock = roomRec.locks.get(id)
 				const now = Date.now()
 				if (lock && lock.socketId !== socket.id && now < lock.until) {
 					if (!isStreamer && !isGhost) return // объект тащит другой
-					roomRec.locks.set(data.id, {
+					roomRec.locks.set(id, {
 						socketId: socket.id,
 						login: userLogin,
 						until: now + 5000,
 					})
 					io.to(room).emit('element:lock', {
-						id: data.id,
+						id,
 						by: isGhost ? '' : userLogin,
 						until: now + 5000,
 					})
@@ -1264,11 +1559,17 @@ app.prepare().then(() => {
 					lock.until = now + 5000
 				}
 				const el = state.elements[idx]
-				if (data.x !== undefined) el.x = data.x
-				if (data.y !== undefined) el.y = data.y
-				el.width = data.width
-				el.height = data.height
-				socket.broadcast.to(room).emit('element:resized', data)
+				if (x !== null) el.x = x
+				if (y !== null) el.y = y
+				el.width = width
+				el.height = height
+				socket.broadcast.to(room).emit('element:resized', {
+					id,
+					x: el.x,
+					y: el.y,
+					width,
+					height,
+				})
 			}
 		})
 
@@ -1384,6 +1685,7 @@ app.prepare().then(() => {
 		})
 
 		socket.on('timer:start', data => {
+			if (!data || asId(data.id) === null) return
 			const idx = state.elements.findIndex(e => e.id === data.id)
 			if (idx >= 0) {
 				const el = state.elements[idx]
@@ -1411,6 +1713,7 @@ app.prepare().then(() => {
 		})
 
 		socket.on('timer:pause', data => {
+			if (!data || asId(data.id) === null) return
 			const idx = state.elements.findIndex(e => e.id === data.id)
 			if (idx >= 0) {
 				const el = state.elements[idx]
@@ -1423,6 +1726,7 @@ app.prepare().then(() => {
 		})
 
 		socket.on('timer:reset', data => {
+			if (!data || asId(data.id) === null) return
 			const idx = state.elements.findIndex(e => e.id === data.id)
 			if (idx >= 0) {
 				state.elements[idx].isRunning = false

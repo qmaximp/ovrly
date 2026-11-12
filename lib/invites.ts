@@ -33,6 +33,8 @@ export async function ensurePendingInvite(
 			: {
 					status: 'pending',
 					suspended: false,
+					// доступ к OBS по умолчанию закрыт: включается вручную в кабинете
+					obs: prev?.obs ?? 'none',
 					invitedAt: prev?.invitedAt ?? now,
 					visitedAt: now,
 				}
@@ -42,11 +44,12 @@ export async function ensurePendingInvite(
 
 export async function acceptInvite(owner: string, login: string): Promise<void> {
 	const prev = await storage.getInvite(owner, login)
-	if (!prev) return
+	// принять можно только живое приглашение: отстранённый модератор не должен
+	// самовосстанавливаться повторным accept
+	if (!prev || prev.status !== 'pending' || prev.suspended) return
 	await storage.upsertInvite(owner, login, {
 		...prev,
 		status: 'accepted',
-		suspended: false,
 		acceptedAt: new Date().toISOString(),
 	})
 }
@@ -59,6 +62,16 @@ export async function setModeratorSuspended(
 	const prev = await storage.getInvite(owner, login)
 	if (!prev) return
 	await storage.upsertInvite(owner, login, { ...prev, suspended })
+}
+
+export async function setModeratorObs(
+	owner: string,
+	login: string,
+	obs: 'none' | 'control',
+): Promise<void> {
+	const prev = await storage.getInvite(owner, login)
+	if (!prev) return
+	await storage.upsertInvite(owner, login, { ...prev, obs })
 }
 
 export async function removeModerator(owner: string, login: string): Promise<void> {

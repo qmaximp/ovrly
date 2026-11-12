@@ -3,6 +3,7 @@ import ThemeToggle from '@/components/ThemeToggle'
 import CookieBanner from '@/components/CookieBanner'
 import ConsentDialog from '@/components/ConsentDialog'
 import StreamersCarousel from '@/components/StreamersCarousel'
+import LandingMotion from '@/components/LandingMotion'
 import { verifySession } from '@/lib/session'
 import { siteUrl } from '@/lib/site'
 import type { Metadata } from 'next'
@@ -267,14 +268,6 @@ export default async function Home({
 							<a href='#features'>Возможности</a>
 							<a href='#how'>Как работает</a>
 							<a href='#faq'>FAQ</a>
-							<a href='/guide'>Инструкция</a>
-							<a
-								href='https://github.com/qmaximp/ovrly'
-								target='_blank'
-								rel='noopener noreferrer'
-							>
-								GitHub
-							</a>
 						</nav>
 
 						<div className='header-actions'>
@@ -294,14 +287,6 @@ export default async function Home({
 									<a href='#features'>Возможности</a>
 									<a href='#how'>Как работает</a>
 									<a href='#faq'>FAQ</a>
-									<a href='/guide'>Инструкция</a>
-									<a
-										href='https://github.com/qmaximp/ovrly'
-										target='_blank'
-										rel='noopener noreferrer'
-									>
-										GitHub
-									</a>
 									<a href='/api/auth/twitch' className='btn btn-primary'>
 										<TwitchIcon size={16} />
 										Войти через Twitch
@@ -379,6 +364,7 @@ export default async function Home({
 									<span className='mock-pill' />
 									<span className='mock-pill' />
 									<span className='mock-pill' />
+									<span className='mock-pill mock-pill-new'>+</span>
 									<span className='mock-line w80' />
 									<span className='mock-line w60' />
 									<span className='mock-line w45' />
@@ -388,6 +374,7 @@ export default async function Home({
 									<div className='mock-card mock-card-a' />
 									<div className='mock-card mock-card-b' />
 									<div className='mock-card mock-card-c' />
+									<span className='mock-ring' />
 									<span className='mock-chip'>⏱ 05:00</span>
 									<svg
 										className='mock-cursor'
@@ -458,27 +445,6 @@ export default async function Home({
 					</a>
 				</section>
 
-				<section className='container section'>
-					<div className='showcase-strip reveal'>
-						<div className='showcase-item'>
-							<span className='showcase-value'>любой размер</span>
-							<span className='showcase-label'>холст оверлея</span>
-						</div>
-						<div className='showcase-item'>
-							<span className='showcase-value'>Browser Source</span>
-							<span className='showcase-label'>подключение к OBS</span>
-						</div>
-						<div className='showcase-item'>
-							<span className='showcase-value'>real-time</span>
-							<span className='showcase-label'>синхронизация панели</span>
-						</div>
-						<div className='showcase-item'>
-							<span className='showcase-value'>0 установок</span>
-							<span className='showcase-label'>только браузер</span>
-						</div>
-					</div>
-				</section>
-
 				<section id='faq' className='container section'>
 					<div className='section-head'>
 						<span className='kicker'>FAQ</span>
@@ -524,13 +490,9 @@ export default async function Home({
 				</section>
 
 				<footer className='container site-footer'>
-					<span>© 2026 jettle_, nezory_1 · Версия 2.1</span>
+					<span>© 2026 jettle_, nezory_1 · Версия 2.2.0</span>
 					<div className='footer-links'>
-						<a href='/guide'>Инструкция</a>
-						<a href='/legal/privacy'>Политика ПДн</a>
-						<a href='/legal/terms'>Оферта</a>
-						<a href='/legal/cookies'>Cookie</a>
-						<a href='/legal'>Реквизиты</a>
+						<a href='/legal'>Документы</a>
 						<a
 							href='https://t.me/ovrly_control'
 							target='_blank'
@@ -545,19 +507,12 @@ export default async function Home({
 						>
 							GitHub
 						</a>
-						<a
-							href='https://github.com/qmaximp/ovrly/blob/main/LICENSE'
-							target='_blank'
-							rel='noopener noreferrer'
-							title='GNU Affero General Public License v3.0'
-						>
-							AGPL-3.0
-						</a>
 					</div>
 				</footer>
 
 				<CookieBanner />
 				<ConsentDialog open={consent} next={nextSafe} />
+				<LandingMotion />
 			</div>
 		</main>
 	)

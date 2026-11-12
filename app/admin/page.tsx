@@ -19,7 +19,7 @@ function noAccessScreen(login: string): React.ReactNode {
 		<main className='min-h-screen bg-bg flex flex-col items-center justify-center px-4 text-center'>
 			<div className='bg-panel border border-border rounded-2xl p-8 max-w-sm w-full'>
 				<div className='text-5xl mb-4'>🔒</div>
-				<h1 className='text-lg font-semibold text-[color:var(--c-on-bg)] mb-2'>
+				<h1 className='text-lg font-semibold text-[color:rgb(var(--c-on-bg))] mb-2'>
 					Доступ только для администраторов
 				</h1>
 				<p className='text-sm text-gray-400 mb-6'>

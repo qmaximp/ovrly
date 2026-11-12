@@ -19,25 +19,36 @@ export function NumberField({
 	max?: number
 	title?: string
 }) {
-	const commit = (raw: string) => {
-		const n = parseInt(raw, 10)
-		if (isNaN(n)) {
-			onChange(min !== undefined && min > 0 ? min : 0)
-			return
-		}
-		onChange(
-			Math.max(min ?? -Infinity, Math.min(max ?? Infinity, n)),
-		)
+	// Черновик строки, пока поле в фокусе: без него «-» и «1.» затирались
+	// мгновенным parseInt/onChange (нельзя было ввести отрицательный X/Y)
+	const [raw, setRaw] = useState<string | null>(null)
+	const clamp = (n: number) => Math.max(min ?? -Infinity, Math.min(max ?? Infinity, n))
+	const commit = (text: string) => {
+		setRaw(text)
+		const n = parseInt(text, 10)
+		if (!isNaN(n)) onChange(clamp(n))
 	}
+
 	return (
 		<div title={title}>
 			<label className='text-xs text-gray-500 block mb-1'>{label}</label>
 			<input
 				type='number'
-				value={value}
+				inputMode='numeric'
+				value={raw ?? String(value)}
 				min={min}
 				max={max}
 				onChange={e => commit(e.target.value)}
+				onBlur={() => {
+					if (raw !== null) {
+						const n = parseInt(raw, 10)
+						onChange(isNaN(n) ? (min !== undefined && min > 0 ? min : 0) : clamp(n))
+					}
+					setRaw(null)
+				}}
+				onKeyDown={e => {
+					if (e.key === 'Enter') e.currentTarget.blur()
+				}}
 				className='w-full px-2 py-1.5 bg-bg border border-border rounded-lg text-sm'
 			/>
 		</div>

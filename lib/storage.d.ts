@@ -10,6 +10,8 @@ export type LinkRecord = {
 export type InviteEntry = {
 	status: 'pending' | 'accepted'
 	suspended: boolean
+	// право управлять OBS: 'none' — вкладки нет, 'control' — полный пульт
+	obs: 'none' | 'control'
 	invitedAt: string
 	visitedAt?: string
 	acceptedAt?: string

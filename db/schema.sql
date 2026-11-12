@@ -15,13 +15,19 @@ CREATE TABLE IF NOT EXISTS invites (
 	moderator text NOT NULL,
 	status text NOT NULL CHECK (status IN ('pending', 'accepted')),
 	suspended boolean NOT NULL DEFAULT false,
+	obs_access text NOT NULL DEFAULT 'control' CHECK (obs_access IN ('none', 'control')),
 	invited_at timestamptz NOT NULL DEFAULT now(),
 	visited_at timestamptz,
 	accepted_at timestamptz,
 	PRIMARY KEY (owner, moderator)
 );
 
+ALTER TABLE invites ADD COLUMN IF NOT EXISTS obs_access text NOT NULL DEFAULT 'control';
+
 CREATE INDEX IF NOT EXISTS invites_moderator_idx ON invites (moderator);
+
+-- право на OBS появилось позже; у существующих модераторов оставляем доступ
+ALTER TABLE invites ADD COLUMN IF NOT EXISTS obs_access text NOT NULL DEFAULT 'control';
 
 CREATE TABLE IF NOT EXISTS rooms (
 	key text PRIMARY KEY,
@@ -52,3 +58,13 @@ CREATE TABLE IF NOT EXISTS widget_library (
 
 CREATE INDEX IF NOT EXISTS widget_library_updated_idx
 	ON widget_library (updated_at DESC);
+
+-- Ключи OBS-моста: одна комната = одна ссылка на пульт. В базе лежит только
+-- sha256 ключа (для проверки) и ключ, зашифрованный секретом сайта (чтобы
+-- владелец мог перечитать ссылку). Утечка дампа без секрета доступа не даёт.
+CREATE TABLE IF NOT EXISTS obs_access (
+	room text PRIMARY KEY,
+	key_hash text NOT NULL,
+	key_enc text,
+	created_at timestamptz NOT NULL DEFAULT now()
+);

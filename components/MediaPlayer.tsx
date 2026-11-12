@@ -303,8 +303,11 @@ export function TwitchFrame({ el, onPlayer }: { el: StreamElement; onPlayer: (id
 	// если SDK не загрузился (блокировщик рекламы, недоступный twitch.tv) — говорим
 	// об этом прямо, иначе остаётся непонятный чёрный прямоугольник
 	const [failed, setFailed] = useState(false)
+	const playerRef = useRef<any>(null)
+	const ioRef = useRef<IntersectionObserver | null>(null)
 	useEffect(() => {
 		let cancelled = false
+		let readyTimer: number | undefined
 		const divId = 'twitch-' + el.id
 		;(async () => {
 			try {
@@ -318,17 +321,19 @@ export function TwitchFrame({ el, onPlayer }: { el: StreamElement; onPlayer: (id
 				else if (info.kind === 'twitch-vod') opts.video = info.id
 				else if (info.kind === 'twitch-clip') opts.clip = info.slug
 				const p = new Tw.Player(divId, opts)
+				playerRef.current = p
 				// Автозапуск в iframe часто залипает: после READY явно стартуем
 				// без звука — иначе браузер оставляет чёрный кадр.
 				const tryPlay = () => {
+					if (cancelled) return
 					try {
 						p.setMuted(true)
-						if (el.autoplay) void p.play()
+						if (el.autoplay) p.play()?.catch?.(() => {})
 					} catch {}
 				}
 				p.addEventListener(Tw.Player.READY, tryPlay)
 				// READY иногда приходит до подписки — одна страховочная попытка
-				window.setTimeout(tryPlay, 1500)
+				readyTimer = window.setTimeout(tryPlay, 1500)
 				// Twitch не запускает autoplay, пока iframe вне видимой области
 				// (панель можно проскроллить) — стартуем, когда элемент показан.
 				if (typeof IntersectionObserver !== 'undefined' && ref.current) {
@@ -338,6 +343,7 @@ export function TwitchFrame({ el, onPlayer }: { el: StreamElement; onPlayer: (id
 							tryPlay()
 						}
 					}, { threshold: 0.15 })
+					ioRef.current = io
 					io.observe(ref.current)
 				}
 				onPlayer(el.id, p)
@@ -347,6 +353,15 @@ export function TwitchFrame({ el, onPlayer }: { el: StreamElement; onPlayer: (id
 		})()
 		return () => {
 			cancelled = true
+			if (readyTimer !== undefined) window.clearTimeout(readyTimer)
+			ioRef.current?.disconnect()
+			ioRef.current = null
+			// без destroy() плеер продолжает играть и держать iframe в памяти
+			const p = playerRef.current
+			playerRef.current = null
+			try {
+				p?.destroy?.()
+			} catch {}
 			onPlayer(el.id, null)
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps

@@ -40,12 +40,28 @@ export async function POST(req: Request) {
 		return json({ error: 'file too large', maxBytes: config.maxBytes }, 413)
 	}
 
-	let buffer: Buffer
+	// Читаем поток с подсчётом байт: заголовку content-length доверять нельзя,
+	// chunked-запрос без него иначе займёт память целиком до проверки в putBuffer.
+	const chunks: Uint8Array[] = []
+	let total = 0
 	try {
-		buffer = Buffer.from(await req.arrayBuffer())
+		const reader = req.body?.getReader()
+		if (!reader) return json({ error: 'cannot read body' }, 400)
+		for (;;) {
+			const { done, value } = await reader.read()
+			if (done) break
+			if (!value) continue
+			total += value.byteLength
+			if (total > config.maxBytes) {
+				await reader.cancel().catch(() => {})
+				return json({ error: 'file too large', maxBytes: config.maxBytes }, 413)
+			}
+			chunks.push(value)
+		}
 	} catch {
 		return json({ error: 'cannot read body' }, 400)
 	}
+	const buffer = Buffer.concat(chunks, total)
 
 	try {
 		const media = await putBuffer(buffer, declared, name)
