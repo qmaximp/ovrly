@@ -77,7 +77,17 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 		socketRef.current = socket
 		socket.on('state:init', (s: SyncState) => setState(s))
 		socket.on('element:added', (el: StreamElement) =>
-			setState(p => ({ ...p, elements: [...p.elements, el] })),
+			setState(p => {
+				// повторное добавление с тем же id (отмена удаления, перезагрузка)
+				// не должно плодить копии: иначе на оверлее остаётся старый дубль
+				const exists = p.elements.some(e => e.id === el.id)
+				return {
+					...p,
+					elements: exists
+						? p.elements.map(e => (e.id === el.id ? { ...e, ...el } : e))
+						: [...p.elements, el],
+				}
+			}),
 		)
 		socket.on('element:updated', (el: StreamElement) => {
 			noteServerClock(el)

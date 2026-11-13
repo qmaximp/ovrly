@@ -1028,24 +1028,22 @@ export default function PanelClient({
 		) => {
 			const vp = viewportRef.current
 			if (!vp) return
-			const tr = `${opts?.rot ? `rotate(${opts.rot}deg)` : ''}${
-				opts?.flipH || opts?.flipV
-					? ` scale(${opts.flipH ? -1 : 1}, ${opts.flipV ? -1 : 1})`
-					: ''
-			}`
+			const tr = opts?.rot ? `rotate(${opts.rot}deg)` : ''
 			const node = vp.querySelector<HTMLElement>(`[data-elid="${id}"]`)
 			if (node) {
 				node.style.left = `${x}px`
 				node.style.top = `${y}px`
 				node.style.width = `${w}px`
 				node.style.height = `${h}px`
-				node.style.transform = tr
+				node.style.transform =
+					`${tr}${opts?.flipH || opts?.flipV ? ` scale(${opts.flipH ? -1 : 1}, ${opts.flipV ? -1 : 1})` : ''}`
 				if (opts?.crop) {
 					const inner = node.querySelector<HTMLElement>('img,video')
 					if (inner) Object.assign(inner.style, cropInnerStyle(opts.crop))
 				}
 			}
-			// рамка выделения живёт отдельным слоем поверх элементов
+			// рамка выделения живёт отдельным слоем поверх элементов; её и ручки
+			// не отражаем — иначе они прыгают на другую сторону
 			const box = vp.querySelector<HTMLElement>('[data-selbox]')
 			if (box && box.dataset.selbox === id) {
 				box.style.left = `${x}px`
@@ -3463,16 +3461,15 @@ export default function PanelClient({
 			// курсор в мировых координатах
 			const px = (e.clientX - rect.left - vx) / s
 			const py = (e.clientY - rect.top - vy) / s
-			// визуальные оси элемента (поворот + зеркалирование): ресайз тянется вдоль них
+			// визуальные оси элемента без зеркалирования: ручки стоят по рамке,
+			// а отражение учитывается отдельно при перетаскивании за грань
 			const th = ((orig.rotation ?? 0) * Math.PI) / 180
 			const cos = Math.cos(th)
 			const sin = Math.sin(th)
-			const fx = orig.flipH ? -1 : 1
-			const fy = orig.flipV ? -1 : 1
-			const axX = fx * cos
-			const axY = fx * sin
-			const ayX = -fy * sin
-			const ayY = fy * cos
+			const axX = cos
+			const axY = sin
+			const ayX = -sin
+			const ayY = cos
 			// дельта курсора от начала драга, разложенная на оси элемента
 			const dxw = (e.clientX - resizeRef.current.sx) / s
 			const dyw = (e.clientY - resizeRef.current.sy) / s
@@ -3587,24 +3584,24 @@ export default function PanelClient({
 				const dH = dir.includes('s') ? lvy : dir.includes('n') ? -lvy : 0
 				const rawW = orig.width + dW
 				const rawH = orig.height + dH
-				const flippedH = rawW < -8
-				const flippedV = rawH < -8
+				const flippedH = rawW < 0
+				const flippedV = rawH < 0
 				if (flippedH) flipH = !flipH
 				if (flippedV) flipV = !flipV
-				width = Math.max(
-					flippedH ? 8 : 30,
-					Math.round(flippedH ? Math.abs(rawW) : rawW),
-				)
-				height = Math.max(
-					flippedV ? 8 : 20,
-					Math.round(flippedV ? Math.abs(rawH) : rawH),
-				)
-				const appliedW = width - orig.width
-				const appliedH = height - orig.height
+				width = Math.max(2, Math.round(flippedH ? Math.abs(rawW) : rawW))
+				height = Math.max(2, Math.round(flippedV ? Math.abs(rawH) : rawH))
+				// фиксированный угол — противоположный тянемому. При переходе
+				// ручки за грань бокс растёт уже с другой стороны от него.
+				const fixX =
+					cx0 - axX * (orig.width / 2) * signX - ayX * (orig.height / 2) * signY
+				const fixY =
+					cy0 - axY * (orig.width / 2) * signX - ayY * (orig.height / 2) * signY
+				const effX = flippedH ? -signX : signX
+				const effY = flippedV ? -signY : signY
 				const ncx =
-					cx0 + axX * (appliedW / 2) * signX + ayX * (appliedH / 2) * signY
+					fixX + axX * (width / 2) * effX + ayX * (height / 2) * effY
 				const ncy =
-					cy0 + axY * (appliedW / 2) * signX + ayY * (appliedH / 2) * signY
+					fixY + axY * (width / 2) * effX + ayY * (height / 2) * effY
 				x = Math.round(ncx - width / 2)
 				y = Math.round(ncy - height / 2)
 			}
@@ -4951,12 +4948,9 @@ export default function PanelClient({
 										top: selected.y,
 										width: selected.width,
 										height: selected.height,
-										transform:
-											`${selected.rotation ? `rotate(${selected.rotation}deg)` : ''}${
-												selected.flipH || selected.flipV
-													? ` scale(${selected.flipH ? -1 : 1}, ${selected.flipV ? -1 : 1})`
-													: ''
-											}` || undefined,
+										transform: selected.rotation
+											? `rotate(${selected.rotation}deg)`
+											: undefined,
 										transformOrigin: 'center',
 										pointerEvents: 'none',
 										zIndex: 2000,
@@ -4981,12 +4975,7 @@ export default function PanelClient({
 											}`,
 										}}
 									/>
-									<div
-										className='absolute inset-0 pointer-events-none'
-										style={{
-											transform: `scale(${selected.flipH ? -1 : 1}, ${selected.flipV ? -1 : 1})`,
-										}}
-									>
+									<div className='absolute inset-0 pointer-events-none'>
 										{(
 											['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const
 										).map(dir => {
@@ -7966,6 +7955,20 @@ function PropertyEditor({
 					className='flex-1 px-2 py-1.5 text-xs bg-border hover:bg-gray-600 rounded-lg'
 				>
 					⤓ На самый низ
+				</button>
+			</div>
+			<div className='grid grid-cols-2 gap-2'>
+				<button
+					onClick={() => update({ flipH: !el.flipH })}
+					className={`px-2 py-1.5 text-xs rounded-lg transition-colors ${el.flipH ? 'bg-accent text-white' : 'bg-border hover:bg-gray-600'}`}
+				>
+					⇋ Отразить ↔
+				</button>
+				<button
+					onClick={() => update({ flipV: !el.flipV })}
+					className={`px-2 py-1.5 text-xs rounded-lg transition-colors ${el.flipV ? 'bg-accent text-white' : 'bg-border hover:bg-gray-600'}`}
+				>
+					⇅ Отразить ↕
 				</button>
 			</div>
 			<button
