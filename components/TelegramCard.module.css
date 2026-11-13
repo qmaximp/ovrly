@@ -261,6 +261,55 @@
 	height: 240px;
 	object-fit: cover;
 }
+
+.mediaRow {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-top: 8px;
+}
+
+.mediaPhoto {
+	width: 100%;
+	max-height: 210px;
+	object-fit: cover;
+	border-radius: 12px;
+}
+
+.sticker {
+	width: 96px;
+	height: 96px;
+	object-fit: contain;
+}
+
+.mediaVideo {
+	width: 100%;
+	max-height: 210px;
+	border-radius: 12px;
+	object-fit: cover;
+}
+
+.round {
+	width: 94px;
+	height: 94px;
+	border-radius: 50%;
+	object-fit: cover;
+}
+
+.voice {
+	width: 100%;
+	height: 30px;
+}
+
+.file {
+	display: block;
+	padding: 8px 10px;
+	border-radius: 10px;
+	background: rgba(42, 171, 238, .16);
+	color: #7ccbff;
+	font-size: 11px;
+	text-decoration: none;
+}
 .reacts {
 	display: flex;
 	flex-wrap: wrap;

@@ -5,9 +5,17 @@ import qrcode from 'qrcode-generator'
 import { normalizeTelegramChannel } from '@/lib/telegram'
 import s from './TelegramCard.module.css'
 
+type TelegramMedia = {
+	kind: 'photo' | 'video' | 'round' | 'sticker' | 'voice' | 'file'
+	url: string
+	thumb?: string
+	title?: string
+}
+
 type TelegramPost = {
 	text: string
 	photo: string
+	media?: TelegramMedia[]
 	date: string
 	views: string
 	url: string
@@ -310,17 +318,54 @@ export default function TelegramCard({
 													{shortDate(post.date)}
 												</span>
 											</div>
-											{post.photo && (
-												<div className={s.media}>
-													<img
-														src={post.photo}
-														alt=''
-														onError={e => {
-															e.currentTarget.style.display = 'none'
-														}}
-													/>
-												</div>
-											)}
+											{(() => {
+												const items =
+													post.media?.length
+														? post.media
+														: post.photo
+															? [{ kind: 'photo' as const, url: post.photo }]
+															: []
+												if (!items.length) return null
+												return (
+													<div className={s.mediaRow}>
+														{items.slice(0, 3).map((m, i) => {
+															if (m.kind === 'photo' || m.kind === 'sticker')
+																return (
+																	<img
+																		key={i}
+																		className={m.kind === 'sticker' ? s.sticker : s.mediaPhoto}
+																		src={m.url}
+																		alt=''
+																		onError={e => {
+																			e.currentTarget.style.display = 'none'
+																		}}
+																	/>
+																)
+															if (m.kind === 'voice')
+																return (
+																	<audio key={i} className={s.voice} controls src={m.url} />
+																)
+															if (m.kind === 'file')
+																return (
+																	<a key={i} className={s.file} href={m.url} target='_blank' rel='noreferrer'>
+																		{m.title || 'Файл'}
+																	</a>
+																)
+															return (
+																<video
+																	key={i}
+																	className={m.kind === 'round' ? s.round : s.mediaVideo}
+																	src={m.url}
+																	muted
+																	loop
+																	playsInline
+																	autoPlay
+																/>
+															)
+														})}
+													</div>
+												)
+											})()}
 											<div className={s.msgText}>{post.text || ''}</div>
 											<div className={s.reacts}>
 												<span data-react className={s.react}>

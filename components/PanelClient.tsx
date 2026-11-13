@@ -10,6 +10,7 @@ import {
 import TextStyleControls from '@/components/TextStyleControls'
 import WidgetVariableControl from '@/components/WidgetControls'
 import WidgetFrame from '@/components/WidgetFrame'
+import TelegramCard from '@/components/TelegramCard'
 import { normalizeTelegramChannel } from '@/lib/telegram'
 import { NumberField } from '@/components/fields'
 import { noteServerClock, serverClockLag } from '@/lib/clock'
@@ -5155,9 +5156,7 @@ export default function PanelClient({
 										className={`absolute select-none group ${el.locked ? '' : 'cursor-grab'}`}
 										style={{
 											left: el.x,
-											top: tgTile
-												? Math.max(el.y, state.canvasH + 40)
-												: el.y,
+											top: el.y,
 											width: tgTile ? 360 : el.width,
 											height: tgTile ? 110 : el.height,
 											// слой элемента подчиняется своему zIndex и в выделении:
@@ -5378,6 +5377,33 @@ export default function PanelClient({
 									</div>
 								)
 							})}
+							{/* Показ Telegram — только во время таймера: карточка видна
+							    модераторам в превью, но не перехватывает мышь. */}
+							{state.elements
+								.filter(
+									el =>
+										el.type === 'telegram' &&
+										el.telegramUntil &&
+										el.telegramUntil > Date.now(),
+								)
+								.map(el => (
+									<div
+										key={`tg-live-${el.id}`}
+										className='absolute left-0 top-0 pointer-events-none'
+										style={{
+											width: state.canvasW,
+											height: state.canvasH,
+											zIndex: 4500,
+										}}
+									>
+										<TelegramCard
+											channel={el.telegramChannel}
+											showQr={el.telegramQr !== false}
+											light={!!el.telegramLight}
+											until={el.telegramUntil}
+										/>
+									</div>
+								))}
 							{/* Ручки выбранного элемента — отдельным слоем поверх всех элементов:
 							    сам элемент остаётся на своём слое, поэтому «Вперёд/Назад»
 							    видно сразу, а ручки не прячутся под картинками выше */}

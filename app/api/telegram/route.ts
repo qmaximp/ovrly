@@ -3,9 +3,17 @@ import { normalizeTelegramChannel } from '@/lib/telegram'
 
 // Публичная карточка Telegram-канала для оверлея: последний пост, подписчики,
 // аватар и ссылка. Данные берём с публичной веб-версии t.me и кэшируем на 5 минут.
+type TelegramMedia = {
+	kind: 'photo' | 'video' | 'round' | 'sticker' | 'voice' | 'file'
+	url: string
+	thumb?: string
+	title?: string
+}
+
 type TelegramPost = {
 	text: string
 	photo: string
+	media?: TelegramMedia[]
 	date: string
 	views: string
 	url: string
@@ -72,7 +80,44 @@ function parseTelegram(html: string, channel: string): TelegramData {
 		) || ogImage
 
 	const chunks = html.split('tgme_widget_message_wrap').slice(1)
+	const parseMedia = (chunk: string): TelegramMedia[] => {
+		const out: TelegramMedia[] = []
+		const seen = new Set<string>()
+		const add = (m: TelegramMedia) => {
+			if (!m.url || seen.has(m.url)) return
+			seen.add(m.url)
+			out.push(m)
+		}
+		for (const m of chunk.matchAll(
+			/<a class="tgme_widget_message_photo_wrap[^"]*"[^>]*background-image:url\('([^']+)'\)/g,
+		))
+			add({ kind: 'photo', url: m[1] })
+		for (const m of chunk.matchAll(
+			/<i class="tgme_widget_message_sticker[^"]*"[^>]*background-image:url\('([^']+)'\)/g,
+		))
+			add({ kind: 'sticker', url: m[1] })
+		for (const m of chunk.matchAll(/<video\b[^>]*>/gi)) {
+			const tag = m[0]
+			const url = tag.match(/\bsrc="([^"]+)"/)?.[1] || ''
+			const kind = /roundvideo|round_video/i.test(tag)
+				? 'round'
+				: /gif/i.test(tag)
+					? 'video'
+					: 'video'
+			if (url) add({ kind, url })
+		}
+		for (const m of chunk.matchAll(/<audio\b[^>]*src="([^"]+)"[^>]*>/gi))
+			add({ kind: 'voice', url: m[1] })
+		for (const m of chunk.matchAll(
+			/<a class="tgme_widget_message_document_wrap"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi,
+		)) {
+			const title = plainText(m[2])
+			add({ kind: 'file', url: m[1], title })
+		}
+		return out.slice(0, 6)
+	}
 	const parseChunk = (chunk: string): TelegramPost | null => {
+		const media = parseMedia(chunk)
 		const text = plainText(
 			firstMatch(
 				chunk,
@@ -91,10 +136,11 @@ function parseTelegram(html: string, channel: string): TelegramData {
 			firstMatch(chunk, /tgme_widget_message_views[^>]*>([^<]+)</),
 		)
 		const postId = firstMatch(chunk, /data-post="([^"]+)"/)
-		if (!text && !photo && !timeText) return null
+		if (!text && !photo && !timeText && !media.length) return null
 		return {
 			text,
-			photo,
+			photo: photo || media.find(m => m.kind === 'photo')?.url || '',
+			media,
 			date: timeText || date,
 			views,
 			url: postId ? `https://t.me/${postId}` : `https://t.me/${channel}`,
