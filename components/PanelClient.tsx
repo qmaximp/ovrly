@@ -2735,12 +2735,12 @@ export default function PanelClient({
 	}, [addElement])
 
 	const addTelegramEl = useCallback(() => {
-		const p = parkingSpot(760, 560)
+		const p = parkingSpot(1024, 640)
 		addElement({
 			type: 'telegram',
 			...p,
-			width: 760,
-			height: 560,
+			width: 1024,
+			height: 640,
 			telegramChannel: '',
 			telegramQr: true,
 			telegramLight: false,
