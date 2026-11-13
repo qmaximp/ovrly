@@ -11,6 +11,7 @@ import TextStyleControls from '@/components/TextStyleControls'
 import WidgetVariableControl from '@/components/WidgetControls'
 import WidgetFrame from '@/components/WidgetFrame'
 import TelegramCard from '@/components/TelegramCard'
+import { normalizeTelegramChannel } from '@/lib/telegram'
 import { NumberField } from '@/components/fields'
 import { noteServerClock, serverClockLag } from '@/lib/clock'
 import { colorWithOpacity } from '@/lib/color'
@@ -2743,6 +2744,8 @@ export default function PanelClient({
 			telegramChannel: '',
 			telegramQr: true,
 			telegramLight: false,
+			telegramDuration: 15,
+			telegramUntil: 0,
 		})
 	}, [addElement])
 
@@ -8394,6 +8397,8 @@ function PreviewElementInner({
 		return (
 			<div className='w-full h-full pointer-events-none'>
 				<TelegramCard
+					key={el.telegramUntil || 'off'}
+					preview
 					channel={el.telegramChannel}
 					showQr={el.telegramQr !== false}
 					light={!!el.telegramLight}
@@ -8790,6 +8795,13 @@ function PropertyEditor({
 	const [audioPlaying, setAudioPlaying] = useState(false)
 	const [audioPos, setAudioPos] = useState(0)
 	const [audioDuration, setAudioDuration] = useState(0)
+	const [tgNow, setTgNow] = useState(Date.now())
+	useEffect(() => {
+		if (el.type !== 'telegram' || !el.telegramUntil) return
+		setTgNow(Date.now())
+		const t = setInterval(() => setTgNow(Date.now()), 500)
+		return () => clearInterval(t)
+	}, [el.id, el.type, el.telegramUntil])
 	useEffect(() => {
 		if (el.type !== 'audio' || !el.src) return
 		const a = new Audio()
@@ -8896,6 +8908,10 @@ function PropertyEditor({
 		setAudioPos(t)
 		emit('element:command', { id: el.id, cmd: 'audio-seek', value: t })
 	}
+	const tgRemain =
+		el.type === 'telegram' && el.telegramUntil
+			? Math.max(0, el.telegramUntil - tgNow)
+			: 0
 	const timerFinished =
 		el.type === 'timer' &&
 		el.timerDirection === 'down' &&
@@ -8960,6 +8976,47 @@ function PropertyEditor({
 								style={{ left: el.telegramLight ? 18 : 2 }}
 							/>
 						</button>
+					</div>
+					<div className='border-t border-border pt-2 space-y-2'>
+						<div className='flex items-center justify-between text-xs text-gray-400'>
+							<span>Длительность показа</span>
+							<span className='tabular-nums text-gray-300'>
+								{el.telegramDuration || 15} с
+							</span>
+						</div>
+						<input
+							type='range'
+							min={5}
+							max={120}
+							step={1}
+							value={el.telegramDuration || 15}
+							onChange={e => update({ telegramDuration: Number(e.target.value) })}
+							className='w-full accent-[rgb(var(--c-accent2))]'
+						/>
+						<div className='flex items-center gap-2'>
+							<button
+								onClick={() =>
+									update({
+										telegramUntil:
+											tgRemain > 0
+												? 0
+												: Date.now() + (el.telegramDuration || 15) * 1000,
+									})
+								}
+								className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-medium transition-colors ${
+									tgRemain > 0
+										? 'border border-border text-gray-300 hover:bg-bg'
+										: 'bg-accent text-white hover:bg-accent-hover'
+								}`}
+							>
+								{tgRemain > 0 ? 'Отменить' : 'Показать'}
+							</button>
+						</div>
+						<p className='text-[10px] text-gray-500'>
+							{tgRemain > 0
+								? `Показывается ${el.telegramChannel ? '@' + normalizeTelegramChannel(el.telegramChannel) : ''} · осталось ${Math.ceil(tgRemain / 1000)} с`
+								: 'Карточка скрыта на оверлее. Нажмите «Показать» — она появится с анимацией.'}
+						</p>
 					</div>
 				</div>
 			)}

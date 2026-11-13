@@ -544,9 +544,11 @@ function OverlayElement({ el, ytStarted }: { el: StreamElement; ytStarted: boole
 		return (
 			<div style={style}>
 				<TelegramCard
+					key={el.telegramUntil || 0}
 					channel={el.telegramChannel}
 					showQr={el.telegramQr !== false}
 					light={!!el.telegramLight}
+					until={el.telegramUntil}
 				/>
 			</div>
 		)

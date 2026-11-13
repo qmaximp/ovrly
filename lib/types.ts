@@ -125,6 +125,9 @@ export interface StreamElement {
   telegramChannel?: string;
   telegramQr?: boolean;
   telegramLight?: boolean;
+  // длительность показа и момент окончания (ms), как таймер в overlay.hub
+  telegramDuration?: number;
+  telegramUntil?: number;
   // группа в списке слоёв (как папки в Figma)
   groupId?: string;
   // кастомный виджет: снимок кода + текущие значения переменных

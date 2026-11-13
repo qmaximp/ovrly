@@ -1587,6 +1587,12 @@ app.prepare().then(() => {
 				el.telegramChannel = cleanTelegramChannel(el.telegramChannel)
 				el.telegramQr = el.telegramQr !== false
 				el.telegramLight = !!el.telegramLight
+				const d = Number(el.telegramDuration)
+				el.telegramDuration = Number.isFinite(d)
+					? Math.min(600, Math.max(3, Math.round(d)))
+					: 15
+				const u = Number(el.telegramUntil)
+				el.telegramUntil = Number.isFinite(u) && u > 0 ? u : 0
 			}
 			el.zIndex = el.zIndex ?? state.elements.length
 			el.visible = el.visible ?? true
@@ -1634,6 +1640,16 @@ app.prepare().then(() => {
 			if (partial.telegramQr !== undefined) partial.telegramQr = !!partial.telegramQr
 			if (partial.telegramLight !== undefined)
 				partial.telegramLight = !!partial.telegramLight
+			if (partial.telegramDuration !== undefined) {
+				const d = Number(partial.telegramDuration)
+				partial.telegramDuration = Number.isFinite(d)
+					? Math.min(600, Math.max(3, Math.round(d)))
+					: 15
+			}
+			if (partial.telegramUntil !== undefined) {
+				const u = Number(partial.telegramUntil)
+				partial.telegramUntil = Number.isFinite(u) && u > 0 ? u : 0
+			}
 			if (partial.widget !== undefined) {
 				const widget = cleanWidgetDefinition(partial.widget)
 				if (!widget) return

@@ -26,6 +26,10 @@ type Props = {
 	channel?: string
 	showQr?: boolean
 	light?: boolean
+	// момент окончания показа (ms). undefined/0 — карточка скрыта на оверлее
+	until?: number
+	// в панели карточка видна всегда, чтобы её можно было настроить
+	preview?: boolean
 }
 
 function TelegramLogo({ size = 22 }: { size?: number }) {
@@ -66,8 +70,31 @@ export default function TelegramCard({
 	channel,
 	showQr = true,
 	light = false,
+	until,
+	preview = false,
 }: Props) {
 	const nick = normalizeTelegramChannel(channel)
+	const [hidden, setHidden] = useState(
+		() => !preview && (!until || until <= Date.now()),
+	)
+
+	useEffect(() => {
+		setHidden(false)
+		if (preview) return
+		if (!until) {
+			setHidden(true)
+			return
+		}
+		const ms = until - Date.now()
+		if (ms <= 0) {
+			setHidden(true)
+			return
+		}
+		const t = setTimeout(() => setHidden(true), ms)
+		return () => clearTimeout(t)
+	}, [until, preview])
+
+	if (!preview && hidden) return null
 	const [data, setData] = useState<TelegramData | null>(null)
 	const [error, setError] = useState('')
 
