@@ -3166,32 +3166,13 @@ export default function PanelClient({
 		}
 	}, [emit, mediaToggle])
 
-	// Групповой бокс — в собственной системе координат выбранных элементов (как в pogly):
-	// ориентируем его по первому элементу и при повороте группы сохраняем этот угол,
-	// чтобы рамка вращалась вместе с контентом и не «дышала» при вращении;
-	// ручки прикреплены к боксу и следуют за ним. Даже при разных углах элементов
-	// рамка остаётся повёрнутой вместе с группой, а не осевой.
-	// Pivot (центр вращения) — центроид центров элементов: он инвариантен относительно
-	// вращения группы, поэтому бокс не съезжает во время поворота
+	// Общая рамка мультивыделения — всегда осевая (как в Figma): считаем
+	// визуальные углы повёрнутых элементов и берём их общий bbox. Раньше
+	// рамка наследовала поворот первого элемента и при разных углах уезжала.
 	const groupBox = useMemo(() => {
 		if (selectedIds.size < 2) return null
-		const items = stateRef.current.elements.filter(e => selectedIds.has(e.id))
+		const items = state.elements.filter(e => selectedIds.has(e.id))
 		if (items.length < 2) return null
-		const norm = (r?: number) => (((r ?? 0) % 360) + 360) % 360
-		const rot0 = norm(items[0].rotation)
-		// pivot: центроид центров — при вращении группы он остаётся на месте
-		let gx = 0
-		let gy = 0
-		for (const e of items) {
-			gx += e.x + e.width / 2
-			gy += e.y + e.height / 2
-		}
-		gx /= items.length
-		gy /= items.length
-		// локальная система: сдвиг в pivot и разворот на -rot0
-		const th = (rot0 * Math.PI) / 180
-		const cos = Math.cos(th)
-		const sin = Math.sin(th)
 		let x1 = Infinity
 		let y1 = Infinity
 		let x2 = -Infinity
@@ -3199,42 +3180,34 @@ export default function PanelClient({
 		for (const e of items) {
 			const ecx = e.x + e.width / 2
 			const ecy = e.y + e.height / 2
-			// угол элемента относительно рамки группы
-			const dth = ((norm(e.rotation) - rot0) * Math.PI) / 180
-			const c2 = Math.cos(dth)
-			const s2 = Math.sin(dth)
+			const th = ((e.rotation ?? 0) * Math.PI) / 180
+			const cos = Math.cos(th)
+			const sin = Math.sin(th)
 			const hw = e.width / 2
 			const hh = e.height / 2
-			// центр элемента в системе бокса: сдвиг от pivot, развёрнутый на -th
-			const ccx = (ecx - gx) * cos + (ecy - gy) * sin
-			const ccy = -(ecx - gx) * sin + (ecy - gy) * cos
 			for (const [dx, dy] of [
 				[-hw, -hh],
 				[hw, -hh],
 				[hw, hh],
 				[-hw, hh],
 			]) {
-				// смещение угла вращаем на относительный угол элемента
-				const lx = ccx + dx * c2 - dy * s2
-				const ly = ccy + dx * s2 + dy * c2
-				if (lx < x1) x1 = lx
-				if (lx > x2) x2 = lx
-				if (ly < y1) y1 = ly
-				if (ly > y2) y2 = ly
+				const wx = ecx + dx * cos - dy * sin
+				const wy = ecy + dx * sin + dy * cos
+				if (wx < x1) x1 = wx
+				if (wx > x2) x2 = wx
+				if (wy < y1) y1 = wy
+				if (wy > y2) y2 = wy
 			}
 		}
-		const w = x2 - x1
-		const h = y2 - y1
-		// локальный центр бокса обратно в мир: pivot + R(th)·(локальный центр)
-		const lcx = (x1 + x2) / 2
-		const lcy = (y1 + y2) / 2
+		const cx = (x1 + x2) / 2
+		const cy = (y1 + y2) / 2
 		return {
-			cx: gx + lcx * cos - lcy * sin,
-			cy: gy + lcx * sin + lcy * cos,
-			w,
-			h,
-			rot: rot0,
-			pivot: { x: gx, y: gy },
+			cx,
+			cy,
+			w: x2 - x1,
+			h: y2 - y1,
+			rot: 0,
+			pivot: { x: cx, y: cy },
 		}
 	}, [state, selectedIds])
 
