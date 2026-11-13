@@ -7422,7 +7422,7 @@ function PreviewElementInner({
 				<img
 					src={el.src}
 					alt=''
-					className='w-full h-full object-cover pointer-events-none'
+					className='w-full h-full object-fill pointer-events-none'
 					style={cropInnerStyle(el.crop)}
 					draggable={false}
 				/>
@@ -7456,7 +7456,7 @@ function PreviewElementInner({
 		return (
 			<video
 				src={el.src}
-				className='w-full h-full object-cover pointer-events-none'
+				className='w-full h-full object-fill pointer-events-none'
 				muted
 				loop
 				autoPlay
@@ -7646,7 +7646,7 @@ function VideoPreview({
 				ref={ref}
 				data-id={el.id}
 				src={el.src}
-				className='w-full h-full object-cover pointer-events-none'
+				className='w-full h-full object-fill pointer-events-none'
 				style={cropInnerStyle(el.crop)}
 				muted
 				loop
