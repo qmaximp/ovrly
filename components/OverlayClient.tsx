@@ -103,6 +103,8 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 				width: number
 				height: number
 				crop?: import('@/lib/crop').Crop | null
+				flipH?: boolean
+				flipV?: boolean
 			}) =>
 				setState(p => ({
 					...p,
@@ -115,6 +117,8 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 									width: d.width,
 									height: d.height,
 									...(d.crop !== undefined ? { crop: d.crop ?? undefined } : {}),
+									...(typeof d.flipH === 'boolean' ? { flipH: d.flipH } : {}),
+									...(typeof d.flipV === 'boolean' ? { flipV: d.flipV } : {}),
 								}
 							: e,
 					),

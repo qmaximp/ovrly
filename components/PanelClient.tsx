@@ -877,6 +877,9 @@ export default function PanelClient({
 				y?: number
 				width: number
 				height: number
+				crop?: import('@/lib/crop').Crop | null
+				flipH?: boolean
+				flipV?: boolean
 			}) =>
 				setState(p => ({
 					...p,
@@ -888,6 +891,9 @@ export default function PanelClient({
 									y: d.y ?? e.y,
 									width: d.width,
 									height: d.height,
+									...(d.crop !== undefined ? { crop: d.crop ?? undefined } : {}),
+									...(typeof d.flipH === 'boolean' ? { flipH: d.flipH } : {}),
+									...(typeof d.flipV === 'boolean' ? { flipV: d.flipV } : {}),
 								}
 							: e,
 					),
@@ -1001,6 +1007,56 @@ export default function PanelClient({
 	const emit = useCallback((event: string, data?: any) => {
 		socketRef.current?.emit(event, data)
 	}, [])
+
+	// Во время перетаскивания/ресайза двигаем DOM напрямую: полный ре-рендер
+	// панели на каждый pointermove (а в dev-сборке это десятки мс) заставлял
+	// элемент дёргаться и отставать от курсора. React получит окончательные
+	// координаты один раз — на pointerup.
+	const paintGeometry = useCallback(
+		(
+			id: string,
+			x: number,
+			y: number,
+			w: number,
+			h: number,
+			opts?: {
+				crop?: Crop | null
+				rot?: number
+				flipH?: boolean
+				flipV?: boolean
+			},
+		) => {
+			const vp = viewportRef.current
+			if (!vp) return
+			const tr = `${opts?.rot ? `rotate(${opts.rot}deg)` : ''}${
+				opts?.flipH || opts?.flipV
+					? ` scale(${opts.flipH ? -1 : 1}, ${opts.flipV ? -1 : 1})`
+					: ''
+			}`
+			const node = vp.querySelector<HTMLElement>(`[data-elid="${id}"]`)
+			if (node) {
+				node.style.left = `${x}px`
+				node.style.top = `${y}px`
+				node.style.width = `${w}px`
+				node.style.height = `${h}px`
+				node.style.transform = tr
+				if (opts?.crop) {
+					const inner = node.querySelector<HTMLElement>('img,video')
+					if (inner) Object.assign(inner.style, cropInnerStyle(opts.crop))
+				}
+			}
+			// рамка выделения живёт отдельным слоем поверх элементов
+			const box = vp.querySelector<HTMLElement>('[data-selbox]')
+			if (box && box.dataset.selbox === id) {
+				box.style.left = `${x}px`
+				box.style.top = `${y}px`
+				box.style.width = `${w}px`
+				box.style.height = `${h}px`
+				box.style.transform = tr
+			}
+		},
+		[],
+	)
 
 	useEffect(() => {
 		setTheme(
@@ -2605,6 +2661,8 @@ export default function PanelClient({
 				sy: e.clientY,
 				dx: 0,
 				dy: 0,
+				bx: groupBox?.cx ?? 0,
+				by: groupBox?.cy ?? 0,
 				items,
 				lastTick: 0,
 			}
@@ -2649,6 +2707,8 @@ export default function PanelClient({
 		sy: number
 		dx: number
 		dy: number
+		bx: number
+		by: number
 		items: { id: string; x: number; y: number }[]
 		lastTick: number
 	} | null>(null)
@@ -2824,15 +2884,29 @@ export default function PanelClient({
 				g.dx = (e.clientX - g.sx) / s
 				g.dy = (e.clientY - g.sy) / s
 				const { dx, dy } = g
-				setState(p => ({
-					...p,
-					elements: p.elements.map(el => {
-						const it = g.items.find(i => i.id === el.id)
-						return it
-							? { ...el, x: Math.round(it.x + dx), y: Math.round(it.y + dy) }
-							: el
-					}),
-				}))
+				g.items.forEach(it => {
+					const cur = stateRef.current.elements.find(e => e.id === it.id)
+					if (cur)
+						paintGeometry(
+							it.id,
+							Math.round(it.x + dx),
+							Math.round(it.y + dy),
+							cur.width,
+							cur.height,
+							{
+								rot: cur.rotation,
+								flipH: cur.flipH,
+								flipV: cur.flipV,
+							},
+						)
+				})
+				const gbEl = viewportRef.current?.querySelector<HTMLElement>(
+					'[data-groupbox]',
+				)
+				if (gbEl) {
+					gbEl.style.left = `${g.bx + dx}px`
+					gbEl.style.top = `${g.by + dy}px`
+				}
 				const now = performance.now()
 				if (now - g.lastTick >= 33) {
 					g.lastTick = now
@@ -2858,10 +2932,13 @@ export default function PanelClient({
 			const x = Math.round(lx - dragRef.current.offX)
 			const y = Math.round(ly - dragRef.current.offY)
 			const id = dragRef.current.id
-			setState(p => ({
-				...p,
-				elements: p.elements.map(el => (el.id === id ? { ...el, x, y } : el)),
-			}))
+			const cur = stateRef.current.elements.find(e => e.id === id)
+			if (cur)
+				paintGeometry(id, x, y, cur.width, cur.height, {
+					rot: cur.rotation,
+					flipH: cur.flipH,
+					flipV: cur.flipV,
+				})
 			lastMoveRef.current = { id, x, y }
 			const now = performance.now()
 			if (now - moveThrottleRef.current >= 33) {
@@ -2869,7 +2946,7 @@ export default function PanelClient({
 				emit('element:move', { id, x, y })
 			}
 		},
-		[emit],
+		[emit, paintGeometry],
 	)
 
 	const handleMouseUp = useCallback(() => {
@@ -2905,6 +2982,16 @@ export default function PanelClient({
 		}
 		const g = groupDragRef.current
 		if (g) {
+			// финальная позиция группы — в состояние (во время drag двигали DOM)
+			setState(p => ({
+				...p,
+				elements: p.elements.map(el => {
+					const it = g.items.find(i => i.id === el.id)
+					return it
+						? { ...el, x: Math.round(it.x + g.dx), y: Math.round(it.y + g.dy) }
+						: el
+				}),
+			}))
 			// финальная позиция группы
 			g.items.forEach(it => {
 				const x = Math.round(it.x + g.dx)
@@ -2957,8 +3044,17 @@ export default function PanelClient({
 		dragRef.current = null
 		document.body.classList.remove('dragging')
 		if (lastMoveRef.current) {
+			const lm = lastMoveRef.current
 			moveThrottleRef.current = 0
-			emit('element:move', lastMoveRef.current)
+			// окончательная позиция в состояние: во время drag стиль меняли напрямую,
+			// чтобы не ре-рендерить всю панель на каждый пиксель
+			setState(p => ({
+				...p,
+				elements: p.elements.map(el =>
+					el.id === lm.id ? { ...el, x: lm.x, y: lm.y } : el,
+				),
+			}))
+			emit('element:move', lm)
 			lastMoveRef.current = null
 		}
 	}, [emit, mediaToggle])
@@ -3057,6 +3153,8 @@ export default function PanelClient({
 				sy: e.clientY,
 				dx: 0,
 				dy: 0,
+				bx: groupBox?.cx ?? 0,
+				by: groupBox?.cy ?? 0,
 				items,
 				lastTick: 0,
 			}
@@ -3322,6 +3420,8 @@ export default function PanelClient({
 		width: number
 		height: number
 		crop?: Crop
+		flipH?: boolean
+		flipV?: boolean
 	} | null>(null)
 
 	const handleResizeStart = (
@@ -3385,6 +3485,8 @@ export default function PanelClient({
 			let x = orig.x
 			let y = orig.y
 			let crop: Crop | undefined = orig.crop ? { ...orig.crop } : undefined
+			let flipH = orig.flipH
+			let flipV = orig.flipV
 			const signX = dir.includes('w') ? -1 : dir.includes('e') ? 1 : 0
 			const signY = dir.includes('n') ? -1 : dir.includes('s') ? 1 : 0
 			// фото/видео/iframe при обычном ресайзе не растягиваем
@@ -3485,8 +3587,6 @@ export default function PanelClient({
 				const dH = dir.includes('s') ? lvy : dir.includes('n') ? -lvy : 0
 				const rawW = orig.width + dW
 				const rawH = orig.height + dH
-				let flipH = orig.flipH
-				let flipV = orig.flipV
 				const flippedH = rawW < -8
 				const flippedV = rawH < -8
 				if (flippedH) flipH = !flipH
@@ -3507,24 +3607,14 @@ export default function PanelClient({
 					cy0 + axY * (appliedW / 2) * signX + ayY * (appliedH / 2) * signY
 				x = Math.round(ncx - width / 2)
 				y = Math.round(ncy - height / 2)
-				if (flippedH || flippedV) {
-					setState(p => ({
-						...p,
-						elements: p.elements.map(el =>
-							el.id === orig.id ? { ...el, flipH, flipV } : el,
-						),
-					}))
-				}
 			}
 			const cropOut = crop ?? null
-			setState(p => ({
-				...p,
-				elements: p.elements.map(el =>
-					el.id === orig.id
-						? { ...el, x, y, width, height, crop: cropOut ?? undefined }
-						: el,
-				),
-			}))
+			paintGeometry(orig.id, x, y, width, height, {
+				crop: cropOut,
+				rot: orig.rotation,
+				flipH,
+				flipV,
+			})
 			lastResizeRef.current = {
 				id: orig.id,
 				x,
@@ -3532,14 +3622,25 @@ export default function PanelClient({
 				width,
 				height,
 				crop: cropOut ?? undefined,
+				flipH,
+				flipV,
 			}
 			const now = performance.now()
 			if (now - resizeThrottleRef.current >= 33) {
 				resizeThrottleRef.current = now
-				emit('element:resize', { id: orig.id, x, y, width, height, crop: cropOut })
+				emit('element:resize', {
+					id: orig.id,
+					x,
+					y,
+					width,
+					height,
+					crop: cropOut,
+					flipH,
+					flipV,
+				})
 			}
 		},
-		[emit],
+		[emit, paintGeometry],
 	)
 
 	useEffect(() => {
@@ -3548,8 +3649,28 @@ export default function PanelClient({
 			setCroppingId(null)
 			document.body.classList.remove('dragging')
 			if (lastResizeRef.current) {
+				const lr = lastResizeRef.current
 				resizeThrottleRef.current = 0
-				emit('element:resize', lastResizeRef.current)
+				// окончательные координаты — в React-состояние (во время drag его
+				// не трогаем, иначе полный ре-рендер дёргает элемент)
+				setState(p => ({
+					...p,
+					elements: p.elements.map(el =>
+						el.id === lr.id
+							? {
+									...el,
+									x: lr.x,
+									y: lr.y,
+									width: lr.width,
+									height: lr.height,
+									crop: lr.crop,
+									flipH: lr.flipH,
+									flipV: lr.flipV,
+								}
+							: el,
+					),
+				}))
+				emit('element:resize', lr)
 				lastResizeRef.current = null
 			}
 		}
@@ -4593,6 +4714,7 @@ export default function PanelClient({
 										key={el.id}
 										onPointerDown={e => handleDragStart(e, el)}
 										data-elwrap='1'
+										data-elid={el.id}
 										className={`absolute select-none group ${el.locked ? '' : 'cursor-grab'}`}
 										style={{
 											left: el.x,
@@ -4823,6 +4945,7 @@ export default function PanelClient({
 							{selected && selectedIds.size === 0 && !selected.locked && (
 								<div
 									className='absolute'
+									data-selbox={selected.id}
 									style={{
 										left: selected.x,
 										top: selected.y,
@@ -4991,6 +5114,7 @@ export default function PanelClient({
 							{groupBox && selectedIds.size > 1 && (
 								<div
 									className='absolute'
+									data-groupbox='1'
 									style={{
 										left: groupBox.cx,
 										top: groupBox.cy,

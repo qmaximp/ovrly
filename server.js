@@ -1578,6 +1578,10 @@ app.prepare().then(() => {
 				el.width = width
 				el.height = height
 				if (cropProvided) el.crop = crop
+				const flipProvided =
+					typeof data?.flipH === 'boolean' || typeof data?.flipV === 'boolean'
+				if (typeof data?.flipH === 'boolean') el.flipH = data.flipH
+				if (typeof data?.flipV === 'boolean') el.flipV = data.flipV
 				socket.broadcast.to(room).emit('element:resized', {
 					id,
 					x: el.x,
@@ -1585,6 +1589,9 @@ app.prepare().then(() => {
 					width,
 					height,
 					...(cropProvided ? { crop } : {}),
+					...(flipProvided
+						? { flipH: !!el.flipH, flipV: !!el.flipV }
+						: {}),
 				})
 			}
 		})
