@@ -13,6 +13,7 @@ import WidgetFrame from '@/components/WidgetFrame'
 import { NumberField } from '@/components/fields'
 import { noteServerClock, serverClockLag } from '@/lib/clock'
 import { colorWithOpacity } from '@/lib/color'
+import { CROP_MAX, cropActive, cropInnerStyle, type Crop } from '@/lib/crop'
 import { toEmbedUrl, youtubePlaylistId } from '@/lib/embed'
 import {
 	cannotBeFramed,
@@ -1066,12 +1067,15 @@ export default function PanelClient({
 	const updateElement = useCallback(
 		(id: string, partial: Partial<StreamElement>) => {
 			remember()
+			// новый источник — старая обрезка к нему не относится
+			const patch =
+				partial.src !== undefined ? { ...partial, crop: undefined } : partial
 			setState(p => ({
 				...p,
-				elements: p.elements.map(e => (e.id === id ? { ...e, ...partial } : e)),
+				elements: p.elements.map(e => (e.id === id ? { ...e, ...patch } : e)),
 			}))
 			const pending = pendingUpdatesRef.current.get(id)
-			const merged = { ...(pending?.partial || {}), ...partial }
+			const merged = { ...(pending?.partial || {}), ...patch }
 			if (pending) clearTimeout(pending.timer)
 			const timer = setTimeout(() => {
 				pendingUpdatesRef.current.delete(id)
@@ -1305,8 +1309,7 @@ export default function PanelClient({
 	)
 
 	// команда: локальному плееру + сразу в оверлей (для действий плашки)
-	const mediaCommand = useCallback(
-		(id: string, cmd: string, value?: number) => {
+	const mediaCommand = useCallback(		(id: string, cmd: string, value?: number) => {
 			if (cmd === 'cc') ccStatesRef.current.set(id, value ?? 0)
 			localMediaCommand(id, cmd, value)
 			emit('element:command', { id, cmd, value })
@@ -1335,6 +1338,42 @@ export default function PanelClient({
 		if (ctl) chromeCtlRefs.current.set(id, ctl)
 		else chromeCtlRefs.current.delete(id)
 	}, [])
+
+	// Панель — источник правды по звуку загруженных видео: после перезагрузки
+	// панели превью снова mute, а оверлей мог остаться со звуком. Как только
+	// состояние превью изменилось (в т.ч. при монтировании) — догоняем оверлей.
+	const mediaSentRef = useRef<Map<string, { muted: boolean; vol: number }>>(
+		new Map(),
+	)
+	// первый заход в комнату: всё загруженное видео стартует без звука, как и
+	// превью в панели. Иначе после перезагрузки панели оверлей продолжал играть
+	// со звуком, хотя кнопка показывала «включить звук».
+	const mutedOnLoadRef = useRef(false)
+	useEffect(() => {
+		if (!connected || mutedOnLoadRef.current || !state.elements.length) return
+		mutedOnLoadRef.current = true
+		for (const el of state.elements)
+			if (el.type === 'video')
+				emit('element:command', { id: el.id, cmd: 'mute' })
+	}, [connected, state.elements, emit])
+	useEffect(() => {
+		if (!connected) return
+		for (const [id, st] of mediaStates) {
+			if (st.kind !== 'video') continue
+			const prev = mediaSentRef.current.get(id)
+			if (prev && prev.muted === st.muted && Math.abs(prev.vol - st.vol) < 0.005)
+				continue
+			if (!prev || Math.abs(prev.vol - st.vol) >= 0.005)
+				emit('element:command', {
+					id,
+					cmd: 'volume',
+					value: Math.round(st.vol * 100),
+				})
+			if (!prev || prev.muted !== st.muted)
+				emit('element:command', { id, cmd: st.muted ? 'mute' : 'unmute' })
+			mediaSentRef.current.set(id, { muted: st.muted, vol: st.vol })
+		}
+	}, [mediaStates, connected, emit])
 
 	// SDK-плеер Twitch смонтирован: подписываемся на события плей/пауза
 	const onTwitchPlayer = useCallback((id: string, p: any | null) => {
@@ -1731,6 +1770,32 @@ export default function PanelClient({
 	const selectOnly = useCallback((id: string) => {
 		setSelectedIds(new Set())
 		setSelectedId(id)
+	}, [])
+
+	// Клик по элементу в списке: если он за пределами видимой области —
+	// центрируем холст на нём (иначе выбор «терялся» за краем экрана)
+	const revealElement = useCallback((el: StreamElement) => {
+		const vp = viewportRef.current
+		if (!vp) return
+		const rect = vp.getBoundingClientRect()
+		const v = viewRef.current
+		const pad = 24 / v.s
+		const left = (0 - v.x) / v.s
+		const top = (0 - v.y) / v.s
+		const right = (rect.width - v.x) / v.s
+		const bottom = (rect.height - v.y) / v.s
+		if (
+			el.x >= left + pad &&
+			el.y >= top + pad &&
+			el.x + el.width <= right - pad &&
+			el.y + el.height <= bottom - pad
+		)
+			return
+		setView(prev => ({
+			...prev,
+			x: rect.width / 2 - (el.x + el.width / 2) * prev.s,
+			y: rect.height / 2 - (el.y + el.height / 2) * prev.s,
+		}))
 	}, [])
 
 	const rotateRef = useRef<{
@@ -2570,7 +2635,7 @@ export default function PanelClient({
 			sy: e.clientY,
 		}
 		dragStartPosRef.current = { id: el.id, x: el.x, y: el.y }
-		if (el.type !== 'iframe') setInteractiveIframeId(null)
+		if (el.type !== 'iframe' && el.type !== 'widget') setInteractiveIframeId(null)
 		document.body.classList.add('dragging')
 		setSelectedId(el.id)
 	}
@@ -2855,6 +2920,15 @@ export default function PanelClient({
 			if (dr.type === 'video') {
 				// клик по видео без перетаскивания — плей/пауза (плеер прозрачен для курсора)
 				mediaToggle(dr.id)
+			} else if (dr.type === 'widget') {
+				// первый клик — фокус (виджет ещё можно двигать), второй — управление
+				// внутри виджета: iframe перестаёт пропускать клики на панель
+				if (iframeArmRef.current !== dr.id) {
+					iframeArmRef.current = dr.id
+					setInteractiveIframeId(null)
+				} else {
+					setInteractiveIframeId(dr.id)
+				}
 			} else if (dr.type === 'iframe') {
 				const el = stateRef.current.elements.find(x => x.id === dr.id)
 				const tw = el ? parseMediaUrl(el.src || '')?.kind : undefined
@@ -3237,7 +3311,9 @@ export default function PanelClient({
 		sx: number
 		sy: number
 		orig: StreamElement
+		crop?: boolean
 	} | null>(null)
+	const [croppingId, setCroppingId] = useState<string | null>(null)
 	const resizeThrottleRef = useRef(0)
 	const lastResizeRef = useRef<{
 		id: string
@@ -3245,6 +3321,7 @@ export default function PanelClient({
 		y: number
 		width: number
 		height: number
+		crop?: Crop
 	} | null>(null)
 
 	const handleResizeStart = (
@@ -3268,7 +3345,12 @@ export default function PanelClient({
 			sx: e.clientX,
 			sy: e.clientY,
 			orig: { ...el },
+			// Alt по ручке = обрезка медиа, а не изменение размера
+			crop:
+				e.altKey &&
+				(el.type === 'image' || el.type === 'gif' || el.type === 'video'),
 		}
+		if (e.altKey && resizeRef.current.crop) setCroppingId(el.id)
 		resizeSnapRef.current = { id: el.id, el: { ...el } }
 	}
 
@@ -3298,10 +3380,63 @@ export default function PanelClient({
 			const lvy = -dxw * sin + dyw * cos
 			const cx0 = orig.x + orig.width / 2
 			const cy0 = orig.y + orig.height / 2
-			let width, height, x, y
+			let width = Math.round(orig.width)
+			let height = Math.round(orig.height)
+			let x = orig.x
+			let y = orig.y
+			let crop: Crop | undefined = orig.crop ? { ...orig.crop } : undefined
 			const signX = dir.includes('w') ? -1 : dir.includes('e') ? 1 : 0
 			const signY = dir.includes('n') ? -1 : dir.includes('s') ? 1 : 0
-			if (dir.length === 2 && e.shiftKey) {
+			if (resizeRef.current.crop) {
+				// ── Alt+ручка: подрезаем картинку, бокс остаётся видимым окном ──
+				const c = crop ?? { l: 0, t: 0, r: 0, b: 0 }
+				const baseW = orig.width / Math.max(0.02, 1 - c.l - c.r)
+				const baseH = orig.height / Math.max(0.02, 1 - c.t - c.b)
+				const dW = signX === 1 ? lvx : signX === -1 ? -lvx : 0
+				const dH = signY === 1 ? lvy : signY === -1 ? -lvy : 0
+				const minW = Math.min(12 / baseW, 0.5)
+				const minH = Math.min(12 / baseH, 0.5)
+				if (signX === 1) {
+					c.r = Math.max(
+						0,
+						Math.min(CROP_MAX - c.l - minW, c.r - dW / baseW),
+					)
+				} else if (signX === -1) {
+					c.l = Math.max(
+						0,
+						Math.min(CROP_MAX - c.r - minW, c.l - dW / baseW),
+					)
+				}
+				if (signY === 1) {
+					c.b = Math.max(
+						0,
+						Math.min(CROP_MAX - c.t - minH, c.b - dH / baseH),
+					)
+				} else if (signY === -1) {
+					c.t = Math.max(
+						0,
+						Math.min(CROP_MAX - c.b - minH, c.t - dH / baseH),
+					)
+				}
+				width = Math.max(8, Math.round(baseW * (1 - c.l - c.r)))
+				height = Math.max(8, Math.round(baseH * (1 - c.t - c.b)))
+				// при обрезке слева/сверху контент не должен съезжать: двигаем
+				// бокс вслед за новым краем, чтобы правый/нижний остались на месте
+				x = Math.round(
+					orig.x + (c.l - (orig.crop?.l ?? 0)) * baseW,
+				)
+				y = Math.round(
+					orig.y + (c.t - (orig.crop?.t ?? 0)) * baseH,
+				)
+				crop = cropActive(c)
+					? {
+							l: Math.round(c.l * 10000) / 10000,
+							t: Math.round(c.t * 10000) / 10000,
+							r: Math.round(c.r * 10000) / 10000,
+							b: Math.round(c.b * 10000) / 10000,
+						}
+					: undefined
+			} else if (dir.length === 2 && e.shiftKey) {
 				// пропорционально: фиксированный угол — противоположный тянемому
 				const fixX =
 					cx0 - axX * (orig.width / 2) * signX - ayX * (orig.height / 2) * signY
@@ -3326,11 +3461,27 @@ export default function PanelClient({
 				y = Math.round(ncy - height / 2)
 			} else {
 				// рост вдоль осей элемента; противоположная грань остаётся на месте —
-				// для этого центр смещается на половину прироста вдоль той же оси
+				// для этого центр смещается на половину прироста вдоль той же оси.
+				// Если ручку протащить за противоположную грань — контент отражается
+				// (как в OBS), а бокс продолжает расти уже в другую сторону.
 				const dW = dir.includes('e') ? lvx : dir.includes('w') ? -lvx : 0
 				const dH = dir.includes('s') ? lvy : dir.includes('n') ? -lvy : 0
-				width = Math.max(30, Math.round(orig.width + dW))
-				height = Math.max(20, Math.round(orig.height + dH))
+				const rawW = orig.width + dW
+				const rawH = orig.height + dH
+				let flipH = orig.flipH
+				let flipV = orig.flipV
+				const flippedH = rawW < -8
+				const flippedV = rawH < -8
+				if (flippedH) flipH = !flipH
+				if (flippedV) flipV = !flipV
+				width = Math.max(
+					flippedH ? 8 : 30,
+					Math.round(flippedH ? Math.abs(rawW) : rawW),
+				)
+				height = Math.max(
+					flippedV ? 8 : 20,
+					Math.round(flippedV ? Math.abs(rawH) : rawH),
+				)
 				const appliedW = width - orig.width
 				const appliedH = height - orig.height
 				const ncx =
@@ -3339,18 +3490,36 @@ export default function PanelClient({
 					cy0 + axY * (appliedW / 2) * signX + ayY * (appliedH / 2) * signY
 				x = Math.round(ncx - width / 2)
 				y = Math.round(ncy - height / 2)
+				if (flippedH || flippedV) {
+					setState(p => ({
+						...p,
+						elements: p.elements.map(el =>
+							el.id === orig.id ? { ...el, flipH, flipV } : el,
+						),
+					}))
+				}
 			}
+			const cropOut = crop ?? null
 			setState(p => ({
 				...p,
 				elements: p.elements.map(el =>
-					el.id === orig.id ? { ...el, x, y, width, height } : el,
+					el.id === orig.id
+						? { ...el, x, y, width, height, crop: cropOut ?? undefined }
+						: el,
 				),
 			}))
-			lastResizeRef.current = { id: orig.id, x, y, width, height }
+			lastResizeRef.current = {
+				id: orig.id,
+				x,
+				y,
+				width,
+				height,
+				crop: cropOut ?? undefined,
+			}
 			const now = performance.now()
 			if (now - resizeThrottleRef.current >= 33) {
 				resizeThrottleRef.current = now
-				emit('element:resize', { id: orig.id, x, y, width, height })
+				emit('element:resize', { id: orig.id, x, y, width, height, crop: cropOut })
 			}
 		},
 		[emit],
@@ -3359,6 +3528,7 @@ export default function PanelClient({
 	useEffect(() => {
 		const fn = () => {
 			resizeRef.current = null
+			setCroppingId(null)
 			document.body.classList.remove('dragging')
 			if (lastResizeRef.current) {
 				resizeThrottleRef.current = 0
@@ -4081,7 +4251,10 @@ export default function PanelClient({
 									el={el}
 									selected={selectedId === el.id}
 									active={selectedIds.has(el.id)}
-									onSelect={() => selectOnly(el.id)}
+									onSelect={() => {
+										selectOnly(el.id)
+										revealElement(el)
+									}}
 									onToggleVisible={() => {
 										setState(p => ({
 											...p,
@@ -4373,6 +4546,31 @@ export default function PanelClient({
 								// ими управляет общий бокс группы, иначе над ним появляется
 								// вторая «крутилка» и перехватывает мышь
 								const multiSelect = selectedIds.size > 1
+								// не держим в памяти медиа за пределами экрана: телефон с
+								// десятком видео/сайтов иначе начинает тормозить и греться.
+								// выбранный элемент рендерим всегда — иначе пропадёт превью,
+								// с которым работает пользователь
+								const heavy =
+									el.type === 'video' ||
+									el.type === 'gif' ||
+									el.type === 'image' ||
+									el.type === 'iframe' ||
+									el.type === 'widget'
+								const onScreen = (() => {
+									if (!heavy) return true
+									if (el.id === selectedId || selectedIds.has(el.id)) return true
+									const w = canvasEl?.clientWidth || 1200
+									const h = canvasEl?.clientHeight || 800
+									const pad = 400
+									const l = -view.x / view.s - pad
+									const t = -view.y / view.s - pad
+									return (
+										el.x + el.width > l &&
+										el.x < l + w / view.s + pad * 2 &&
+										el.y + el.height > t &&
+										el.y < t + h / view.s + pad * 2
+									)
+								})()
 								return (
 									<div
 										key={el.id}
@@ -4431,20 +4629,22 @@ export default function PanelClient({
 													}}
 												/>
 											)}
-										<PreviewElement
-											el={el}
-											scale={1}
-											interactive={interactiveIframeId === el.id}
-											mounted={mounted}
-											mediaSt={mediaStates.get(el.id)}
-											chromeRegister={registerChromeCtl}
-											mediaToggle={mediaToggle}
-											mediaSelect={selectOnly}
-											mediaCommand={mediaCommand}
-											onMediaState={applyMediaState}
-											onTwitchPlayer={onTwitchPlayer}
-											channel={channel}
-										/>
+										{onScreen && (
+											<PreviewElement
+												el={el}
+												scale={1}
+												interactive={interactiveIframeId === el.id}
+												mounted={mounted}
+												mediaSt={mediaStates.get(el.id)}
+												chromeRegister={registerChromeCtl}
+												mediaToggle={mediaToggle}
+												mediaSelect={selectOnly}
+												mediaCommand={mediaCommand}
+												onMediaState={applyMediaState}
+												onTwitchPlayer={onTwitchPlayer}
+												channel={channel}
+											/>
+										)}
 										{(() => {
 											// невидимка лок не показывает: он всё равно может забрать
 											// элемент, а ник владельца лока ему не нужен
@@ -4625,7 +4825,20 @@ export default function PanelClient({
 									<div
 										className='absolute inset-0 pointer-events-none'
 										style={{
-											outline: `${2 / view.s}px solid rgb(var(--c-accent2))`,
+											background:
+												croppingId === selected.id
+													? 'rgba(239,68,68,0.14)'
+													: undefined,
+										}}
+									/>
+									<div
+										className='absolute inset-0 pointer-events-none'
+										style={{
+											outline: `${2 / view.s}px solid ${
+												croppingId === selected.id
+													? '#ef4444'
+													: 'rgb(var(--c-accent2))'
+											}`,
 										}}
 									/>
 									<div
@@ -4653,7 +4866,10 @@ export default function PanelClient({
 												width: hs,
 												height: hs,
 												pointerEvents: 'auto',
-												background: 'rgb(var(--c-accent2))',
+												background:
+													croppingId === selected.id
+														? '#ef4444'
+														: 'rgb(var(--c-accent2))',
 												border: `${2 / view.s}px solid #fff`,
 												borderRadius: 2,
 												cursor: cursors[dir],
@@ -4958,7 +5174,10 @@ export default function PanelClient({
 														el={el}
 														selected={selectedId === el.id}
 														active={selectedIds.has(el.id)}
-														onSelect={() => selectOnly(el.id)}
+														onSelect={() => {
+															selectOnly(el.id)
+															revealElement(el)
+														}}
 														onToggleVisible={() => {
 															setState(p => ({
 																...p,
@@ -6982,6 +7201,23 @@ function MoonIcon() {
 	)
 }
 
+// Обрезанное медиа: видимое окно — сам элемент, а картинка/видео внутри
+// сдвинуты и увеличены так, чтобы края уходили за overflow: hidden.
+function CropFrame({
+	crop,
+	children,
+}: {
+	crop?: Crop | null
+	children: ReactNode
+}) {
+	if (!cropActive(crop)) return <>{children}</>
+	return (
+		<div className='absolute inset-0 overflow-hidden pointer-events-none'>
+			{children}
+		</div>
+	)
+}
+
 function PreviewElementInner({
 	el,
 	scale,
@@ -7021,6 +7257,7 @@ function PreviewElementInner({
 				isOverlay={false}
 				channel={channel}
 				elementId={el.id}
+				interactive={interactive}
 				background={
 					el.bgColor && el.bgColor !== 'transparent'
 						? colorWithOpacity(el.bgColor, el.bgOpacity ?? 1)
@@ -7030,12 +7267,15 @@ function PreviewElementInner({
 		)
 	if (el.type === 'image' || el.type === 'gif')
 		return (
-			<img
-				src={el.src}
-				alt=''
-				className='w-full h-full object-fill pointer-events-none'
-				draggable={false}
-			/>
+			<CropFrame crop={el.crop}>
+				<img
+					src={el.src}
+					alt=''
+					className='w-full h-full object-fill pointer-events-none'
+					style={cropInnerStyle(el.crop)}
+					draggable={false}
+				/>
+			</CropFrame>
 		)
 	if (el.type === 'video') {
 		// обычное видео (файл с ПК или прямая ссылка): свой плеер в превью + плашка
@@ -7250,21 +7490,24 @@ function VideoPreview({
 		void v.play().catch(() => {})
 	}, [el.src])
 	return (
-		<video
-			ref={ref}
-			data-id={el.id}
-			src={el.src}
-			className='w-full h-full object-fill pointer-events-none'
-			muted
-			loop
-			autoPlay
-			playsInline
-			onLoadedMetadata={report}
-			onTimeUpdate={report}
-			onPlay={report}
-			onPause={report}
-			onVolumeChange={report}
-		/>
+		<CropFrame crop={el.crop}>
+			<video
+				ref={ref}
+				data-id={el.id}
+				src={el.src}
+				className='w-full h-full object-fill pointer-events-none'
+				style={cropInnerStyle(el.crop)}
+				muted
+				loop
+				autoPlay
+				playsInline
+				onLoadedMetadata={report}
+				onTimeUpdate={report}
+				onPlay={report}
+				onPause={report}
+				onVolumeChange={report}
+			/>
+		</CropFrame>
 	)
 }
 
@@ -7561,20 +7804,6 @@ function PropertyEditor({
 					className='flex-1 px-2 py-1.5 text-xs bg-border hover:bg-gray-600 rounded-lg'
 				>
 					⤓ На самый низ
-				</button>
-			</div>
-			<div className='grid grid-cols-2 gap-2'>
-				<button
-					onClick={() => update({ flipH: !el.flipH })}
-					className={`px-2 py-1.5 text-xs rounded-lg transition-colors ${el.flipH ? 'bg-accent text-white' : 'bg-border hover:bg-gray-600'}`}
-				>
-					⇋ Отразить ↔
-				</button>
-				<button
-					onClick={() => update({ flipV: !el.flipV })}
-					className={`px-2 py-1.5 text-xs rounded-lg transition-colors ${el.flipV ? 'bg-accent text-white' : 'bg-border hover:bg-gray-600'}`}
-				>
-					⇅ Отразить ↕
 				</button>
 			</div>
 			<button

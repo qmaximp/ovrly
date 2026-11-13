@@ -12,6 +12,7 @@ type Props = {
 	elementId?: string
 	background?: string
 	preview?: boolean
+	interactive?: boolean
 	className?: string
 }
 
@@ -25,6 +26,7 @@ export default function WidgetFrame({
 	elementId,
 	background,
 	preview = false,
+	interactive = false,
 	className = '',
 }: Props) {
 	const frameRef = useRef<HTMLIFrameElement | null>(null)
@@ -163,7 +165,7 @@ export default function WidgetFrame({
 			srcDoc={srcdoc}
 			className={`block w-full h-full border-0 ${className}`}
 			style={{
-				pointerEvents: 'none',
+				pointerEvents: interactive ? 'auto' : 'none',
 				background: 'transparent',
 				// без этого Chrome в тёмной теме рисует непрозрачный белый canvas
 				colorScheme: 'normal',

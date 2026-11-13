@@ -86,8 +86,8 @@ export default function TextStyleControls({
 					label='Размер'
 					value={el.fontSize || 24}
 					onChange={v => update({ fontSize: v })}
-					min={4}
-					max={400}
+					min={1}
+					max={2000}
 				/>
 				<div>
 					<label className='text-xs text-gray-500 block mb-1'>Жирность</label>

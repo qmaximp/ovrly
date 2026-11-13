@@ -8,6 +8,7 @@ import { parseMediaUrl, youtubeEmbedUrl } from '@/lib/media'
 import { playTimerSound } from '@/lib/sound'
 import { noteServerClock, serverClockLag } from '@/lib/clock'
 import { colorWithOpacity } from '@/lib/color'
+import { cropActive, cropInnerStyle } from '@/lib/crop'
 import { textBoxStyle, ensureFontLoaded } from '@/lib/textStyle'
 import { io as ioInit } from 'socket.io-client'
 
@@ -95,11 +96,27 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 		)
 		socket.on(
 			'element:resized',
-			(d: { id: string; x?: number; y?: number; width: number; height: number }) =>
+			(d: {
+				id: string
+				x?: number
+				y?: number
+				width: number
+				height: number
+				crop?: import('@/lib/crop').Crop | null
+			}) =>
 				setState(p => ({
 					...p,
 					elements: p.elements.map(e =>
-						e.id === d.id ? { ...e, x: d.x ?? e.x, y: d.y ?? e.y, width: d.width, height: d.height } : e,
+						e.id === d.id
+							? {
+									...e,
+									x: d.x ?? e.x,
+									y: d.y ?? e.y,
+									width: d.width,
+									height: d.height,
+									...(d.crop !== undefined ? { crop: d.crop ?? undefined } : {}),
+								}
+							: e,
 					),
 				})),
 		)
@@ -444,6 +461,13 @@ function OverlayElement({ el, ytStarted }: { el: StreamElement; ytStarted: boole
 				? colorWithOpacity(el.bgColor, el.bgOpacity ?? 1)
 				: undefined,
 	}
+	const crop = cropActive(el.crop) ? cropInnerStyle(el.crop) : undefined
+	const wrapCrop = (node: React.ReactNode) =>
+		crop ? (
+			<div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>{node}</div>
+		) : (
+			node
+		)
 
 	if (el.type === 'widget' && el.widget)
 		return (
@@ -464,26 +488,40 @@ function OverlayElement({ el, ytStarted }: { el: StreamElement; ytStarted: boole
 	if (el.type === 'image' || el.type === 'gif')
 		return (
 			<div style={style}>
-				<img
-					src={el.src}
-					alt=''
-					style={{ width: '100%', height: '100%', objectFit: 'fill' }}
-					draggable={false}
-				/>
+				{wrapCrop(
+					<img
+						src={el.src}
+						alt=''
+						style={{
+							width: '100%',
+							height: '100%',
+							objectFit: 'fill',
+							...crop,
+						}}
+						draggable={false}
+					/>,
+				)}
 			</div>
 		)
 	if (el.type === 'video')
 		return (
 			<div style={style}>
-				<video
-					data-id={el.id}
-					src={el.src}
-					style={{ width: '100%', height: '100%', objectFit: 'fill' }}
-					autoPlay
-					loop
-					muted
-					playsInline
-				/>
+				{wrapCrop(
+					<video
+						data-id={el.id}
+						src={el.src}
+						style={{
+							width: '100%',
+							height: '100%',
+							objectFit: 'fill',
+							...crop,
+						}}
+						autoPlay
+						loop
+						muted
+						playsInline
+					/>,
+				)}
 			</div>
 		)
 	if (el.type === 'iframe') {

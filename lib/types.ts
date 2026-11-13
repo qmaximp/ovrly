@@ -106,6 +106,9 @@ export interface StreamElement {
   // звуковой элемент: громкость 0..1 и повтор воспроизведения
   volume?: number;
   loop?: boolean;
+  // обрезка медиа по краям (доли исходника 0..0.98): показываем только
+  // оставшееся «окно», а картинка/видео внутри остаётся целой
+  crop?: { l: number; t: number; r: number; b: number };
   // кастомный виджет: снимок кода + текущие значения переменных
   widget?: WidgetDefinition;
   widgetValues?: Record<string, string>;

@@ -152,6 +152,16 @@ function asCoord(v, min = -100000, max = 100000) {
 		? Math.min(max, Math.max(min, v))
 		: null
 }
+// обрезка медиа: доли краёв 0..0.98; null — обрезки нет
+function cleanCrop(v) {
+	if (!v || typeof v !== 'object') return null
+	const n = x => Math.min(0.98, Math.max(0, Number(x) || 0))
+	const c = { l: n(v.l), t: n(v.t), r: n(v.r), b: n(v.b) }
+	if (c.l + c.r > 0.98 || c.t + c.b > 0.98) return null
+	if (!c.l && !c.t && !c.r && !c.b) return null
+	const round = x => Math.round(x * 10000) / 10000
+	return { l: round(c.l), t: round(c.t), r: round(c.r), b: round(c.b) }
+}
 // размер «прочих» полей без медиа и уже проверенных widget/playlist
 function extraBytes(obj) {
 	try {
@@ -1446,6 +1456,7 @@ app.prepare().then(() => {
 			}
 			el.zIndex = el.zIndex ?? state.elements.length
 			el.visible = el.visible ?? true
+			if ('crop' in el) el.crop = cleanCrop(el.crop)
 			if (existing >= 0) state.elements[existing] = el
 			else state.elements.push(el)
 			io.to(room).emit('element:added', el)
@@ -1486,6 +1497,7 @@ app.prepare().then(() => {
 				console.log('[io] лишние поля элемента слишком большие:', room.slice(0, 12))
 				return
 			}
+			if ('crop' in partial) partial.crop = cleanCrop(partial.crop)
 			// медиа можно менять и через update: проверяем, что комната не переполнится
 			if (partial.src !== undefined || partial.soundSrc !== undefined) {
 				const before = roomStore.roomBytes({ elements: [oldEl] })
@@ -1540,6 +1552,8 @@ app.prepare().then(() => {
 			if (id === null || width === null || height === null) return
 			if ((data.x !== undefined && x === null) || (data.y !== undefined && y === null)) return
 			const idx = state.elements.findIndex(e => e.id === id)
+			const cropProvided = data?.crop !== undefined
+			const crop = cropProvided ? cleanCrop(data.crop) : null
 			if (idx >= 0) {
 				const lock = roomRec.locks.get(id)
 				const now = Date.now()
@@ -1563,12 +1577,14 @@ app.prepare().then(() => {
 				if (y !== null) el.y = y
 				el.width = width
 				el.height = height
+				if (cropProvided) el.crop = crop
 				socket.broadcast.to(room).emit('element:resized', {
 					id,
 					x: el.x,
 					y: el.y,
 					width,
 					height,
+					...(cropProvided ? { crop } : {}),
 				})
 			}
 		})
