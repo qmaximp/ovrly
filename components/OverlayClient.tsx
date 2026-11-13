@@ -547,16 +547,26 @@ function OverlayElement({ el, ytStarted }: { el: StreamElement; ytStarted: boole
 					preserveAspectRatio='none'
 					style={{ width: '100%', height: '100%', display: 'block' }}
 				>
-					<polyline
-						points={(el.points || [])
-							.map(([x, y]) => `${x},${y}`)
-							.join(' ')}
-						fill='none'
-						stroke={el.strokeColor || '#ff3b30'}
-						strokeWidth={el.strokeWidth || 6}
-						strokeLinecap='round'
-						strokeLinejoin='round'
-					/>
+					{(el.strokes?.length
+						? el.strokes
+						: [
+								{
+									points: el.points || [],
+									color: el.strokeColor || '#ff3b30',
+									width: el.strokeWidth || 6,
+								},
+							]
+					).map((s, i) => (
+						<polyline
+							key={i}
+							points={s.points.map(([x, y]) => `${x},${y}`).join(' ')}
+							fill='none'
+							stroke={s.color}
+							strokeWidth={s.width}
+							strokeLinecap='round'
+							strokeLinejoin='round'
+						/>
+					))}
 				</svg>
 			</div>
 		)

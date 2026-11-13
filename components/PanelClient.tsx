@@ -474,8 +474,10 @@ export default function PanelClient({
 	const [penColor, setPenColor] = useState('#ff3b30')
 	const [penWidth, setPenWidth] = useState(6)
 	const [liveStroke, setLiveStroke] = useState<Stroke | null>(null)
+	const [draftStrokes, setDraftStrokes] = useState<Stroke[]>([])
 	const drawDoneRef = useRef(false)
 	const drawStartRef = useRef<[number, number] | null>(null)
+	const drawShiftBaseRef = useRef<[number, number][] | null>(null)
 	const viewRef = useRef(view)
 	viewRef.current = view
 	const [panning, setPanning] = useState(false)
@@ -3014,16 +3016,6 @@ export default function PanelClient({
 						const ncy = gs.pivot.y + nLx * sin + nLy * cos
 						const width = Math.max(4, Math.round(it.w * Math.abs(fx)))
 						const height = Math.max(4, Math.round(it.h * Math.abs(fy)))
-						const scaledPoints =
-							el.type === 'draw' && it.points?.length
-								? it.points.map(
-										([px, py]) =>
-											[
-												(px * width) / Math.max(1, it.w),
-												(py * height) / Math.max(1, it.h),
-											] as [number, number],
-									)
-								: undefined
 						return {
 							...el,
 							x: Math.round(ncx - width / 2),
@@ -3032,7 +3024,6 @@ export default function PanelClient({
 							height,
 							flipH: mirrorX ? !it.flipH : it.flipH,
 							flipV: mirrorY ? !it.flipV : it.flipV,
-							...(scaledPoints ? { points: scaledPoints } : {}),
 						}
 					}),
 				}))
@@ -3050,12 +3041,6 @@ export default function PanelClient({
 								height: el.height,
 								flipH: el.flipH,
 								flipV: el.flipV,
-								points: it.points
-									? it.points.map(([px, py]) => [
-											px * Math.abs(fx),
-											py * Math.abs(fy),
-										])
-									: undefined,
 							})
 					})
 				}
@@ -3587,7 +3572,6 @@ export default function PanelClient({
 		crop?: Crop
 		flipH?: boolean
 		flipV?: boolean
-		points?: [number, number][]
 	} | null>(null)
 
 	const handleResizeStart = (
@@ -3810,16 +3794,6 @@ export default function PanelClient({
 				y = Math.round(ncy - height / 2)
 			}
 			const cropOut = crop ?? null
-			const drawPoints =
-				orig.type === 'draw' && orig.points?.length
-					? orig.points.map(
-							([px, py]) =>
-								[
-									(px * width) / Math.max(1, orig.width),
-									(py * height) / Math.max(1, orig.height),
-								] as [number, number],
-						)
-					: undefined
 			paintGeometry(orig.id, x, y, width, height, {
 				crop: cropOut,
 				rot: orig.rotation,
@@ -3835,7 +3809,6 @@ export default function PanelClient({
 				crop: cropOut ?? undefined,
 				flipH,
 				flipV,
-				points: drawPoints,
 			}
 			const now = performance.now()
 			if (now - resizeThrottleRef.current >= 33) {
@@ -3849,7 +3822,6 @@ export default function PanelClient({
 					crop: cropOut,
 					flipH,
 					flipV,
-					points: drawPoints,
 				})
 			}
 		},
@@ -3879,7 +3851,6 @@ export default function PanelClient({
 									crop: lr.crop,
 									flipH: lr.flipH,
 									flipV: lr.flipV,
-									...(lr.points ? { points: lr.points } : {}),
 								}
 							: el,
 					),
@@ -4202,6 +4173,7 @@ export default function PanelClient({
 		} catch {}
 		drawDoneRef.current = false
 		drawStartRef.current = p
+		drawShiftBaseRef.current = null
 		setLiveStroke({
 			id: 'st' + Date.now().toString(36),
 			color: penColor,
@@ -4215,10 +4187,14 @@ export default function PanelClient({
 		if (!p) return
 		const start = drawStartRef.current
 		if (e.shiftKey && start) {
-			// Shift — ровная линия от точки, где начали, до курсора
-			setLiveStroke({ ...liveStroke, points: [start, p] })
+			// Shift — продолжаем рисунок ровным отрезком от последней точки
+			if (!drawShiftBaseRef.current)
+				drawShiftBaseRef.current = liveStroke.points.slice()
+			const base = drawShiftBaseRef.current
+			setLiveStroke({ ...liveStroke, points: [...base, p] })
 			return
 		}
+		drawShiftBaseRef.current = null
 		const last = liveStroke.points[liveStroke.points.length - 1]
 		if (last && Math.abs(last[0] - p[0]) < 2 && Math.abs(last[1] - p[1]) < 2)
 			return
@@ -4228,42 +4204,62 @@ export default function PanelClient({
 		if (drawDoneRef.current) return
 		drawDoneRef.current = true
 		drawStartRef.current = null
+		drawShiftBaseRef.current = null
 		if (liveStroke && liveStroke.points.length > 1) {
-			// штрих превращается в обычный элемент: его можно выделить, тащить,
-			// масштабировать и стирать как всё остальное
-			const pts = liveStroke.points
+			// пока нажимаем «Готово», штрихи живут только в предпросмотре
+			setDraftStrokes(prev => [...prev, liveStroke])
+		}
+		setLiveStroke(null)
+	}
+
+	const commitDrawing = () => {
+		const strokes = draftStrokes.filter(s => s.points.length > 1)
+		if (strokes.length) {
 			let minX = Infinity
 			let minY = Infinity
 			let maxX = -Infinity
 			let maxY = -Infinity
-			for (const [px, py] of pts) {
-				if (px < minX) minX = px
-				if (py < minY) minY = py
-				if (px > maxX) maxX = px
-				if (py > maxY) maxY = py
+			let maxW = 0
+			for (const s of strokes) {
+				maxW = Math.max(maxW, s.width)
+				for (const [px, py] of s.points) {
+					if (px < minX) minX = px
+					if (py < minY) minY = py
+					if (px > maxX) maxX = px
+					if (py > maxY) maxY = py
+				}
 			}
-			const pad = Math.max(2, liveStroke.width / 2)
+			const pad = Math.max(2, maxW / 2)
 			const x = minX - pad
 			const y = minY - pad
 			const width = Math.max(8, maxX - minX + pad * 2)
 			const height = Math.max(8, maxY - minY + pad * 2)
-			const id = 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+			const elStrokes = strokes.map(s => ({
+				points: s.points.map(
+					([px, py]) => [px - x, py - y] as [number, number],
+				),
+				color: s.color,
+				width: s.width,
+			}))
 			addElement({
-				id,
 				type: 'draw',
 				x,
 				y,
 				width,
 				height,
-				points: pts.map(([px, py]) => [px - x, py - y] as [number, number]),
-				strokeColor: liveStroke.color,
-				strokeWidth: liveStroke.width,
+				points: elStrokes[0].points,
+				strokes: elStrokes,
+				strokeColor: elStrokes[0].color,
+				strokeWidth: elStrokes[0].width,
 				name: 'Рисунок',
 			})
-			setSelectedIds(new Set())
-			setSelectedId(id)
 		}
+		setDraftStrokes([])
 		setLiveStroke(null)
+		drawStartRef.current = null
+		drawShiftBaseRef.current = null
+		drawModeRef.current = false
+		setDrawMode(false)
 	}
 
 	// вертикальная ориентация телефона — просим повернуть (как на референсе)
@@ -4808,7 +4804,7 @@ export default function PanelClient({
 					>
 						{drawMode && (
 							<div
-								className='absolute left-1/2 top-3 z-[3100] -translate-x-1/2 flex items-center gap-2 rounded-2xl border border-border bg-panel/95 px-3 py-2 shadow-xl backdrop-blur'
+								className='absolute left-1/2 bottom-20 z-[3100] -translate-x-1/2 flex items-center gap-2 rounded-2xl border border-border bg-panel/95 px-3 py-2 shadow-xl backdrop-blur'
 								data-nopan='1'
 								onPointerDown={e => e.stopPropagation()}
 							>
@@ -4835,8 +4831,12 @@ export default function PanelClient({
 								/>
 								<button
 									onClick={() => {
-										const last = state.strokes?.[state.strokes.length - 1]
-										if (last) emit('draw:remove', last.id)
+										if (draftStrokes.length)
+											setDraftStrokes(d => d.slice(0, -1))
+										else {
+											const last = state.strokes?.[state.strokes.length - 1]
+											if (last) emit('draw:remove', last.id)
+										}
 									}}
 									className='rounded-lg px-2 py-1 text-xs hover:bg-border'
 									title='Отменить последний штрих'
@@ -4844,19 +4844,18 @@ export default function PanelClient({
 									↶
 								</button>
 								<button
-									onClick={() => emit('draw:clear')}
+									onClick={() => {
+										setDraftStrokes([])
+										setLiveStroke(null)
+										emit('draw:clear')
+									}}
 									className='rounded-lg px-2 py-1 text-xs text-red-400 hover:bg-red-950/40'
 									title='Очистить всё'
 								>
 									<Trash2 size={14} />
 								</button>
 								<button
-									onClick={() => {
-										drawModeRef.current = false
-										drawStartRef.current = null
-										setLiveStroke(null)
-										setDrawMode(false)
-									}}
+									onClick={commitDrawing}
 									className='rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-white'
 								>
 									Готово
@@ -5350,7 +5349,7 @@ export default function PanelClient({
 										fill='transparent'
 									/>
 								)}
-								{(state.strokes || []).map(s => (
+								{[...(state.strokes || []), ...draftStrokes].map(s => (
 									<polyline
 										key={s.id}
 										points={s.points.map(([x, y]) => `${x},${y}`).join(' ')}
@@ -7620,16 +7619,26 @@ function ElementThumb({ el }: { el: StreamElement }) {
 					preserveAspectRatio='none'
 					className='w-full h-full'
 				>
-					<polyline
-						points={(el.points || [])
-							.map(([x, y]) => `${x},${y}`)
-							.join(' ')}
-						fill='none'
-						stroke={el.strokeColor || '#ff3b30'}
-						strokeWidth={el.strokeWidth || 6}
-						strokeLinecap='round'
-						strokeLinejoin='round'
-					/>
+					{(el.strokes?.length
+						? el.strokes
+						: [
+								{
+									points: el.points || [],
+									color: el.strokeColor || '#ff3b30',
+									width: el.strokeWidth || 6,
+								},
+							]
+					).map((s, i) => (
+						<polyline
+							key={i}
+							points={s.points.map(([x, y]) => `${x},${y}`).join(' ')}
+							fill='none'
+							stroke={s.color}
+							strokeWidth={s.width}
+							strokeLinecap='round'
+							strokeLinejoin='round'
+						/>
+					))}
 				</svg>
 			</span>
 		)
@@ -8314,14 +8323,26 @@ function PreviewElementInner({
 				preserveAspectRatio='none'
 				className='w-full h-full pointer-events-none'
 			>
-				<polyline
-					points={(el.points || []).map(([x, y]) => `${x},${y}`).join(' ')}
-					fill='none'
-					stroke={el.strokeColor || '#ff3b30'}
-					strokeWidth={el.strokeWidth || 6}
-					strokeLinecap='round'
-					strokeLinejoin='round'
-				/>
+				{(el.strokes?.length
+					? el.strokes
+					: [
+							{
+								points: el.points || [],
+								color: el.strokeColor || '#ff3b30',
+								width: el.strokeWidth || 6,
+							},
+						]
+				).map((s, i) => (
+					<polyline
+						key={i}
+						points={s.points.map(([x, y]) => `${x},${y}`).join(' ')}
+						fill='none'
+						stroke={s.color}
+						strokeWidth={s.width}
+						strokeLinecap='round'
+						strokeLinejoin='round'
+					/>
+				))}
 			</svg>
 		)
 	if (el.type === 'image' || el.type === 'gif')

@@ -218,12 +218,38 @@ function cleanDrawPoints(raw, w, h) {
 	return out.length > 1 ? out : null
 }
 
+function cleanDrawStrokes(raw, w, h) {
+	if (!Array.isArray(raw)) return null
+	const out = []
+	for (const s of raw.slice(0, 200)) {
+		const points = cleanDrawPoints(s?.points, w, h)
+		if (!points) continue
+		out.push({
+			points,
+			color: /^#[0-9a-f]{3,8}$/i.test(String(s?.color || ''))
+				? String(s.color)
+				: '#ff3b30',
+			width: Math.max(1, Math.min(80, Number(s?.width) || 6)),
+		})
+	}
+	return out.length ? out : null
+}
+
 function cleanDrawElement(el) {
 	const w = Math.max(4, Math.min(8000, Number(el.width) || 4))
 	const h = Math.max(4, Math.min(8000, Number(el.height) || 4))
+	const strokes = cleanDrawStrokes(el.strokes, w, h)
+	if (strokes) {
+		el.strokes = strokes
+		el.points = strokes[0].points
+		el.strokeColor = strokes[0].color
+		el.strokeWidth = strokes[0].width
+		return true
+	}
 	const points = cleanDrawPoints(el.points, w, h)
 	if (!points) return false
 	el.points = points
+	delete el.strokes
 	el.strokeColor = /^#[0-9a-f]{3,8}$/i.test(String(el.strokeColor || ''))
 		? String(el.strokeColor)
 		: '#ff3b30'

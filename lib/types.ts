@@ -48,6 +48,12 @@ export type WidgetDefinition = {
   };
 };
 
+export type DrawStroke = {
+  points: [number, number][]
+  color: string
+  width: number
+}
+
 export interface StreamElement {
   id: string;
   type: ElementType;
@@ -113,6 +119,8 @@ export interface StreamElement {
   name?: string;
   // рисунок маркером, ставший обычным элементом: точки локальны (0..width/height)
   points?: [number, number][]
+  // несколько штрихов в одном рисунке (цвет и толщина у каждого свои)
+  strokes?: DrawStroke[]
   // группа в списке слоёв (как папки в Figma)
   groupId?: string;
   // кастомный виджет: снимок кода + текущие значения переменных
