@@ -1963,6 +1963,15 @@ export default function PanelClient({
 		emit('elements:group', { ids, groupId: gid })
 	}, [selectedId, selectedIds, state.groups, saveGroups, emit])
 
+	// «Группа» в шапке списка — просто новая пустая группа. Выделение не трогаем.
+	const createEmptyGroup = useCallback(() => {
+		const groups = state.groups || []
+		saveGroups([
+			...groups,
+			{ id: 'g' + Date.now().toString(36), name: `Группа ${groups.length + 1}` },
+		])
+	}, [state.groups, saveGroups])
+
 	const rotateRef = useRef<{
 		el: StreamElement
 		cx: number
@@ -4605,8 +4614,8 @@ export default function PanelClient({
 							</h2>
 							<div className='flex items-center gap-1 shrink-0'>
 								<button
-									onClick={groupSelection}
-									title='Собрать выделенные элементы в группу'
+									onClick={createEmptyGroup}
+									title='Новая пустая группа'
 									className='px-2 py-1 text-[10px] rounded-md border border-border text-gray-400 hover:text-white hover:bg-border transition-colors'
 								>
 									Группа
@@ -5625,8 +5634,8 @@ export default function PanelClient({
 										<div className='border-t border-border'>
 											<div className='flex justify-end gap-1 px-2 pt-2'>
 												<button
-													onClick={groupSelection}
-													title='Собрать выделенные элементы в группу'
+													onClick={createEmptyGroup}
+													title='Новая пустая группа'
 													className='inline-flex items-center gap-1 px-2 py-1 text-[10px] rounded-md border border-border text-gray-400 hover:text-white hover:bg-border transition-colors'
 												>
 													Группа
