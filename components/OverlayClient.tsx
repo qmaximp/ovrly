@@ -495,7 +495,7 @@ function OverlayElement({ el, ytStarted }: { el: StreamElement; ytStarted: boole
 						style={{
 							width: '100%',
 							height: '100%',
-							objectFit: 'fill',
+							objectFit: 'cover',
 							...crop,
 						}}
 						draggable={false}
@@ -513,7 +513,7 @@ function OverlayElement({ el, ytStarted }: { el: StreamElement; ytStarted: boole
 						style={{
 							width: '100%',
 							height: '100%',
-							objectFit: 'fill',
+							objectFit: 'cover',
 							...crop,
 						}}
 						autoPlay

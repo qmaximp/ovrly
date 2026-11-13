@@ -3453,11 +3453,8 @@ export default function PanelClient({
 							b: Math.round(c.b * 10000) / 10000,
 						}
 					: undefined
-			} else if (dir.length === 2 && (e.shiftKey || isMedia)) {
-				// пропорционально: фиксированный угол — противоположный тянемому.
-				// Медиа (фото/видео/iframe) масштабируем пропорционально всегда,
-				// чтобы картинка не растягивалась при обычном перетаскивании.
-				// Свободно менять пропорции можно через Alt+ручку (обрезка).
+			} else if (dir.length === 2 && e.shiftKey) {
+				// Shift + угол — пропорционально, от противоположного угла.
 				const fixX =
 					cx0 - axX * (orig.width / 2) * signX - ayX * (orig.height / 2) * signY
 				const fixY =
@@ -3517,23 +3514,6 @@ export default function PanelClient({
 							el.id === orig.id ? { ...el, flipH, flipV } : el,
 						),
 					}))
-				}
-			}
-			// Медиа тянем за грань — вторая сторона подстраивается по пропорции,
-			// а не растягивается. Повёрнутые элементы не трогаем: там своя геометрия.
-			if (
-				isMedia &&
-				!resizeRef.current.crop &&
-				dir.length === 1 &&
-				!orig.rotation
-			) {
-				const ar = orig.width / Math.max(1, orig.height)
-				if (signX) {
-					height = Math.max(20, Math.round(width / ar))
-					y = Math.round(orig.y + (orig.height - height) / 2)
-				} else {
-					width = Math.max(30, Math.round(height * ar))
-					x = Math.round(orig.x + (orig.width - width) / 2)
 				}
 			}
 			const cropOut = crop ?? null
@@ -5702,8 +5682,9 @@ export default function PanelClient({
 										<p className='mt-0.5 text-xs text-gray-500'>
 											Зажмите {isMac ? 'Option' : 'Alt'} и потяните любую ручку
 											элемента. Видимая часть обрежется, а рамка и ручки станут
-											красными. Без {isMac ? 'Option' : 'Alt'} медиа масштабируется с
-											сохранением пропорций.
+											красными. Без {isMac ? 'Option' : 'Alt'} рамка меняет размер
+											свободно, а фото и видео заполняют её и обрезаются по краям
+											— картинка не растягивается.
 										</p>
 									</div>
 									<div className='order-3 flex w-full items-center justify-center gap-1.5 sm:order-none sm:w-auto'>
@@ -7328,7 +7309,7 @@ function PreviewElementInner({
 				<img
 					src={el.src}
 					alt=''
-					className='w-full h-full object-fill pointer-events-none'
+					className='w-full h-full object-cover pointer-events-none'
 					style={cropInnerStyle(el.crop)}
 					draggable={false}
 				/>
@@ -7362,7 +7343,7 @@ function PreviewElementInner({
 		return (
 			<video
 				src={el.src}
-				className='w-full h-full object-fill pointer-events-none'
+				className='w-full h-full object-cover pointer-events-none'
 				muted
 				loop
 				autoPlay
@@ -7552,7 +7533,7 @@ function VideoPreview({
 				ref={ref}
 				data-id={el.id}
 				src={el.src}
-				className='w-full h-full object-fill pointer-events-none'
+				className='w-full h-full object-cover pointer-events-none'
 				style={cropInnerStyle(el.crop)}
 				muted
 				loop
