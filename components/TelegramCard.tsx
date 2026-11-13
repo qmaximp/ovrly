@@ -49,6 +49,13 @@ function initials(name: string) {
 	return (parts[0]?.[0] || '') + (parts[1]?.[0] || '')
 }
 
+function isBarePost(post: TelegramPost) {
+	return (
+		!post.text &&
+		!!post.media?.some(m => m.kind === 'round' || m.kind === 'sticker')
+	)
+}
+
 function shortDate(raw: string) {
 	if (!raw) return ''
 	const d = new Date(raw)
@@ -177,7 +184,10 @@ export default function TelegramCard({
 		let alive = true
 		const load = async () => {
 			try {
-				const res = await fetch(`/api/telegram?channel=${encodeURIComponent(nick)}`)
+				const res = await fetch(
+					`/api/telegram?channel=${encodeURIComponent(nick)}&v=3`,
+					{ cache: 'no-store' },
+				)
 				const json = await res.json()
 				if (!alive) return
 				if (!res.ok) {
@@ -308,16 +318,30 @@ export default function TelegramCard({
 								</div>
 								<div ref={feedRef} className={s.feed}>
 									{posts.map((post, index) => (
-										<div key={`${post.date}-${index}`} className={s.msg}>
-											<svg className={s.tail} viewBox='0 0 12 18'>
-												<path d='M12 0v18H0c4.6-1 8-4.6 9.4-9.6C10.6 4.3 11.1 1.8 12 0z' />
-											</svg>
-											<div className={s.msgHead}>
-												<span>@{nick}</span>
-												<span style={{ float: 'right', color: '#8798ac', fontWeight: 500, fontSize: 12 }}>
-													{shortDate(post.date)}
-												</span>
-											</div>
+										<div
+											key={`${post.date}-${index}`}
+											className={`${s.msg}${isBarePost(post) ? ` ${s.bare}` : ''}`}
+										>
+											{!isBarePost(post) && (
+												<>
+													<svg className={s.tail} viewBox='0 0 12 18'>
+														<path d='M12 0v18H0c4.6-1 8-4.6 9.4-9.6C10.6 4.3 11.1 1.8 12 0z' />
+													</svg>
+													<div className={s.msgHead}>
+														<span>@{nick}</span>
+														<span
+															style={{
+																float: 'right',
+																color: '#8798ac',
+																fontWeight: 500,
+																fontSize: 12,
+															}}
+														>
+															{shortDate(post.date)}
+														</span>
+													</div>
+												</>
+											)}
 											{(() => {
 												const items =
 													post.media?.length

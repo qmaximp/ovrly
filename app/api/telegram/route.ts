@@ -31,6 +31,7 @@ type TelegramData = {
 }
 
 const CACHE_TTL = 5 * 60 * 1000
+const CACHE_VERSION = 3
 const cache = new Map<string, { at: number; data: TelegramData }>()
 
 function decodeEntities(s: string): string {
@@ -179,7 +180,8 @@ export async function GET(req: Request) {
 			{ status: 400 },
 		)
 	}
-	const hit = cache.get(channel)
+	const cacheKey = `${channel}:v${CACHE_VERSION}`
+	const hit = cache.get(cacheKey)
 	if (hit && Date.now() - hit.at < CACHE_TTL) {
 		return NextResponse.json(hit.data, {
 			headers: { 'Cache-Control': 'public, max-age=300' },
@@ -205,7 +207,7 @@ export async function GET(req: Request) {
 				{ status: 404 },
 			)
 		}
-		cache.set(channel, { at: Date.now(), data })
+		cache.set(cacheKey, { at: Date.now(), data })
 		return NextResponse.json(data, {
 			headers: {
 				'Cache-Control': 'public, max-age=300',
