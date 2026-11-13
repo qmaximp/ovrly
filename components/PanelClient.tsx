@@ -455,6 +455,10 @@ export default function PanelClient({
 	const socketRef = useRef<Socket | null>(null)
 	const [view, setView] = useState({ x: 0, y: 0, s: 0.3 })
 	const [drawMode, setDrawMode] = useState(false)
+	const drawModeRef = useRef(false)
+	useEffect(() => {
+		drawModeRef.current = drawMode
+	}, [drawMode])
 	const [penColor, setPenColor] = useState('#ff3b30')
 	const [penWidth, setPenWidth] = useState(6)
 	const [liveStroke, setLiveStroke] = useState<Stroke | null>(null)
@@ -2711,6 +2715,7 @@ export default function PanelClient({
 		// ни разблокировать, ни удалить
 		if (el.locked) {
 			if (e.button !== 0) return
+			setNotice('Элемент заблокирован — снимите замок в списке слоёв (значок 🔒)')
 			if (e.shiftKey || e.ctrlKey || e.metaKey) {
 				setSelectedIds(prev => {
 					const n = new Set(prev)
@@ -2726,7 +2731,8 @@ export default function PanelClient({
 			return
 		}
 		if (e.button !== 0) return
-		if (isLockedByOther(el.id)) return // объект тащит другой модератор
+		// лок другого модератора — не повод «залипать»: выделяем и пробуем
+		// двигать, окончательно решает сервер (он отдаст объект стримеру/админу)
 		// ctrl/shift+клик — добавить/убрать элемент из выделения (без драга)
 		if (e.shiftKey || e.ctrlKey || e.metaKey) {
 			setSelectedIds(prev => {
@@ -2740,13 +2746,11 @@ export default function PanelClient({
 		}
 		// драг выделенного при мультивыделении — двигаем всю группу
 		if (selectedIdsRef.current.has(el.id) && selectedIdsRef.current.size > 1) {
-			if (isLockedByOther(el.id)) return
 			e.preventDefault()
 			e.stopPropagation()
 			setSelectedId(null)
 			const items: { id: string; x: number; y: number }[] = []
 			for (const id of selectedIdsRef.current) {
-				if (isLockedByOther(id)) continue // заблокированные другими пропускаем
 				const it = stateRef.current.elements.find(x => x.id === id)
 				if (it && !it.locked) {
 					items.push({ id: it.id, x: it.x, y: it.y })
@@ -3944,7 +3948,7 @@ export default function PanelClient({
 		}
 
 		const down = (e: PointerEvent) => {
-			if (drawMode) return
+			if (drawModeRef.current) return
 			const target = e.target as HTMLElement | null
 			const onNoPan = !!target?.closest?.('[data-nopan]')
 			const onEl = !!target?.closest?.('[data-elwrap]')
@@ -4094,7 +4098,7 @@ export default function PanelClient({
 			window.removeEventListener('pointerup', up)
 			window.removeEventListener('pointercancel', up)
 		}
-	}, [canvasEl, drawMode])
+	}, [canvasEl])
 
 	// ── маркер: координаты холста из экрана (с учётом панорамы и зума) ──
 	const drawPoint = (e: React.PointerEvent) => {
@@ -4954,6 +4958,11 @@ export default function PanelClient({
 										data-elwrap='1'
 										data-elid={el.id}
 										className={`absolute select-none group ${el.locked ? '' : 'cursor-grab'}`}
+										title={
+											el.locked
+												? 'Элемент заблокирован — снимите замок в списке слоёв'
+												: undefined
+										}
 										style={{
 											left: el.x,
 											top: el.y,
@@ -7040,7 +7049,24 @@ function LayersPanel({
 					<span className='absolute left-1 top-1 rounded bg-black/60 px-1 text-[9px] tabular-nums text-white/70'>
 						{index + 1}
 					</span>
+					{el.locked && (
+						<span className='absolute left-1 bottom-1 rounded bg-black/60 p-1 text-amber-300'>
+							<Lock size={10} />
+						</span>
+					)}
 					<div className='absolute right-1 top-1 flex gap-0.5 rounded-md bg-black/55 p-0.5 opacity-100 sm:opacity-0 sm:group-hover/row:opacity-100 transition-opacity'>
+						<button
+							onClick={e => {
+								e.stopPropagation()
+								onUpdate(el.id, { locked: !el.locked })
+							}}
+							title={el.locked ? 'Снять замок' : 'Замок (защита от перетаскивания)'}
+							className={`w-5 h-5 rounded hover:bg-white/10 flex items-center justify-center ${
+								el.locked ? 'text-amber-300' : 'text-gray-300 hover:text-white'
+							}`}
+						>
+							<Lock size={12} />
+						</button>
 						<button
 							onClick={e => {
 								e.stopPropagation()

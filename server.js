@@ -566,6 +566,14 @@ app.prepare().then(() => {
 			users: new Map(), // socketId -> { login, role } — кто сейчас на странице
 			dirty: restoredFromJson,
 		}
+		// старые комнаты могли сохранить groupId как строку "null"
+		let cleaned = false
+		for (const el of r.state.elements || [])
+			if (el.groupId === 'null' || el.groupId === '') {
+				delete el.groupId
+				cleaned = true
+			}
+		if (cleaned) r.dirty = true
 		rooms.set(key, r)
 		if (saved && !restoredFromJson) {
 			console.log(
@@ -1461,8 +1469,10 @@ app.prepare().then(() => {
 			// второй: иначе Ctrl+Z раздувал комнату дублями.
 			el.id = el.id || Date.now() + '-' + Math.random().toString(36).slice(2, 9)
 			if (el.name !== undefined) el.name = String(el.name).slice(0, 80)
-			if (el.groupId !== undefined)
-				el.groupId = String(el.groupId).replace(/[^\w-]/g, '').slice(0, 40) || undefined
+			if (el.groupId !== undefined) {
+				const g = String(el.groupId).replace(/[^\w-]/g, '').slice(0, 40) || ''
+				el.groupId = g && g !== 'null' ? g : undefined
+			}
 			const existing = state.elements.findIndex(e => e.id === el.id)
 			if (existing < 0 && state.elements.length >= MAX_ELEMENTS) {
 				console.log('[io] лимит элементов комнаты:', room.slice(0, 12))
@@ -1526,9 +1536,11 @@ app.prepare().then(() => {
 			const oldEl = state.elements[idx]
 			if (partial.name !== undefined)
 				partial.name = String(partial.name).slice(0, 80)
-			if (partial.groupId !== undefined)
-				partial.groupId =
-					String(partial.groupId).replace(/[^\w-]/g, '').slice(0, 40) || undefined
+			if (partial.groupId !== undefined) {
+				const g =
+					String(partial.groupId).replace(/[^\w-]/g, '').slice(0, 40) || ''
+				partial.groupId = g && g !== 'null' ? g : undefined
+			}
 			if (partial.widget !== undefined) {
 				const widget = cleanWidgetDefinition(partial.widget)
 				if (!widget) return
