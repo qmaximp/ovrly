@@ -131,7 +131,7 @@ export default function TelegramCard({
 
 	const qrSrc = useMemo(() => {
 		if (!nick) return ''
-		return `https://api.qrserver.com/v1/create-qr-code/?size=360x360&margin=0&data=${encodeURIComponent(
+		return `https://api.qrserver.com/v1/create-qr-code/?size=360x360&margin=0&color=4B3BFF&bgcolor=FFFFFF&data=${encodeURIComponent(
 			`https://t.me/${nick}`,
 		)}`
 	}, [nick])
@@ -177,10 +177,10 @@ export default function TelegramCard({
 					boxSizing: 'border-box',
 					display: 'flex',
 					flexDirection: 'column',
-					borderRadius: 34,
+					borderRadius: 40,
 					background: bg,
-					border: '3px solid #516172',
-					boxShadow: '0 18px 50px rgba(0,0,0,.45)',
+					border: '6px solid #d7d9e2',
+					boxShadow: '0 22px 60px rgba(0,0,0,.55)',
 					overflow: 'hidden',
 				}}
 			>
@@ -188,28 +188,51 @@ export default function TelegramCard({
 					style={{
 						display: 'flex',
 						alignItems: 'center',
-						justifyContent: 'space-between',
-						padding: '12px 14px',
-						borderBottom: `1px solid ${line}`,
-						fontSize: 11,
-						letterSpacing: '.06em',
-						textTransform: 'uppercase',
-						color: muted,
-					}}
-				>
-					<span>Комментарии</span>
-					<TelegramLogo size={16} />
-				</div>
-
-				<div
-					style={{
-						display: 'flex',
-						alignItems: 'center',
 						gap: 10,
-						padding: '10px 14px',
+						padding: '10px 12px',
 						borderBottom: `1px solid ${line}`,
 					}}
 				>
+					<div
+						style={{
+							display: 'flex',
+							alignItems: 'center',
+							gap: 6,
+							fontSize: 13,
+							fontWeight: 700,
+							color: muted,
+							flex: '0 0 auto',
+						}}
+					>
+						<span style={{ fontSize: 20, lineHeight: 1 }}>‹</span>
+						<span>67</span>
+					</div>
+					<div style={{ minWidth: 0, flex: 1, textAlign: 'center' }}>
+						<div
+							style={{
+								fontSize: 13,
+								fontWeight: 750,
+								lineHeight: 1.15,
+								whiteSpace: 'nowrap',
+								overflow: 'hidden',
+								textOverflow: 'ellipsis',
+							}}
+						>
+							{data?.title || (nick ? `@${nick}` : 'Telegram')}
+						</div>
+						<div
+							style={{
+								fontSize: 9,
+								color: muted,
+								marginTop: 1,
+								whiteSpace: 'nowrap',
+								overflow: 'hidden',
+								textOverflow: 'ellipsis',
+							}}
+						>
+							{nick ? `@${nick}` : error || 'Подключение к каналу…'}
+						</div>
+					</div>
 					{data?.avatar ? (
 						<img
 							src={data.avatar}
@@ -218,8 +241,8 @@ export default function TelegramCard({
 								e.currentTarget.style.display = 'none'
 							}}
 							style={{
-								width: 38,
-								height: 38,
+								width: 34,
+								height: 34,
 								borderRadius: '50%',
 								objectFit: 'cover',
 								flex: '0 0 auto',
@@ -229,8 +252,8 @@ export default function TelegramCard({
 					) : (
 						<div
 							style={{
-								width: 38,
-								height: 38,
+								width: 34,
+								height: 34,
 								borderRadius: '50%',
 								display: 'grid',
 								placeItems: 'center',
@@ -238,28 +261,9 @@ export default function TelegramCard({
 								flex: '0 0 auto',
 							}}
 						>
-							<TelegramLogo size={20} />
+							<TelegramLogo size={18} />
 						</div>
 					)}
-					<div style={{ minWidth: 0, flex: 1 }}>
-						<div
-							style={{
-								fontSize: 14,
-								fontWeight: 750,
-								lineHeight: 1.2,
-								whiteSpace: 'nowrap',
-								overflow: 'hidden',
-								textOverflow: 'ellipsis',
-							}}
-						>
-							{data?.title || (nick ? `@${nick}` : 'Telegram')}
-						</div>
-						<div style={{ fontSize: 11, color: muted, marginTop: 2 }}>
-							{data?.subscribers
-								? `${data.subscribers} подписчиков`
-								: error || 'Подключение к каналу…'}
-						</div>
-					</div>
 				</div>
 
 				<div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
@@ -371,7 +375,7 @@ export default function TelegramCard({
 						position: 'relative',
 						width: '40%',
 						flex: '0 0 auto',
-						marginTop: '4%',
+						marginTop: '2%',
 						display: 'flex',
 						flexDirection: 'column',
 						alignItems: 'center',
@@ -379,26 +383,14 @@ export default function TelegramCard({
 					}}
 				>
 					<div
-						style={{
-							fontSize: 12,
-							fontWeight: 600,
-							letterSpacing: '0.18em',
-							color: light ? '#334155' : '#d9e9f4',
-							textTransform: 'uppercase',
-							whiteSpace: 'nowrap',
-						}}
-					>
-						Мы в Telegram
-					</div>
-					<div
 						className='tg-qr-card'
 						style={{
 							position: 'relative',
 							width: '100%',
 							aspectRatio: '1 / 1',
 							background: '#fff',
-							borderRadius: 26,
-							padding: 8,
+							borderRadius: 34,
+							padding: 10,
 							boxSizing: 'border-box',
 							boxShadow: '0 24px 60px rgba(0,0,0,.5)',
 							border: '4px solid #fff',
@@ -459,21 +451,21 @@ export default function TelegramCard({
 				rel='noreferrer'
 				style={{
 					position: 'absolute',
-					right: '4%',
-					bottom: '3%',
+					right: '10%',
+					bottom: '2.5%',
 					display: 'inline-flex',
 					alignItems: 'center',
 					gap: 8,
 					padding: '8px 13px',
 					borderRadius: 999,
-					background: light ? '#eef6ff' : '#1b2733',
+					background: light ? '#eef6ff' : '#000000',
 					border: `1px solid ${line}`,
 					color: fg,
 					textDecoration: 'none',
 					fontSize: 13,
 					fontWeight: 700,
 					boxShadow: '0 10px 30px rgba(0,0,0,.35)',
-					maxWidth: '55%',
+					maxWidth: '38%',
 				}}
 			>
 				<TelegramLogo size={18} />

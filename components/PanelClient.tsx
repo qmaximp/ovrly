@@ -2735,7 +2735,10 @@ export default function PanelClient({
 	}, [addElement])
 
 	const addTelegramEl = useCallback(() => {
-		const p = parkingSpot(1024, 640)
+		const p = {
+			x: Math.max(0, Math.round((state.canvasW - 1024) / 2)),
+			y: Math.max(0, Math.round((state.canvasH - 640) / 2)),
+		}
 		addElement({
 			type: 'telegram',
 			...p,
@@ -2747,7 +2750,7 @@ export default function PanelClient({
 			telegramDuration: 15,
 			telegramUntil: 0,
 		})
-	}, [addElement])
+	}, [addElement, state.canvasW, state.canvasH])
 
 	const dragRef = useRef<{
 		id: string
