@@ -351,10 +351,33 @@ export default function TelegramCard({
 																		{m.title || 'Файл'}
 																	</a>
 																)
+															if (m.kind === 'round')
+																return (
+																	<div
+																		key={i}
+																		className={s.round}
+																		style={{
+																			backgroundImage: m.thumb
+																				? `url(${m.thumb})`
+																				: undefined,
+																		}}
+																	>
+																		{m.url && (
+																			<video
+																				className={s.roundVideo}
+																				src={m.url}
+																				muted
+																				loop
+																				playsInline
+																				autoPlay
+																			/>
+																		)}
+																	</div>
+																)
 															return (
 																<video
 																	key={i}
-																	className={m.kind === 'round' ? s.round : s.mediaVideo}
+																	className={s.mediaVideo}
 																	src={m.url}
 																	muted
 																	loop

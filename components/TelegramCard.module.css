@@ -277,8 +277,8 @@
 }
 
 .sticker {
-	width: 96px;
-	height: 96px;
+	width: 210px;
+	height: 210px;
 	object-fit: contain;
 }
 
@@ -290,10 +290,21 @@
 }
 
 .round {
-	width: 94px;
-	height: 94px;
+	position: relative;
+	width: 250px;
+	height: 250px;
 	border-radius: 50%;
+	background: #2a3746 center / cover no-repeat;
+	box-shadow: 0 6px 18px rgba(0, 0, 0, .35);
+	overflow: hidden;
+}
+
+.roundVideo {
+	display: block;
+	width: 100%;
+	height: 100%;
 	object-fit: cover;
+	border-radius: 50%;
 }
 
 .voice {

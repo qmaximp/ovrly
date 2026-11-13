@@ -5121,7 +5121,6 @@ export default function PanelClient({
 								// ими управляет общий бокс группы, иначе над ним появляется
 								// вторая «крутилка» и перехватывает мышь
 								const multiSelect = selectedIds.size > 1
-								const tgTile = el.type === 'telegram'
 								// не держим в памяти медиа за пределами экрана: телефон с
 								// десятком видео/сайтов иначе начинает тормозить и греться.
 								// выбранный элемент рендерим всегда — иначе пропадёт превью,
@@ -5157,8 +5156,8 @@ export default function PanelClient({
 										style={{
 											left: el.x,
 											top: el.y,
-											width: tgTile ? 360 : el.width,
-											height: tgTile ? 110 : el.height,
+											width: el.width,
+											height: el.height,
 											// слой элемента подчиняется своему zIndex и в выделении:
 											// иначе кнопки «Вперёд/Назад» визуально ничего не меняют,
 											// пока элемент выбран. Ручки вынесены в отдельный слой выше.
@@ -5468,14 +5467,8 @@ export default function PanelClient({
 									style={{
 										left: selected.x,
 										top: selected.y,
-										width:
-											selected.type === 'telegram'
-												? 360
-												: selected.width,
-										height:
-											selected.type === 'telegram'
-												? 110
-												: selected.height,
+										width: selected.width,
+										height: selected.height,
 										transform: selected.rotation
 											? `rotate(${selected.rotation}deg)`
 											: undefined,
@@ -5492,8 +5485,7 @@ export default function PanelClient({
 										}}
 									/>
 									<div className='absolute inset-0 pointer-events-none'>
-										{selected.type !== 'telegram' &&
-											(
+										{(
 											['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const
 										).map(dir => {
 											const cursors: Record<string, string> = {
@@ -9073,9 +9065,7 @@ function PropertyEditor({
 					</div>
 				</div>
 			)}
-			{el.type !== 'telegram' && (
-				<>
-				<div className='grid grid-cols-2 gap-2'>
+			<div className='grid grid-cols-2 gap-2'>
 				<NumberField label='X' value={el.x} onChange={v => update({ x: v })} />
 				<NumberField label='Y' value={el.y} onChange={v => update({ y: v })} />
 				<NumberField
@@ -9102,7 +9092,6 @@ function PropertyEditor({
 					⟲ Сброс
 				</button>
 			</div>
-			</>)}
 			<div className='flex gap-2'>
 				<button
 					onClick={() =>
