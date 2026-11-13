@@ -2383,18 +2383,23 @@ body.obs-pane-moving { user-select: none; cursor: grabbing; }
 	background: #ef4444 !important;
 }
 
-/* Telegram-карточка: появление как в overlay.hub */
+/* Telegram-карточка: как в OverlayHub */
 @keyframes tg-shell-in {
-	from { opacity: 0; transform: translateY(18px) scale(.97); }
-	to { opacity: 1; transform: translateY(0) scale(1); }
+	0% { opacity: 0; transform: translateY(140px) scale(.94); }
+	70% { opacity: 1; transform: translateY(-8px) scale(1.005); }
+	100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes tg-shell-out {
+	0% { opacity: 1; transform: translateY(0) scale(1); }
+	100% { opacity: 0; transform: translateY(160px) scale(.97); }
 }
 @keyframes tg-left-in {
-	0% { opacity: 0; transform: translateY(28px); }
-	43% { opacity: 1; transform: translateY(-12px); }
-	100% { opacity: 1; transform: translateY(0); }
+	0% { opacity: 0; transform: translateY(80px) scale(.98); }
+	60% { opacity: 1; transform: translateY(-6px) scale(1.005); }
+	100% { opacity: 1; transform: translateY(0) scale(1); }
 }
 @keyframes tg-heading-in {
-	from { opacity: 0; transform: translateY(8px); }
+	from { opacity: 0; transform: translateY(20px); }
 	to { opacity: 1; transform: translateY(0); }
 }
 @keyframes tg-post-in {
@@ -2402,36 +2407,53 @@ body.obs-pane-moving { user-select: none; cursor: grabbing; }
 	to { opacity: 1; transform: translateY(0); }
 }
 @keyframes tg-qr-in {
-	0% { opacity: 0; transform: translateX(64px) rotate(7deg) scale(.82); }
-	70% { opacity: 1; transform: translateX(-4px) rotate(-1deg) scale(1.02); }
-	100% { opacity: 1; transform: translateX(0) rotate(0) scale(1); }
+	0% { opacity: 0; transform: translateY(70px) rotate(5deg) scale(.86); }
+	70% { opacity: 1; transform: translateY(-4px) rotate(-1deg) scale(1.01); }
+	100% { opacity: 1; transform: translateY(0) rotate(0) scale(1); }
 }
 @keyframes tg-handle-in {
 	from { opacity: 0; transform: translateY(20px) scale(.94); }
 	to { opacity: 1; transform: translateY(0) scale(1); }
 }
-@keyframes tg-qr-float {
+@keyframes tg-breathe {
 	0%, 100% { translate: 0 0; }
-	50% { translate: 0 -5px; }
+	50% { translate: 0 -6px; }
+}
+@keyframes tg-qr-bob {
+	0%, 100% { translate: 0 0; }
+	50% { translate: 0 -4px; }
+}
+@keyframes tg-handle-pulse {
+	0%, 100% { filter: brightness(1); }
+	50% { filter: brightness(1.25); }
 }
 
 .tg-shell {
-	animation: tg-shell-in .55s cubic-bezier(.22, 1, .36, 1) both;
+	animation: tg-shell-in .8s cubic-bezier(.16, .86, .26, 1) both;
+}
+.tg-shell.tg-out {
+	animation: tg-shell-out .62s cubic-bezier(.55, 0, .9, .45) both;
 }
 .tg-left {
-	animation: tg-left-in .9s cubic-bezier(.18, .72, .2, 1) both;
+	animation: tg-left-in .9s cubic-bezier(.16, .86, .26, 1) both, tg-breathe 4.6s 1s ease-in-out infinite;
 }
 .tg-qr-wrap {
-	animation: tg-heading-in .45s .18s ease-out both;
+	animation: tg-heading-in .45s .16s ease-out both;
 }
 .tg-qr-card {
-	animation: tg-qr-in .55s .18s ease-out both;
+	animation: tg-qr-in .7s .12s cubic-bezier(.16, .86, .26, 1) both, tg-qr-bob 4s 1s ease-in-out infinite;
 }
 .tg-handle {
-	animation: tg-handle-in .5s .32s cubic-bezier(.22, 1, .36, 1) both;
+	animation: tg-handle-in .5s .3s cubic-bezier(.22, 1, .36, 1) both, tg-handle-pulse 3.4s 1.2s ease-in-out infinite;
 }
 .tg-post {
 	animation: tg-post-in .45s cubic-bezier(.22, 1, .36, 1) both;
+}
+.tg-feed {
+	scrollbar-width: none;
+}
+.tg-feed::-webkit-scrollbar {
+	display: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2444,4 +2466,3 @@ body.obs-pane-moving { user-select: none; cursor: grabbing; }
 		animation: none !important;
 	}
 }
-

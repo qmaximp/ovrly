@@ -8988,14 +8988,19 @@ function PropertyEditor({
 							</span>
 						</div>
 						<input
-							type='range'
-							min={5}
-							max={120}
+							type='number'
+							min={3}
+							max={600}
 							step={1}
 							value={el.telegramDuration || 15}
-							onChange={e => update({ telegramDuration: Number(e.target.value) })}
-							className='w-full accent-[rgb(var(--c-accent2))]'
+							onChange={e => {
+								const n = Number(e.target.value)
+								if (Number.isFinite(n))
+									update({ telegramDuration: Math.min(600, Math.max(3, n)) })
+							}}
+							className='w-20 rounded-lg border border-border bg-bg px-2 py-1.5 text-xs text-gray-200 tabular-nums focus:outline-none focus:border-accent'
 						/>
+						<span className='text-xs text-gray-500'>секунд</span>
 						<div className='flex items-center gap-2'>
 							<button
 								onClick={() =>

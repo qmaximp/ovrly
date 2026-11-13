@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { normalizeTelegramChannel } from '@/lib/telegram'
 
 type TelegramPost = {
@@ -26,21 +26,13 @@ type Props = {
 	channel?: string
 	showQr?: boolean
 	light?: boolean
-	// момент окончания показа (ms). undefined/0 — карточка скрыта на оверлее
 	until?: number
-	// в панели карточка видна всегда, чтобы её можно было настроить
 	preview?: boolean
 }
 
 function TelegramLogo({ size = 22 }: { size?: number }) {
 	return (
-		<svg
-			width={size}
-			height={size}
-			viewBox='0 0 24 24'
-			fill='none'
-			aria-hidden='true'
-		>
+		<svg width={size} height={size} viewBox='0 0 24 24' fill='none' aria-hidden='true'>
 			<circle cx='12' cy='12' r='12' fill='#2AABEE' />
 			<path
 				d='M5.4 11.9 18.7 6.7c.6-.2 1.1.1.9.9l-2.2 10.2c-.2.8-.7 1-1.3.6l-3.6-2.7-1.7 1.7c-.2.2-.4.4-.7.4l.2-3.7 6.7-6c.3-.3-.1-.4-.5-.2l-8.2 5.2-3.5-1.1c-.8-.2-.8-.8.2-1.1Z'
@@ -64,8 +56,55 @@ function formatWhen(raw: string): string {
 		: d.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' })
 }
 
-// Карточка Telegram в духе overlay.hub: живая композиция из ленты, большого QR
-// и плашки канала. Появление анимировано через CSS (.tg-* в globals.css).
+function FeedFooter({ light }: { light: boolean }) {
+	return (
+		<div
+			style={{
+				display: 'flex',
+				alignItems: 'center',
+				justifyContent: 'space-between',
+				marginTop: 7,
+				fontSize: 9,
+				color: light ? '#6b7280' : '#8295a8',
+			}}
+		>
+			<span style={{ display: 'inline-flex', gap: 4 }}>
+				<span
+					style={{
+						width: 11,
+						height: 11,
+						borderRadius: '50%',
+						background: '#2AABEE',
+						display: 'inline-block',
+					}}
+				/>
+				<span
+					style={{
+						width: 11,
+						height: 11,
+						borderRadius: '50%',
+						background: '#a855f7',
+						display: 'inline-block',
+					}}
+				/>
+				<span
+					style={{
+						width: 11,
+						height: 11,
+						borderRadius: '50%',
+						background: '#ec4899',
+						display: 'inline-block',
+					}}
+				/>
+			</span>
+			<span style={{ color: '#2AABEE' }}>Комментарии ›</span>
+		</div>
+	)
+}
+
+// Карточка повторяет промо-показ OverlayHub: телефон с лентой постов, большой
+// фиолетовый QR и плашка канала. Появление/уход и «живые» покачивания заданы
+// в globals.css (.tg-*).
 export default function TelegramCard({
 	channel,
 	showQr = true,
@@ -74,28 +113,40 @@ export default function TelegramCard({
 	preview = false,
 }: Props) {
 	const nick = normalizeTelegramChannel(channel)
-	const [hidden, setHidden] = useState(
-		() => !preview && (!until || until <= Date.now()),
-	)
+	const [phase, setPhase] = useState<'hidden' | 'in' | 'out'>(() => {
+		if (preview) return 'in'
+		return until && until > Date.now() ? 'in' : 'hidden'
+	})
 
 	useEffect(() => {
-		setHidden(false)
-		if (preview) return
+		if (preview) {
+			setPhase('in')
+			return
+		}
 		if (!until) {
-			setHidden(true)
+			setPhase('hidden')
 			return
 		}
 		const ms = until - Date.now()
 		if (ms <= 0) {
-			setHidden(true)
+			setPhase('hidden')
 			return
 		}
-		const t = setTimeout(() => setHidden(true), ms)
-		return () => clearTimeout(t)
+		setPhase('in')
+		let hideTimer: ReturnType<typeof setTimeout> | undefined
+		const outTimer = setTimeout(() => {
+			setPhase('out')
+			hideTimer = setTimeout(() => setPhase('hidden'), 620)
+		}, ms)
+		return () => {
+			clearTimeout(outTimer)
+			if (hideTimer) clearTimeout(hideTimer)
+		}
 	}, [until, preview])
 
 	const [data, setData] = useState<TelegramData | null>(null)
 	const [error, setError] = useState('')
+	const feedRef = useRef<HTMLDivElement | null>(null)
 
 	useEffect(() => {
 		if (!nick) {
@@ -106,9 +157,7 @@ export default function TelegramCard({
 		let alive = true
 		const load = async () => {
 			try {
-				const res = await fetch(
-					`/api/telegram?channel=${encodeURIComponent(nick)}`,
-				)
+				const res = await fetch(`/api/telegram?channel=${encodeURIComponent(nick)}`)
 				const json = await res.json()
 				if (!alive) return
 				if (!res.ok) {
@@ -129,6 +178,30 @@ export default function TelegramCard({
 		}
 	}, [nick])
 
+	// Лента в телефоне едет сама, как в эталонной карточке. Небольшая пауза
+	// на краях, чтобы посты успевали прочитаться.
+	useEffect(() => {
+		if (phase !== 'in' || !feedRef.current) return
+		const el = feedRef.current
+		let dir = 1
+		let pause = 40
+		const timer = setInterval(() => {
+			if (pause > 0) {
+				pause -= 1
+			} else {
+				el.scrollTop += dir * 0.6
+				if (el.scrollTop + el.clientHeight >= el.scrollHeight - 2) {
+					dir = -1
+					pause = 60
+				} else if (el.scrollTop <= 0) {
+					dir = 1
+					pause = 30
+				}
+			}
+		}, 40)
+		return () => clearInterval(timer)
+	}, [phase, data])
+
 	const qrSrc = useMemo(() => {
 		if (!nick) return ''
 		return `https://api.qrserver.com/v1/create-qr-code/?size=360x360&margin=0&color=4B3BFF&bgcolor=FFFFFF&data=${encodeURIComponent(
@@ -136,22 +209,23 @@ export default function TelegramCard({
 		)}`
 	}, [nick])
 
-	const bg = light ? '#ffffff' : '#17212b'
-	const panel = light ? '#f6f8fa' : '#1c2733'
-	const fg = light ? '#111827' : '#ffffff'
-	const muted = light ? '#6b7280' : '#8b9bab'
-	const line = light ? '#e5e7eb' : '#2b3b4b'
+	const bg = light ? '#f3f7fb' : '#0e1a26'
+	const panel = light ? '#e8f2fb' : '#142330'
+	const fg = light ? '#111827' : '#f4f8fb'
+	const muted = light ? '#64748b' : '#8094a8'
+	const line = light ? '#dbe7f2' : '#203346'
 	const posts = data?.posts?.length
 		? data.posts
 		: data?.last
 			? [data.last]
 			: []
 
-	if (!preview && hidden) return null
+	if (phase === 'hidden') return null
+
 	return (
 		<div
 			data-telegram-card='1'
-			className='tg-shell'
+			className={`tg-shell${phase === 'out' ? ' tg-out' : ''}`}
 			style={{
 				width: '100%',
 				height: '100%',
@@ -177,10 +251,10 @@ export default function TelegramCard({
 					boxSizing: 'border-box',
 					display: 'flex',
 					flexDirection: 'column',
-					borderRadius: 40,
+					borderRadius: 42,
 					background: bg,
 					border: '6px solid #d7d9e2',
-					boxShadow: '0 22px 60px rgba(0,0,0,.55)',
+					boxShadow: '0 26px 70px rgba(0,0,0,.6)',
 					overflow: 'hidden',
 				}}
 			>
@@ -189,8 +263,9 @@ export default function TelegramCard({
 						display: 'flex',
 						alignItems: 'center',
 						gap: 10,
-						padding: '10px 12px',
+						padding: '11px 13px',
 						borderBottom: `1px solid ${line}`,
+						background: panel,
 					}}
 				>
 					<div
@@ -204,14 +279,14 @@ export default function TelegramCard({
 							flex: '0 0 auto',
 						}}
 					>
-						<span style={{ fontSize: 20, lineHeight: 1 }}>‹</span>
+						<span style={{ fontSize: 21, lineHeight: 1, marginTop: -2 }}>‹</span>
 						<span>67</span>
 					</div>
 					<div style={{ minWidth: 0, flex: 1, textAlign: 'center' }}>
 						<div
 							style={{
 								fontSize: 13,
-								fontWeight: 750,
+								fontWeight: 800,
 								lineHeight: 1.15,
 								whiteSpace: 'nowrap',
 								overflow: 'hidden',
@@ -224,7 +299,7 @@ export default function TelegramCard({
 							style={{
 								fontSize: 9,
 								color: muted,
-								marginTop: 1,
+								marginTop: 2,
 								whiteSpace: 'nowrap',
 								overflow: 'hidden',
 								textOverflow: 'ellipsis',
@@ -241,8 +316,8 @@ export default function TelegramCard({
 								e.currentTarget.style.display = 'none'
 							}}
 							style={{
-								width: 34,
-								height: 34,
+								width: 36,
+								height: 36,
 								borderRadius: '50%',
 								objectFit: 'cover',
 								flex: '0 0 auto',
@@ -252,8 +327,8 @@ export default function TelegramCard({
 					) : (
 						<div
 							style={{
-								width: 34,
-								height: 34,
+								width: 36,
+								height: 36,
 								borderRadius: '50%',
 								display: 'grid',
 								placeItems: 'center',
@@ -266,7 +341,17 @@ export default function TelegramCard({
 					)}
 				</div>
 
-				<div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+				<div
+					ref={feedRef}
+					className='tg-feed'
+					style={{
+						flex: 1,
+						minHeight: 0,
+						overflowY: 'auto',
+						overflowX: 'hidden',
+						scrollbarWidth: 'none',
+					}}
+				>
 					{!nick ? (
 						<div
 							style={{
@@ -280,18 +365,11 @@ export default function TelegramCard({
 								lineHeight: 1.5,
 							}}
 						>
-							Укажите Telegram-канал в свойствах элемента
+							Укажите Telegram-канал в свойствах
 						</div>
 					) : posts.length === 0 ? (
-						<div
-							style={{
-								padding: 16,
-								color: muted,
-								fontSize: 12,
-								lineHeight: 1.5,
-							}}
-						>
-							{error || 'Загрузка постов…'}
+						<div style={{ padding: 16, color: muted, fontSize: 12, lineHeight: 1.5 }}>
+							{error || 'Загружаем посты'}
 						</div>
 					) : (
 						posts.map((post, i) => (
@@ -299,10 +377,9 @@ export default function TelegramCard({
 								key={`${post.url}-${i}`}
 								className='tg-post'
 								style={{
-									padding: '10px 14px',
-									borderBottom:
-										i === posts.length - 1 ? 'none' : `1px solid ${line}`,
-									animationDelay: `${120 + i * 110}ms`,
+									padding: '11px 13px',
+									borderBottom: i === posts.length - 1 ? 'none' : `1px solid ${line}`,
+									animationDelay: `${140 + i * 90}ms`,
 								}}
 							>
 								<div
@@ -312,12 +389,10 @@ export default function TelegramCard({
 										gap: 8,
 										fontSize: 10,
 										color: muted,
-										marginBottom: 4,
+										marginBottom: 5,
 									}}
 								>
-									<span style={{ color: '#2AABEE', fontWeight: 700 }}>
-										@{nick}
-									</span>
+									<span style={{ color: '#2AABEE', fontWeight: 700 }}>@{nick}</span>
 									<span>{formatWhen(post.date)}</span>
 								</div>
 								{post.photo && (
@@ -329,10 +404,11 @@ export default function TelegramCard({
 										}}
 										style={{
 											width: '100%',
-											height: 74,
+											height: 86,
 											objectFit: 'cover',
-											borderRadius: 8,
-											marginBottom: 6,
+											borderRadius: 10,
+											marginBottom: 7,
+											background: panel,
 										}}
 									/>
 								)}
@@ -340,28 +416,29 @@ export default function TelegramCard({
 									style={{
 										margin: 0,
 										fontSize: 12,
-										lineHeight: 1.45,
+										lineHeight: 1.42,
 										color: light ? '#1f2937' : '#e6edf3',
 										display: '-webkit-box',
-										WebkitLineClamp: 3,
+										WebkitLineClamp: 4,
 										WebkitBoxOrient: 'vertical',
 										overflow: 'hidden',
 									}}
 								>
-									{post.text || 'Медиа-пост'}
+									{post.text || 'Пост без текста'}
 								</p>
 								<div
 									style={{
 										display: 'flex',
 										justifyContent: 'space-between',
-										marginTop: 5,
-										fontSize: 10,
+										marginTop: 6,
+										fontSize: 9,
 										color: muted,
 									}}
 								>
 									<span>{post.views ? `👁 ${post.views}` : ''}</span>
 									<span>Комментарии ›</span>
 								</div>
+								<FeedFooter light={light} />
 							</div>
 						))
 					)}
@@ -389,8 +466,8 @@ export default function TelegramCard({
 							width: '100%',
 							aspectRatio: '1 / 1',
 							background: '#fff',
-							borderRadius: 34,
-							padding: 10,
+							borderRadius: 36,
+							padding: 12,
 							boxSizing: 'border-box',
 							boxShadow: '0 24px 60px rgba(0,0,0,.5)',
 							border: '4px solid #fff',
@@ -405,7 +482,7 @@ export default function TelegramCard({
 							style={{
 								width: '100%',
 								height: '100%',
-								borderRadius: 16,
+								borderRadius: 18,
 								objectFit: 'contain',
 								display: 'block',
 							}}
@@ -419,8 +496,8 @@ export default function TelegramCard({
 								width: '26%',
 								aspectRatio: '1 / 1',
 								borderRadius: '50%',
-								background: '#17212b',
-								border: '3px solid #fff',
+								background: '#5b4bdf',
+								border: '4px solid #fff',
 								display: 'grid',
 								placeItems: 'center',
 								overflow: 'hidden',
@@ -430,14 +507,10 @@ export default function TelegramCard({
 								<img
 									src={data.avatar}
 									alt=''
-									style={{
-										width: '100%',
-										height: '100%',
-										objectFit: 'cover',
-									}}
+									style={{ width: '100%', height: '100%', objectFit: 'cover' }}
 								/>
 							) : (
-								<TelegramLogo size={20} />
+								<span style={{ fontSize: 9, color: '#fff', fontWeight: 800 }}>TG</span>
 							)}
 						</div>
 					</div>
