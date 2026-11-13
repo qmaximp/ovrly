@@ -203,6 +203,34 @@ function cleanStroke(raw) {
 	}
 }
 
+// точки рисунка-элемента: локальные координаты внутри его рамки
+const MAX_DRAW_POINTS = 1200
+function cleanDrawPoints(raw, w, h) {
+	if (!Array.isArray(raw)) return null
+	const out = []
+	for (const p of raw.slice(0, MAX_DRAW_POINTS)) {
+		if (!Array.isArray(p) || p.length < 2) continue
+		const x = asCoord(Number(p[0]), -10, Math.max(10, w) + 10)
+		const y = asCoord(Number(p[1]), -10, Math.max(10, h) + 10)
+		if (x !== null && y !== null)
+			out.push([Math.round(x * 10) / 10, Math.round(y * 10) / 10])
+	}
+	return out.length > 1 ? out : null
+}
+
+function cleanDrawElement(el) {
+	const w = Math.max(4, Math.min(8000, Number(el.width) || 4))
+	const h = Math.max(4, Math.min(8000, Number(el.height) || 4))
+	const points = cleanDrawPoints(el.points, w, h)
+	if (!points) return false
+	el.points = points
+	el.strokeColor = /^#[0-9a-f]{3,8}$/i.test(String(el.strokeColor || ''))
+		? String(el.strokeColor)
+		: '#ff3b30'
+	el.strokeWidth = Math.max(1, Math.min(80, Number(el.strokeWidth) || 6))
+	return true
+}
+
 // размер «прочих» полей без медиа и уже проверенных widget/playlist
 function extraBytes(obj) {
 	try {
@@ -1513,6 +1541,7 @@ app.prepare().then(() => {
 				el.widget = widget
 				el.widgetValues = cleanWidgetValues(widget, el.widgetValues)
 			}
+			if (el.type === 'draw' && !cleanDrawElement(el)) return
 			el.zIndex = el.zIndex ?? state.elements.length
 			el.visible = el.visible ?? true
 			if ('crop' in el) el.crop = cleanCrop(el.crop)
@@ -1540,6 +1569,13 @@ app.prepare().then(() => {
 				const g =
 					String(partial.groupId).replace(/[^\w-]/g, '').slice(0, 40) || ''
 				partial.groupId = g && g !== 'null' ? g : undefined
+			}
+			if (partial.points !== undefined) {
+				const merged = { ...oldEl, ...partial }
+				if (!cleanDrawElement(merged)) return
+				partial.points = merged.points
+				partial.strokeColor = merged.strokeColor
+				partial.strokeWidth = merged.strokeWidth
 			}
 			if (partial.widget !== undefined) {
 				const widget = cleanWidgetDefinition(partial.widget)
@@ -1665,6 +1701,7 @@ app.prepare().then(() => {
 		socket.on('element:delete', id => {
 			state.elements = state.elements.filter(e => e.id !== id)
 			roomRec.locks.delete(id)
+			roomRec.dirty = true
 			io.to(room).emit('element:deleted', id)
 			syncTwitchChat(room, state)
 		})

@@ -462,6 +462,7 @@ export default function PanelClient({
 	const [penColor, setPenColor] = useState('#ff3b30')
 	const [penWidth, setPenWidth] = useState(6)
 	const [liveStroke, setLiveStroke] = useState<Stroke | null>(null)
+	const drawDoneRef = useRef(false)
 	const viewRef = useRef(view)
 	viewRef.current = view
 	const [panning, setPanning] = useState(false)
@@ -1849,7 +1850,7 @@ export default function PanelClient({
 	}, [previewOn, channel, twitchLive === false])
 
 	const addElement = useCallback(
-		(el: Omit<StreamElement, 'id' | 'zIndex' | 'visible'>) => {
+		(el: Omit<StreamElement, 'id' | 'zIndex' | 'visible'> & { id?: string }) => {
 			remember()
 			localAddRef.current.expected++
 			const name =
@@ -4118,6 +4119,7 @@ export default function PanelClient({
 		try {
 			;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
 		} catch {}
+		drawDoneRef.current = false
 		setLiveStroke({
 			id: 'st' + Date.now().toString(36),
 			color: penColor,
@@ -4135,8 +4137,43 @@ export default function PanelClient({
 		setLiveStroke({ ...liveStroke, points: [...liveStroke.points, p] })
 	}
 	const drawUp = () => {
-		if (liveStroke && liveStroke.points.length > 1)
-			emit('draw:add', liveStroke)
+		if (drawDoneRef.current) return
+		drawDoneRef.current = true
+		if (liveStroke && liveStroke.points.length > 1) {
+			// штрих превращается в обычный элемент: его можно выделить, тащить,
+			// масштабировать и стирать как всё остальное
+			const pts = liveStroke.points
+			let minX = Infinity
+			let minY = Infinity
+			let maxX = -Infinity
+			let maxY = -Infinity
+			for (const [px, py] of pts) {
+				if (px < minX) minX = px
+				if (py < minY) minY = py
+				if (px > maxX) maxX = px
+				if (py > maxY) maxY = py
+			}
+			const pad = Math.max(2, liveStroke.width / 2)
+			const x = minX - pad
+			const y = minY - pad
+			const width = Math.max(8, maxX - minX + pad * 2)
+			const height = Math.max(8, maxY - minY + pad * 2)
+			const id = 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+			addElement({
+				id,
+				type: 'draw',
+				x,
+				y,
+				width,
+				height,
+				points: pts.map(([px, py]) => [px - x, py - y] as [number, number]),
+				strokeColor: liveStroke.color,
+				strokeWidth: liveStroke.width,
+				name: 'Рисунок',
+			})
+			setSelectedIds(new Set())
+			setSelectedId(id)
+		}
 		setLiveStroke(null)
 		// один штрих — и сразу обратно к выбору/перетаскиванию элементов
 		setDrawMode(false)
@@ -7388,6 +7425,7 @@ function DockButton({
 function elementLabel(el: StreamElement): string {
 	if (el.name?.trim()) return el.name.trim()
 	if (el.type === 'widget') return el.widget?.name || 'Виджеты'
+	if (el.type === 'draw') return 'Рисунок'
 	if (el.type === 'text') {
 		const t = (el.text || '').trim().replace(/\s+/g, ' ')
 		return t ? t.slice(0, 40) : 'Текст'
@@ -7430,6 +7468,27 @@ function ElementThumb({ el }: { el: StreamElement }) {
 		return (
 			<span className='absolute inset-0 flex items-center justify-center bg-[#14141c] text-accent2'>
 				<Blocks size={22} />
+			</span>
+		)
+	if (el.type === 'draw')
+		return (
+			<span className='absolute inset-0 block bg-[#14141c]'>
+				<svg
+					viewBox={`0 0 ${Math.max(1, el.width)} ${Math.max(1, el.height)}`}
+					preserveAspectRatio='none'
+					className='w-full h-full'
+				>
+					<polyline
+						points={(el.points || [])
+							.map(([x, y]) => `${x},${y}`)
+							.join(' ')}
+						fill='none'
+						stroke={el.strokeColor || '#ff3b30'}
+						strokeWidth={el.strokeWidth || 6}
+						strokeLinecap='round'
+						strokeLinejoin='round'
+					/>
+				</svg>
 			</span>
 		)
 	if (el.type === 'image' || el.type === 'gif')
@@ -8095,6 +8154,23 @@ function PreviewElementInner({
 						: undefined
 				}
 			/>
+		)
+	if (el.type === 'draw')
+		return (
+			<svg
+				viewBox={`0 0 ${Math.max(1, el.width)} ${Math.max(1, el.height)}`}
+				preserveAspectRatio='none'
+				className='w-full h-full pointer-events-none'
+			>
+				<polyline
+					points={(el.points || []).map(([x, y]) => `${x},${y}`).join(' ')}
+					fill='none'
+					stroke={el.strokeColor || '#ff3b30'}
+					strokeWidth={el.strokeWidth || 6}
+					strokeLinecap='round'
+					strokeLinejoin='round'
+				/>
+			</svg>
 		)
 	if (el.type === 'image' || el.type === 'gif')
 		return (

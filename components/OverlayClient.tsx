@@ -536,6 +536,27 @@ function OverlayElement({ el, ytStarted }: { el: StreamElement; ytStarted: boole
 				/>
 			</div>
 		)
+	if (el.type === 'draw')
+		return (
+			<div style={style}>
+				<svg
+					viewBox={`0 0 ${Math.max(1, el.width)} ${Math.max(1, el.height)}`}
+					preserveAspectRatio='none'
+					style={{ width: '100%', height: '100%', display: 'block' }}
+				>
+					<polyline
+						points={(el.points || [])
+							.map(([x, y]) => `${x},${y}`)
+							.join(' ')}
+						fill='none'
+						stroke={el.strokeColor || '#ff3b30'}
+						strokeWidth={el.strokeWidth || 6}
+						strokeLinecap='round'
+						strokeLinejoin='round'
+					/>
+				</svg>
+			</div>
+		)
 	if (el.type === 'image' || el.type === 'gif')
 		return (
 			<div style={style}>
