@@ -3,6 +3,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { normalizeTelegramChannel } from '@/lib/telegram'
 
+type TelegramPost = {
+	text: string
+	photo: string
+	date: string
+	views: string
+	url: string
+}
+
 type TelegramData = {
 	channel: string
 	title: string
@@ -10,13 +18,8 @@ type TelegramData = {
 	description: string
 	avatar: string
 	url: string
-	last?: {
-		text: string
-		photo: string
-		date: string
-		views: string
-		url: string
-	}
+	posts: TelegramPost[]
+	last?: TelegramPost
 }
 
 type Props = {
@@ -57,6 +60,8 @@ function formatWhen(raw: string): string {
 		: d.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' })
 }
 
+// Карточка Telegram в духе overlay.hub: живая композиция из ленты, большого QR
+// и плашки канала. Появление анимировано через CSS (.tg-* в globals.css).
 export default function TelegramCard({
 	channel,
 	showQr = true,
@@ -100,157 +105,255 @@ export default function TelegramCard({
 
 	const qrSrc = useMemo(() => {
 		if (!nick) return ''
-		return `https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=0&data=${encodeURIComponent(
+		return `https://api.qrserver.com/v1/create-qr-code/?size=360x360&margin=0&data=${encodeURIComponent(
 			`https://t.me/${nick}`,
 		)}`
 	}, [nick])
 
 	const bg = light ? '#ffffff' : '#17212b'
+	const panel = light ? '#f6f8fa' : '#1c2733'
 	const fg = light ? '#111827' : '#ffffff'
 	const muted = light ? '#6b7280' : '#8b9bab'
-	const line = light ? '#e5e7eb' : '#253341'
-	const last = data?.last
-	const text = last?.text || data?.description || ''
+	const line = light ? '#e5e7eb' : '#2b3b4b'
+	const posts = data?.posts?.length
+		? data.posts
+		: data?.last
+			? [data.last]
+			: []
 
 	return (
 		<div
 			data-telegram-card='1'
+			className='tg-shell'
 			style={{
 				width: '100%',
 				height: '100%',
-				display: 'flex',
-				flexDirection: 'column',
-				gap: 10,
-				padding: 14,
-				boxSizing: 'border-box',
+				position: 'relative',
 				overflow: 'hidden',
-				borderRadius: 16,
-				background: bg,
-				color: fg,
+				display: 'flex',
+				alignItems: 'flex-start',
+				gap: '2%',
+				padding: '3%',
+				boxSizing: 'border-box',
 				fontFamily:
 					'Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif',
+				color: fg,
 			}}
 		>
-			<div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-				{data?.avatar ? (
-					<img
-						src={data.avatar}
-						alt=''
-						onError={e => {
-							e.currentTarget.style.display = 'none'
-						}}
-						style={{
-							width: 42,
-							height: 42,
-							borderRadius: '50%',
-							objectFit: 'cover',
-							flex: '0 0 auto',
-							background: '#2AABEE22',
-						}}
-					/>
-				) : (
-					<div
-						style={{
-							width: 42,
-							height: 42,
-							borderRadius: '50%',
-							display: 'grid',
-							placeItems: 'center',
-							background: '#2AABEE22',
-							flex: '0 0 auto',
-						}}
-					>
-						<TelegramLogo />
-					</div>
-				)}
-				<div style={{ minWidth: 0, flex: 1 }}>
-					<div
-						style={{
-							fontSize: 16,
-							fontWeight: 750,
-							lineHeight: 1.15,
-							whiteSpace: 'nowrap',
-							overflow: 'hidden',
-							textOverflow: 'ellipsis',
-						}}
-					>
-						{data?.title || (nick ? `@${nick}` : 'Telegram')}
-					</div>
-					<div style={{ fontSize: 12, color: muted, marginTop: 2 }}>
-						{data?.subscribers
-							? `${data.subscribers} подписчиков`
-							: error || 'Подключение к каналу…'}
-					</div>
-				</div>
+			<div
+				className='tg-left'
+				style={{
+					position: 'relative',
+					width: showQr ? '58%' : '94%',
+					height: '88%',
+					flex: '0 0 auto',
+					boxSizing: 'border-box',
+					display: 'flex',
+					flexDirection: 'column',
+					borderRadius: 18,
+					background: bg,
+					border: `1px solid ${line}`,
+					boxShadow: '0 18px 50px rgba(0,0,0,.35)',
+					overflow: 'hidden',
+				}}
+			>
 				<div
 					style={{
-						width: 34,
-						height: 34,
-						borderRadius: 10,
-						display: 'grid',
-						placeItems: 'center',
-						background: light ? '#eef6ff' : '#1f3142',
+						display: 'flex',
+						alignItems: 'center',
+						justifyContent: 'space-between',
+						padding: '12px 14px',
+						borderBottom: `1px solid ${line}`,
+						fontSize: 11,
+						letterSpacing: '.06em',
+						textTransform: 'uppercase',
+						color: muted,
+					}}
+				>
+					<span>Комментарии</span>
+					<TelegramLogo size={16} />
+				</div>
+
+				<div
+					style={{
+						display: 'flex',
+						alignItems: 'center',
+						gap: 10,
+						padding: '10px 14px',
+						borderBottom: `1px solid ${line}`,
+					}}
+				>
+					{data?.avatar ? (
+						<img
+							src={data.avatar}
+							alt=''
+							onError={e => {
+								e.currentTarget.style.display = 'none'
+							}}
+							style={{
+								width: 38,
+								height: 38,
+								borderRadius: '50%',
+								objectFit: 'cover',
+								flex: '0 0 auto',
+								background: '#2AABEE22',
+							}}
+						/>
+					) : (
+						<div
+							style={{
+								width: 38,
+								height: 38,
+								borderRadius: '50%',
+								display: 'grid',
+								placeItems: 'center',
+								background: '#2AABEE22',
+								flex: '0 0 auto',
+							}}
+						>
+							<TelegramLogo size={20} />
+						</div>
+					)}
+					<div style={{ minWidth: 0, flex: 1 }}>
+						<div
+							style={{
+								fontSize: 14,
+								fontWeight: 750,
+								lineHeight: 1.2,
+								whiteSpace: 'nowrap',
+								overflow: 'hidden',
+								textOverflow: 'ellipsis',
+							}}
+						>
+							{data?.title || (nick ? `@${nick}` : 'Telegram')}
+						</div>
+						<div style={{ fontSize: 11, color: muted, marginTop: 2 }}>
+							{data?.subscribers
+								? `${data.subscribers} подписчиков`
+								: error || 'Подключение к каналу…'}
+						</div>
+					</div>
+				</div>
+
+				<div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+					{!nick ? (
+						<div
+							style={{
+								height: '100%',
+								display: 'grid',
+								placeItems: 'center',
+								textAlign: 'center',
+								padding: 20,
+								color: muted,
+								fontSize: 12,
+								lineHeight: 1.5,
+							}}
+						>
+							Укажите Telegram-канал в свойствах элемента
+						</div>
+					) : posts.length === 0 ? (
+						<div
+							style={{
+								padding: 16,
+								color: muted,
+								fontSize: 12,
+								lineHeight: 1.5,
+							}}
+						>
+							{error || 'Загрузка постов…'}
+						</div>
+					) : (
+						posts.map((post, i) => (
+							<div
+								key={`${post.url}-${i}`}
+								className='tg-post'
+								style={{
+									padding: '10px 14px',
+									borderBottom:
+										i === posts.length - 1 ? 'none' : `1px solid ${line}`,
+									animationDelay: `${120 + i * 110}ms`,
+								}}
+							>
+								<div
+									style={{
+										display: 'flex',
+										justifyContent: 'space-between',
+										gap: 8,
+										fontSize: 10,
+										color: muted,
+										marginBottom: 4,
+									}}
+								>
+									<span style={{ color: '#2AABEE', fontWeight: 700 }}>
+										@{nick}
+									</span>
+									<span>{formatWhen(post.date)}</span>
+								</div>
+								{post.photo && (
+									<img
+										src={post.photo}
+										alt=''
+										onError={e => {
+											e.currentTarget.style.display = 'none'
+										}}
+										style={{
+											width: '100%',
+											height: 74,
+											objectFit: 'cover',
+											borderRadius: 8,
+											marginBottom: 6,
+										}}
+									/>
+								)}
+								<p
+									style={{
+										margin: 0,
+										fontSize: 12,
+										lineHeight: 1.45,
+										color: light ? '#1f2937' : '#e6edf3',
+										display: '-webkit-box',
+										WebkitLineClamp: 3,
+										WebkitBoxOrient: 'vertical',
+										overflow: 'hidden',
+									}}
+								>
+									{post.text || 'Медиа-пост'}
+								</p>
+								<div
+									style={{
+										display: 'flex',
+										justifyContent: 'space-between',
+										marginTop: 5,
+										fontSize: 10,
+										color: muted,
+									}}
+								>
+									<span>{post.views ? `👁 ${post.views}` : ''}</span>
+									<span>Комментарии ›</span>
+								</div>
+							</div>
+						))
+					)}
+				</div>
+			</div>
+
+			{showQr && nick && (
+				<div
+					className='tg-qr-card'
+					style={{
+						position: 'relative',
+						width: '39%',
 						flex: '0 0 auto',
+						marginTop: '4%',
+						aspectRatio: '1 / 1',
+						background: '#fff',
+						borderRadius: 18,
+						padding: 8,
+						boxSizing: 'border-box',
+						boxShadow: '0 24px 60px rgba(0,0,0,.5)',
+						border: '4px solid #fff',
 					}}
 				>
-					<TelegramLogo size={20} />
-				</div>
-			</div>
-
-			<div
-				style={{
-					display: 'flex',
-					gap: 10,
-					flex: 1,
-					minHeight: 0,
-					borderTop: `1px solid ${line}`,
-					paddingTop: 10,
-				}}
-			>
-				<div
-					style={{
-						flex: 1,
-						minWidth: 0,
-						fontSize: 13,
-						lineHeight: 1.45,
-						color: light ? '#1f2937' : '#e6edf3',
-						overflow: 'hidden',
-						display: '-webkit-box',
-						WebkitLineClamp: 5,
-						WebkitBoxOrient: 'vertical',
-						whiteSpace: 'pre-wrap',
-					}}
-				>
-					{nick ? text || 'Загрузка последнего поста…' : 'Укажите Telegram-канал в свойствах'}
-				</div>
-				{last?.photo && (
-					<img
-						src={last.photo}
-						alt=''
-						onError={e => {
-							e.currentTarget.style.display = 'none'
-						}}
-						style={{
-							width: 92,
-							height: 92,
-							objectFit: 'cover',
-							borderRadius: 10,
-							flex: '0 0 auto',
-						}}
-					/>
-				)}
-			</div>
-
-			<div
-				style={{
-					display: 'flex',
-					alignItems: 'center',
-					gap: 10,
-					borderTop: `1px solid ${line}`,
-					paddingTop: 10,
-				}}
-			>
-				{showQr && qrSrc ? (
 					<img
 						src={qrSrc}
 						alt='QR Telegram'
@@ -258,48 +361,82 @@ export default function TelegramCard({
 							e.currentTarget.style.display = 'none'
 						}}
 						style={{
-							width: 62,
-							height: 62,
-							borderRadius: 8,
-							background: '#fff',
-							padding: 4,
-							boxSizing: 'border-box',
+							width: '100%',
+							height: '100%',
+							borderRadius: 10,
+							objectFit: 'contain',
+							display: 'block',
 						}}
 					/>
-				) : null}
-				<div style={{ minWidth: 0, flex: 1 }}>
 					<div
 						style={{
-							fontSize: 12,
-							fontWeight: 700,
-							whiteSpace: 'nowrap',
+							position: 'absolute',
+							left: '50%',
+							top: '50%',
+							transform: 'translate(-50%, -50%)',
+							width: '26%',
+							aspectRatio: '1 / 1',
+							borderRadius: '50%',
+							background: '#17212b',
+							border: '3px solid #fff',
+							display: 'grid',
+							placeItems: 'center',
 							overflow: 'hidden',
-							textOverflow: 'ellipsis',
 						}}
 					>
-						{nick ? `@${nick}` : 'Telegram'}
-					</div>
-					<div style={{ fontSize: 11, color: muted, marginTop: 2 }}>
-						{last?.views ? `${last.views} просмотров` : data?.description || 'Telegram-канал'}
+						{data?.avatar ? (
+							<img
+								src={data.avatar}
+								alt=''
+								style={{
+									width: '100%',
+									height: '100%',
+									objectFit: 'cover',
+								}}
+							/>
+						) : (
+							<TelegramLogo size={20} />
+						)}
 					</div>
 				</div>
-				{nick && (
-					<a
-						href={`https://t.me/${nick}`}
-						target='_blank'
-						rel='noreferrer'
-						style={{
-							fontSize: 11,
-							color: '#2AABEE',
-							textDecoration: 'none',
-							fontWeight: 700,
-							flex: '0 0 auto',
-						}}
-					>
-						Открыть
-					</a>
-				)}
-			</div>
+			)}
+
+			<a
+				className='tg-handle'
+				href={nick ? `https://t.me/${nick}` : undefined}
+				target='_blank'
+				rel='noreferrer'
+				style={{
+					position: 'absolute',
+					right: '4%',
+					bottom: '3%',
+					display: 'inline-flex',
+					alignItems: 'center',
+					gap: 8,
+					padding: '8px 13px',
+					borderRadius: 999,
+					background: light ? '#eef6ff' : '#1b2733',
+					border: `1px solid ${line}`,
+					color: fg,
+					textDecoration: 'none',
+					fontSize: 13,
+					fontWeight: 700,
+					boxShadow: '0 10px 30px rgba(0,0,0,.35)',
+					maxWidth: '55%',
+				}}
+			>
+				<TelegramLogo size={18} />
+				<span
+					style={{
+						overflow: 'hidden',
+						textOverflow: 'ellipsis',
+						whiteSpace: 'nowrap',
+						color: '#2AABEE',
+					}}
+				>
+					{nick ? `@${nick}` : 'Telegram'}
+				</span>
+			</a>
 		</div>
 	)
 }

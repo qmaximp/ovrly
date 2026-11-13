@@ -2383,3 +2383,58 @@ body.obs-pane-moving { user-select: none; cursor: grabbing; }
 	background: #ef4444 !important;
 }
 
+/* Telegram-карточка: появление как в overlay.hub */
+@keyframes tg-shell-in {
+	from { opacity: 0; transform: translateY(18px) scale(.97); }
+	to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes tg-left-in {
+	from { opacity: 0; transform: translateX(-36px); }
+	to { opacity: 1; transform: translateX(0); }
+}
+@keyframes tg-post-in {
+	from { opacity: 0; transform: translateY(14px); }
+	to { opacity: 1; transform: translateY(0); }
+}
+@keyframes tg-qr-in {
+	0% { opacity: 0; transform: translateX(64px) rotate(7deg) scale(.82); }
+	70% { opacity: 1; transform: translateX(-4px) rotate(-1deg) scale(1.02); }
+	100% { opacity: 1; transform: translateX(0) rotate(0) scale(1); }
+}
+@keyframes tg-handle-in {
+	from { opacity: 0; transform: translateY(20px) scale(.94); }
+	to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes tg-qr-float {
+	0%, 100% { translate: 0 0; }
+	50% { translate: 0 -5px; }
+}
+
+.tg-shell {
+	animation: tg-shell-in .55s cubic-bezier(.22, 1, .36, 1) both;
+}
+.tg-left {
+	animation: tg-left-in .6s cubic-bezier(.22, 1, .36, 1) both;
+}
+.tg-qr-card {
+	animation:
+		tg-qr-in .7s .12s cubic-bezier(.22, 1, .36, 1) both,
+		tg-qr-float 4.5s 1s ease-in-out infinite;
+}
+.tg-handle {
+	animation: tg-handle-in .5s .32s cubic-bezier(.22, 1, .36, 1) both;
+}
+.tg-post {
+	animation: tg-post-in .45s cubic-bezier(.22, 1, .36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.tg-shell,
+	.tg-left,
+	.tg-qr-card,
+	.tg-handle,
+	.tg-post {
+		animation: none !important;
+	}
+}
+
