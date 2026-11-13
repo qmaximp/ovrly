@@ -1,7 +1,9 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import qrcode from 'qrcode-generator'
 import { normalizeTelegramChannel } from '@/lib/telegram'
+import s from './TelegramCard.module.css'
 
 type TelegramPost = {
 	text: string
@@ -27,145 +29,136 @@ type Props = {
 	showQr?: boolean
 	light?: boolean
 	until?: number
-	// полная длительность показа в секундах — для полосы прогресса
 	duration?: number
 	preview?: boolean
 }
 
-function TelegramLogo({ size = 22 }: { size?: number }) {
-	return (
-		<svg width={size} height={size} viewBox='0 0 24 24' fill='none' aria-hidden='true'>
-			<circle cx='12' cy='12' r='12' fill='#2AABEE' />
-			<path
-				d='M5.4 11.9 18.7 6.7c.6-.2 1.1.1.9.9l-2.2 10.2c-.2.8-.7 1-1.3.6l-3.6-2.7-1.7 1.7c-.2.2-.4.4-.7.4l.2-3.7 6.7-6c.3-.3-.1-.4-.5-.2l-8.2 5.2-3.5-1.1c-.8-.2-.8-.8.2-1.1Z'
-				fill='#fff'
-			/>
-		</svg>
-	)
+const EASE_OUT = 'cubic-bezier(.22, 1, .36, 1)'
+const EASE_IN = 'cubic-bezier(.55, .05, .8, .25)'
+
+function initials(name: string) {
+	const parts = name.trim().split(/\s+/).filter(Boolean)
+	return (parts[0]?.[0] || '') + (parts[1]?.[0] || '')
 }
 
-function formatWhen(raw: string): string {
+function shortDate(raw: string) {
 	if (!raw) return ''
 	const d = new Date(raw)
 	if (Number.isNaN(d.getTime())) return raw
-	const now = new Date()
-	const same =
-		d.getDate() === now.getDate() &&
-		d.getMonth() === now.getMonth() &&
-		d.getFullYear() === now.getFullYear()
-	return same
-		? d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
-		: d.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' })
+	return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
 }
 
-function FeedFooter({
-	light,
-	views,
-}: {
-	light: boolean
-	views?: string
-}) {
-	return (
-		<div
-			style={{
-				display: 'flex',
-				alignItems: 'center',
-				justifyContent: 'space-between',
-				marginTop: 7,
-				fontSize: 9,
-				color: light ? '#6b7280' : '#8295a8',
-			}}
-		>
-			<span>{views ? `👁 ${views}` : ''}</span>
-			<span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-				<span style={{ display: 'inline-flex', gap: 4 }}>
-					<span
-						style={{
-							width: 11,
-							height: 11,
-							borderRadius: '50%',
-							background: '#2AABEE',
-							display: 'inline-block',
-						}}
-					/>
-					<span
-						style={{
-							width: 11,
-							height: 11,
-							borderRadius: '50%',
-							background: '#a855f7',
-							display: 'inline-block',
-						}}
-					/>
-					<span
-						style={{
-							width: 11,
-							height: 11,
-							borderRadius: '50%',
-							background: '#ec4899',
-							display: 'inline-block',
-						}}
-					/>
-				</span>
-				<span style={{ color: '#2AABEE' }}>Комментарии ›</span>
-			</span>
-		</div>
-	)
+function fullDate(raw: string) {
+	if (!raw) return ''
+	const d = new Date(raw)
+	if (Number.isNaN(d.getTime())) return raw
+	return d.toLocaleString('ru-RU', {
+		day: 'numeric',
+		month: 'long',
+		hour: '2-digit',
+		minute: '2-digit',
+	})
 }
 
-// Карточка повторяет промо-показ OverlayHub: телефон с лентой постов, большой
-// фиолетовый QR и плашка канала. Появление/уход и «живые» покачивания заданы
-// в globals.css (.tg-*).
+function rrect(x: number, y: number, w: number, h: number, tl: number, tr: number, br: number, bl: number) {
+	const a = (r: number, ex: number, ey: number) => (r ? `A${r} ${r} 0 0 1 ${ex} ${ey}` : '')
+	return `M${x + tl} ${y}H${x + w - tr}${a(tr, x + w, y + tr)}V${y + h - br}${a(br, x + w - br, y + h)}H${x + bl}${a(bl, x, y + h - bl)}V${y + tl}${a(tl, x + tl, y)}Z`
+}
+
+function makeQr(nick: string) {
+	const qr = qrcode(0, 'M')
+	qr.addData(`https://t.me/${nick}`)
+	qr.make()
+	const n = qr.getModuleCount()
+	const mid = n / 2
+	const lr = n * 0.165
+	const finder = (r: number, c: number) =>
+		(r < 7 && c < 7) || (r < 7 && c >= n - 7) || (r >= n - 7 && c < 7)
+	const logo = (r: number, c: number) =>
+		Math.hypot(r + 0.5 - mid, c + 0.5 - mid) < lr + 0.5
+	const on = (r: number, c: number) =>
+		r >= 0 && c >= 0 && r < n && c < n && !finder(r, c) && !logo(r, c) && qr.isDark(r, c)
+	const k = 0.5
+	const f = 0.32
+	let d = ''
+	for (let r = 0; r < n; r++)
+		for (let c = 0; c < n; c++) {
+			const T = on(r - 1, c)
+			const B = on(r + 1, c)
+			const L = on(r, c - 1)
+			const R = on(r, c + 1)
+			if (on(r, c)) {
+				d += rrect(
+					c,
+					r,
+					1,
+					1,
+					!T && !L ? k : 0,
+					!T && !R ? k : 0,
+					!B && !R ? k : 0,
+					!B && !L ? k : 0,
+				)
+			} else if (!finder(r, c) && !logo(r, c)) {
+				if (T && L && on(r - 1, c - 1))
+					d += `M${c} ${r}h${f}A${f} ${f} 0 0 0 ${c} ${r + f}z`
+				if (T && R && on(r - 1, c + 1))
+					d += `M${c + 1} ${r}v${f}A${f} ${f} 0 0 0 ${c + 1 - f} ${r}z`
+				if (B && R && on(r + 1, c + 1))
+					d += `M${c + 1} ${r + 1}h${-f}A${f} ${f} 0 0 0 ${c + 1} ${r + 1 - f}z`
+				if (B && L && on(r + 1, c - 1))
+					d += `M${c} ${r + 1}v${-f}A${f} ${f} 0 0 0 ${c + f} ${r + 1}z`
+			}
+		}
+	let ring = ''
+	let dots = ''
+	for (const [r, c] of [
+		[0, 0],
+		[0, n - 7],
+		[n - 7, 0],
+	]) {
+		ring +=
+			rrect(c, r, 7, 7, 2.4, 2.4, 2.4, 2.4) +
+			rrect(c + 1, r + 1, 5, 5, 1.5, 1.5, 1.5, 1.5)
+		dots += `<circle cx="${c + 3.5}" cy="${r + 3.5}" r="1.6"/>`
+	}
+	return {
+		n,
+		html: `<defs><linearGradient id="qrg" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="${n}" y2="${n}"><stop offset="0" style="stop-color:#8a7bff"/><stop offset=".5" style="stop-color:#5b4bff"/><stop offset="1" style="stop-color:#3d2fbf"/></linearGradient></defs><g fill="url(#qrg)"><path d="${d}"/><path fill-rule="evenodd" d="${ring}"/>${dots}</g>`,
+		avatar: Math.round((580 - 92) * (2 * lr + 0.2) / n),
+	}
+}
+
 export default function TelegramCard({
 	channel,
 	showQr = true,
-	light = false,
 	until,
-	duration = 15,
 	preview = false,
 }: Props) {
 	const nick = normalizeTelegramChannel(channel)
-	const [phase, setPhase] = useState<'hidden' | 'in' | 'out'>(() => {
-		if (preview) return 'in'
-		return until && until > Date.now() ? 'in' : 'hidden'
-	})
-
-	useEffect(() => {
-		if (preview) {
-			setPhase('in')
-			return
-		}
-		if (!until) {
-			setPhase('hidden')
-			return
-		}
-		const ms = until - Date.now()
-		if (ms <= 0) {
-			setPhase('hidden')
-			return
-		}
-		setPhase('in')
-		let hideTimer: ReturnType<typeof setTimeout> | undefined
-		const outTimer = setTimeout(() => {
-			setPhase('out')
-			hideTimer = setTimeout(() => setPhase('hidden'), 900)
-		}, ms)
-		return () => {
-			clearTimeout(outTimer)
-			if (hideTimer) clearTimeout(hideTimer)
-		}
-	}, [until, preview])
-
 	const [data, setData] = useState<TelegramData | null>(null)
 	const [error, setError] = useState('')
+	const [visible, setVisible] = useState(false)
+	const [scale, setScale] = useState(1)
+	const wrapRef = useRef<HTMLDivElement | null>(null)
+	const cardRef = useRef<HTMLDivElement | null>(null)
+	const qrRef = useRef<HTMLDivElement | null>(null)
 	const feedRef = useRef<HTMLDivElement | null>(null)
-	const [now, setNow] = useState(Date.now())
+	const qrSvgRef = useRef<SVGSVGElement | null>(null)
+	const qrAvaRef = useRef<HTMLDivElement | null>(null)
+	const qrUserRef = useRef<HTMLDivElement | null>(null)
+	const enteredRef = useRef<string>('')
+
+	const qr = useMemo(() => (nick ? makeQr(nick) : null), [nick])
 
 	useEffect(() => {
-		if (preview || phase !== 'in') return
-		const t = setInterval(() => setNow(Date.now()), 120)
-		return () => clearInterval(t)
-	}, [preview, phase])
+		const el = wrapRef.current
+		if (!el) return
+		const fit = () => setScale(el.clientWidth / 1920)
+		fit()
+		const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(fit) : null
+		ro?.observe(el)
+		return () => ro?.disconnect()
+	}, [])
 
 	useEffect(() => {
 		if (!nick) {
@@ -197,431 +190,236 @@ export default function TelegramCard({
 		}
 	}, [nick])
 
-	// Лента в телефоне едет сама, как в эталонной карточке. Небольшая пауза
-	// на краях, чтобы посты успевали прочитаться.
 	useEffect(() => {
-		if (phase !== 'in' || !feedRef.current) return
-		const el = feedRef.current
-		let dir = 1
-		let pause = 40
-		const timer = setInterval(() => {
-			if (pause > 0) {
-				pause -= 1
-			} else {
-				el.scrollTop += dir * 0.6
-				if (el.scrollTop + el.clientHeight >= el.scrollHeight - 2) {
-					dir = -1
-					pause = 60
-				} else if (el.scrollTop <= 0) {
-					dir = 1
-					pause = 30
-				}
-			}
-		}, 40)
-		return () => clearInterval(timer)
-	}, [phase, data])
+		let hideTimer: ReturnType<typeof setTimeout> | undefined
+		if (preview) {
+			setVisible(true)
+			return
+		}
+		if (!until) {
+			setVisible(false)
+			return
+		}
+		const left = until - Date.now()
+		if (left <= 0) {
+			setVisible(false)
+			return
+		}
+		setVisible(true)
+		const outTimer = setTimeout(() => {
+			const card = cardRef.current
+			const qrEl = qrRef.current
+			card?.animate(
+				[{ transform: 'translateY(0) rotate(0deg)' }, { transform: 'translateY(1300px) rotate(8deg)' }],
+				{ duration: 1100, easing: EASE_IN, fill: 'forwards' },
+			)
+			qrEl?.animate(
+				[{ transform: 'translateY(0) rotate(0deg)' }, { transform: 'translateY(1300px) rotate(-7deg)' }],
+				{ duration: 1100, delay: 140, easing: EASE_IN, fill: 'forwards' },
+			)
+			hideTimer = setTimeout(() => setVisible(false), 1300)
+		}, left)
+		return () => {
+			clearTimeout(outTimer)
+			if (hideTimer) clearTimeout(hideTimer)
+		}
+	}, [until, preview])
 
-	const qrSrc = useMemo(() => {
-		if (!nick) return ''
-		return `https://api.qrserver.com/v1/create-qr-code/?size=360x360&margin=20&color=5B4BFF&bgcolor=FFFFFF&data=${encodeURIComponent(
-			`https://t.me/${nick}`,
-		)}`
-	}, [nick])
+	// Вход повторяем после загрузки данных: так лента уже содержится в кадре.
+	useEffect(() => {
+		if (!visible || !data) return
+		const key = `${until || 0}:${data.channel}`
+		if (enteredRef.current === key) return
+		enteredRef.current = key
 
-	const bg = light ? '#f3f7fb' : '#0e1a26'
-	const panel = light ? '#e8f2fb' : '#142330'
-	const fg = light ? '#111827' : '#f4f8fb'
-	const muted = light ? '#64748b' : '#8094a8'
-	const line = light ? '#dbe7f2' : '#203346'
-	const posts = data?.posts?.length
-		? data.posts
-		: data?.last
-			? [data.last]
-			: []
-	const totalMs = Math.max(1000, (duration || 15) * 1000)
-	const progress = preview
-		? 1
-		: Math.max(0, Math.min(1, ((until || 0) - now) / totalMs))
-	const subscriberLine = data?.subscribers
+		const card = cardRef.current
+		const qrEl = qrRef.current
+		card?.animate(
+			[{ transform: 'translateY(1250px) rotate(-8deg)' }, { transform: 'translateY(0) rotate(0deg)' }],
+			{ duration: 1600, easing: EASE_OUT, fill: 'both' },
+		)
+		qrEl?.animate(
+			[{ transform: 'translateY(1250px) rotate(7deg)' }, { transform: 'translateY(0) rotate(0deg)' }],
+			{ duration: 1600, delay: 220, easing: EASE_OUT, fill: 'both' },
+		)
+
+		const feed = feedRef.current
+		let scrollDur = 0
+		if (feed) {
+			const hidden = feed.offsetHeight - (780 - 96)
+			const dist = hidden > 80 ? Math.min(hidden, 560) : 0
+			scrollDur = dist ? 1500 + dist * 1.8 : 0
+			if (dist)
+				feed.animate(
+					[{ transform: `translateY(${dist}px)` }, { transform: 'translateY(0)' }],
+					{ duration: scrollDur, delay: 600, easing: 'cubic-bezier(.45, .05, .2, 1)', fill: 'both' },
+				)
+		}
+
+		const svg = qrSvgRef.current
+		if (svg) {
+			svg.style.removeProperty('--rev')
+			svg.classList.remove(s.reveal)
+			setTimeout(() => svg.classList.add(s.reveal), 500)
+		}
+		qrAvaRef.current?.animate(
+			[{ transform: 'scale(.4)', opacity: 0 }, { transform: 'scale(1)', opacity: 1 }],
+			{ duration: 700, delay: 1000, easing: 'cubic-bezier(.34, 1.25, .64, 1)', fill: 'both' },
+		)
+		qrUserRef.current?.animate(
+			[{ transform: 'translateY(60px)', opacity: 0 }, { transform: 'translateY(0)', opacity: 1 }],
+			{ duration: 900, delay: 750, easing: EASE_OUT, fill: 'both' },
+		)
+
+		const reacts = feed?.querySelectorAll('[data-react]') || []
+		reacts.forEach((node, index) =>
+			node.animate(
+				[{ transform: 'scale(.5)', opacity: 0 }, { transform: 'scale(1)', opacity: 1 }],
+				{ duration: 650, delay: 600 + scrollDur * 0.7 + index * 70, easing: 'cubic-bezier(.34, 1.25, .64, 1)', fill: 'both' },
+			),
+		)
+	}, [visible, data, until])
+
+	if (!visible) return null
+	const posts = data?.posts?.length ? data.posts : data?.last ? [data.last] : []
+	const subtitle = data?.subscribers
 		? `${data.subscribers} подписчиков`
 		: nick
 			? `@${nick}`
-			: ''
-
-	if (phase === 'hidden') return null
+			: error || 'подключение…'
 
 	return (
-		<div
-			data-telegram-card='1'
-			className={`tg-shell${phase === 'out' ? ' tg-out' : ''}`}
-			style={{
-				width: '100%',
-				height: '100%',
-				position: 'relative',
-				overflow: 'hidden',
-				display: 'flex',
-				alignItems: 'flex-start',
-				gap: '5%',
-				padding: '3%',
-				boxSizing: 'border-box',
-				fontFamily:
-					'Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif',
-				color: fg,
-			}}
-		>
-			<div
-				className='tg-left'
-				style={{
-					position: 'relative',
-					width: showQr ? '34%' : '94%',
-					height: '88%',
-					flex: '0 0 auto',
-					boxSizing: 'border-box',
-					display: 'flex',
-					flexDirection: 'column',
-					borderRadius: 42,
-					background: bg,
-					backgroundImage: light
-						? 'radial-gradient(120% 70% at 80% 105%, rgba(42,171,238,.18), transparent 60%)'
-						: 'radial-gradient(120% 70% at 82% 108%, rgba(59,91,255,.26), transparent 62%), radial-gradient(90% 60% at 8% 108%, rgba(32,84,140,.24), transparent 65%)',
-					border: '6px solid #d7d9e2',
-					boxShadow: '0 26px 70px rgba(0,0,0,.6)',
-					overflow: 'hidden',
-				}}
-			>
-				<div
-					style={{
-						display: 'flex',
-						alignItems: 'center',
-						gap: 10,
-						padding: '11px 13px',
-						borderBottom: `1px solid ${line}`,
-						background: panel,
-					}}
-				>
-					<div
-						style={{
-							display: 'flex',
-							alignItems: 'center',
-							gap: 6,
-							fontSize: 13,
-							fontWeight: 700,
-							color: muted,
-							flex: '0 0 auto',
-						}}
-					>
-						<span style={{ fontSize: 21, lineHeight: 1, marginTop: -2 }}>‹</span>
-						<span>67</span>
-					</div>
-					<div style={{ minWidth: 0, flex: 1, textAlign: 'center' }}>
-						<div
-							style={{
-								fontSize: 13,
-								fontWeight: 800,
-								lineHeight: 1.15,
-								whiteSpace: 'nowrap',
-								overflow: 'hidden',
-								textOverflow: 'ellipsis',
-							}}
-						>
-							{data?.title || (nick ? `@${nick}` : 'Telegram')}
-						</div>
-						<div
-							style={{
-								fontSize: 9,
-								color: muted,
-								marginTop: 2,
-								whiteSpace: 'nowrap',
-								overflow: 'hidden',
-								textOverflow: 'ellipsis',
-							}}
-						>
-							{subscriberLine || error || 'Подключение к каналу…'}
-						</div>
-					</div>
-					{data?.avatar ? (
-						<img
-							src={data.avatar}
-							alt=''
-							onError={e => {
-								e.currentTarget.style.display = 'none'
-							}}
-							style={{
-								width: 36,
-								height: 36,
-								borderRadius: '50%',
-								objectFit: 'cover',
-								flex: '0 0 auto',
-								background: '#2AABEE22',
-							}}
-						/>
-					) : (
-						<div
-							style={{
-								width: 36,
-								height: 36,
-								borderRadius: '50%',
-								display: 'grid',
-								placeItems: 'center',
-								background: '#2AABEE22',
-								flex: '0 0 auto',
-							}}
-						>
-							<TelegramLogo size={18} />
-						</div>
-					)}
-				</div>
-
-				<div
-					ref={feedRef}
-					className='tg-feed'
-					style={{
-						flex: 1,
-						minHeight: 0,
-						overflowY: 'auto',
-						overflowX: 'hidden',
-						scrollbarWidth: 'none',
-					}}
-				>
-					{!nick ? (
-						<div
-							style={{
-								height: '100%',
-								display: 'grid',
-								placeItems: 'center',
-								textAlign: 'center',
-								padding: 20,
-								color: muted,
-								fontSize: 12,
-								lineHeight: 1.5,
-							}}
-						>
-							Укажите Telegram-канал в свойствах
-						</div>
-					) : posts.length === 0 ? (
-						<div style={{ padding: 16, color: muted, fontSize: 12, lineHeight: 1.5 }}>
-							{error || 'Загружаем посты'}
-						</div>
-					) : (
-						posts.map((post, i) => (
-							<div
-								key={`${post.url}-${i}`}
-								className='tg-post'
-								style={{
-									padding: '11px 13px',
-									borderBottom: i === posts.length - 1 ? 'none' : `1px solid ${line}`,
-									animationDelay: `${140 + i * 90}ms`,
-								}}
-							>
-								<div
-									style={{
-										display: 'flex',
-										justifyContent: 'space-between',
-										gap: 8,
-										fontSize: 10,
-										color: muted,
-										marginBottom: 5,
-									}}
-								>
-									<span style={{ color: '#2AABEE', fontWeight: 700 }}>@{nick}</span>
-									<span>{formatWhen(post.date)}</span>
+		<div ref={wrapRef} className={s.wrap}>
+			<div className={s.stage} style={{ transform: `scale(${scale})` }}>
+				<div ref={cardRef} className={`${s.fly} ${s.cardFly}`}>
+					<div className={s.rockA}>
+						<div className={s.floatA}>
+							<div className={s.phone}>
+								<div className={s.wall}>
+									<div className={s.pattern} />
 								</div>
-								{post.photo && (
-									<img
-										src={post.photo}
-										alt=''
-										onError={e => {
-											e.currentTarget.style.display = 'none'
-										}}
-										style={{
-											width: '100%',
-											height: 86,
-											objectFit: 'cover',
-											borderRadius: 10,
-											marginBottom: 7,
-											background: panel,
-										}}
-									/>
-								)}
-								<p
-									style={{
-										margin: 0,
-										fontSize: 12,
-										lineHeight: 1.42,
-										color: light ? '#1f2937' : '#e6edf3',
-										display: '-webkit-box',
-										WebkitLineClamp: 4,
-										WebkitBoxOrient: 'vertical',
-										overflow: 'hidden',
-									}}
-								>
-									{post.text || 'Пост без текста'}
-								</p>
-								<div
-									style={{
-										display: 'inline-flex',
-										gap: 5,
-										marginTop: 7,
-										fontSize: 9,
-									}}
-								>
-									<span
-										style={{
-											padding: '2px 7px',
-											borderRadius: 999,
-											background: light ? '#e8f2fb' : '#172b3d',
-											color: light ? '#1f2937' : '#dbeafe',
-										}}
-									>
-										❤️ {1 + (i % 3)}
-									</span>
-									<span
-										style={{
-											padding: '2px 7px',
-											borderRadius: 999,
-											background: light ? '#e8f2fb' : '#172b3d',
-											color: light ? '#1f2937' : '#dbeafe',
-										}}
-									>
-										👍 1
-									</span>
+								<div ref={feedRef} className={s.feed}>
+									{posts.map((post, index) => (
+										<div key={`${post.date}-${index}`} className={s.msg}>
+											<svg className={s.tail} viewBox='0 0 12 18'>
+												<path d='M12 0v18H0c4.6-1 8-4.6 9.4-9.6C10.6 4.3 11.1 1.8 12 0z' />
+											</svg>
+											<div className={s.msgHead}>
+												<span>@{nick}</span>
+												<span style={{ float: 'right', color: '#8798ac', fontWeight: 500, fontSize: 12 }}>
+													{shortDate(post.date)}
+												</span>
+											</div>
+											{post.photo && (
+												<div className={s.media}>
+													<img
+														src={post.photo}
+														alt=''
+														onError={e => {
+															e.currentTarget.style.display = 'none'
+														}}
+													/>
+												</div>
+											)}
+											<div className={s.msgText}>{post.text || ''}</div>
+											<div className={s.reacts}>
+												<span data-react className={s.react}>
+													<span>❤️</span>
+													<span>1</span>
+												</span>
+												<span data-react className={s.react}>
+													<span>👍</span>
+													<span>1</span>
+												</span>
+											</div>
+											<div className={s.meta}>
+												<span>👁 {post.views || '—'}</span>
+												<span>{fullDate(post.date)}</span>
+											</div>
+											<div className={s.comments}>
+												<span className={s.avs}>
+													<i style={{ background: '#2AABEE' }} />
+													<i style={{ background: '#9B51E0' }} />
+													<i style={{ background: '#F2994A' }} />
+												</span>
+												<span>Комментарии</span>
+												<svg viewBox='0 0 24 24'>
+													<path d='M9 5l7 7-7 7' fill='none' stroke='currentColor' strokeWidth='2' />
+												</svg>
+											</div>
+										</div>
+									))}
 								</div>
-								<FeedFooter light={light} views={post.views} />
+								<div className={s.topFade} />
+								<header className={s.bar}>
+									<div className={`${s.glass} ${s.back}`}>
+										<svg viewBox='0 0 24 24'>
+											<path d='M15 4.5 7.5 12l7.5 7.5' fill='none' stroke='#fff' strokeWidth='2.6' strokeLinecap='round' strokeLinejoin='round' />
+										</svg>
+										<span>67</span>
+									</div>
+									<div className={`${s.glass} ${s.title}`}>
+										<div className={s.name}>
+											<span>{data?.title || (nick ? `@${nick}` : 'Telegram')}</span>
+											<svg className={s.verified} viewBox='0 0 24 24'>
+												<path fill='#3e9df5' d='M12 2.6l2.1 1.6 2.6-.4 1.3 2.2 2.3 1.2-.5 2.6 1.6 2.1-1.6 2.1.5 2.6-2.3 1.2-1.3 2.2-2.6-.4L12 21.4l-2.1-1.6-2.6.4-1.3-2.2-2.3-1.2.5-2.6L2.6 12l1.6-2.1-.5-2.6 2.3-1.2 1.3-2.2 2.6.4z' />
+												<path d='M7.9 12.3l2.7 2.7 5.6-5.7' fill='none' stroke='#fff' strokeWidth='2.1' strokeLinecap='round' strokeLinejoin='round' />
+											</svg>
+										</div>
+										<div className={s.subs}>{subtitle}</div>
+									</div>
+									<div className={s.ava}>
+										{data?.avatar ? (
+											<img src={data.avatar} alt='' />
+										) : (
+											<div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', background: 'linear-gradient(#ff885e,#ff516a)', fontWeight: 700 }}>
+												{initials(data?.title || nick || 'TG')}
+											</div>
+										)}
+									</div>
+								</header>
 							</div>
-						))
-					)}
-				</div>
-			</div>
-
-			{showQr && nick && (
-				<div
-					className='tg-qr-wrap'
-					style={{
-						position: 'relative',
-						width: '33%',
-						flex: '0 0 auto',
-						marginTop: '2%',
-						display: 'flex',
-						flexDirection: 'column',
-						alignItems: 'center',
-						gap: '3%',
-					}}
-				>
-					<div
-						className='tg-qr-card'
-						style={{
-							position: 'relative',
-							width: '100%',
-							aspectRatio: '1 / 1',
-							background: '#fff',
-							borderRadius: 36,
-							padding: 12,
-							boxSizing: 'border-box',
-							boxShadow: '0 24px 60px rgba(0,0,0,.5)',
-							border: '4px solid #fff',
-						}}
-					>
-						<img
-							src={qrSrc}
-							alt='QR Telegram'
-							onError={e => {
-								e.currentTarget.style.display = 'none'
-							}}
-							style={{
-								width: '100%',
-								height: '100%',
-								objectFit: 'contain',
-								display: 'block',
-							}}
-						/>
-						<div
-							style={{
-								position: 'absolute',
-								left: '50%',
-								top: '50%',
-								transform: 'translate(-50%, -50%)',
-								width: '22%',
-								aspectRatio: '1 / 1',
-								borderRadius: '50%',
-								background: '#5b4bdf',
-								border: '4px solid #fff',
-								display: 'grid',
-								placeItems: 'center',
-								overflow: 'hidden',
-							}}
-						>
-							{data?.avatar ? (
-								<img
-									src={data.avatar}
-									alt=''
-									style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-								/>
-							) : (
-								<span style={{ fontSize: 9, color: '#fff', fontWeight: 800 }}>TG</span>
-							)}
 						</div>
 					</div>
 				</div>
-			)}
 
-			<a
-				className='tg-handle'
-				href={nick ? `https://t.me/${nick}` : undefined}
-				target='_blank'
-				rel='noreferrer'
-				style={{
-					position: 'absolute',
-					right: '10%',
-					bottom: '2.5%',
-					display: 'inline-flex',
-					alignItems: 'center',
-					gap: 8,
-					padding: '8px 13px',
-					borderRadius: 999,
-					background: light ? '#eef6ff' : '#000000',
-					border: `1px solid ${line}`,
-					color: fg,
-					textDecoration: 'none',
-					fontSize: 13,
-					fontWeight: 700,
-					boxShadow: '0 10px 30px rgba(0,0,0,.35)',
-					maxWidth: '38%',
-				}}
-			>
-				<TelegramLogo size={18} />
-				<span
-					style={{
-						overflow: 'hidden',
-						textOverflow: 'ellipsis',
-						whiteSpace: 'nowrap',
-						color: '#2AABEE',
-					}}
-				>
-					{nick ? `@${nick}` : 'Telegram'}
-				</span>
-			</a>
-
-			<div
-				style={{
-					position: 'absolute',
-					left: '4%',
-					right: '4%',
-					bottom: '0.8%',
-					height: 3,
-					borderRadius: 999,
-					background: light ? '#dbe7f2' : 'rgba(255,255,255,.12)',
-					overflow: 'hidden',
-				}}
-			>
-				<div
-					style={{
-						width: `${Math.round(progress * 1000) / 10}%`,
-						height: '100%',
-						borderRadius: 999,
-						background: 'linear-gradient(90deg,#2AABEE,#8B5CF6)',
-						transition: 'width .16s linear',
-					}}
-				/>
+				{showQr && qr && (
+					<div ref={qrRef} className={`${s.fly} ${s.qrFly}`}>
+						<div className={s.rockB}>
+							<div className={s.floatB}>
+								<div className={s.qrGlow} />
+								<div className={s.qrCard}>
+									<svg
+										ref={qrSvgRef}
+										className={s.qrSvg}
+										viewBox={`0 0 ${qr.n} ${qr.n}`}
+										dangerouslySetInnerHTML={{ __html: qr.html }}
+									/>
+									<div
+										ref={qrAvaRef}
+										className={s.qrAva}
+										style={{
+											width: qr.avatar,
+											height: qr.avatar,
+											marginLeft: -qr.avatar / 2,
+											marginTop: -qr.avatar / 2,
+										}}
+									>
+										{data?.avatar ? <img src={data.avatar} alt='' /> : null}
+									</div>
+								</div>
+								<div ref={qrUserRef} className={s.qrUser}>
+									<div className={s.tgLogo}>
+										<svg viewBox='0 0 24 24'>
+											<path fill='#fff' d='M4.6 11.4 18.1 6.2c.7-.2 1.2.2 1 1.1l-2.3 10.8c-.2.8-.7 1-1.4.6l-3.6-2.6-1.7 1.7c-.2.2-.4.3-.8.3l.3-3.6 6.5-5.9c.3-.3-.1-.4-.4-.2l-8 5.1-3.5-1.1c-.8-.2-.8-.8.2-1.1z' />
+										</svg>
+									</div>
+									<span>@{nick || 'telegram'}</span>
+								</div>
+							</div>
+						</div>
+					</div>
+				)}
 			</div>
 		</div>
 	)

@@ -2735,15 +2735,12 @@ export default function PanelClient({
 	}, [addElement])
 
 	const addTelegramEl = useCallback(() => {
-		const p = {
-			x: Math.max(0, Math.round((state.canvasW - 1024) / 2)),
-			y: Math.max(0, Math.round((state.canvasH - 640) / 2)),
-		}
+		const p = { x: 0, y: 0 }
 		addElement({
 			type: 'telegram',
 			...p,
-			width: 1024,
-			height: 640,
+			width: 1920,
+			height: 1080,
 			telegramChannel: '',
 			telegramQr: true,
 			telegramLight: false,
