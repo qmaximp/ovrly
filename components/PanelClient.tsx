@@ -1888,7 +1888,7 @@ export default function PanelClient({
 		const right = (rect.width - v.x) / v.s
 		const bottom = (rect.height - v.y) / v.s
 		if (
-			v.s <= 1 &&
+			Math.abs(v.s - 1) < 0.01 &&
 			el.x >= left + pad &&
 			el.y >= top + pad &&
 			el.x + el.width <= right - pad &&
