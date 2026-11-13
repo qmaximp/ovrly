@@ -5786,27 +5786,6 @@ export default function PanelClient({
 									Сбросить всё
 								</button>
 							</div>
-							<div className='mt-3 rounded-2xl border border-border bg-panel p-3 sm:p-4'>
-								<div className='flex flex-wrap items-center gap-3'>
-									<div className='min-w-0 flex-1'>
-										<div className='text-sm font-semibold text-[color:rgb(var(--c-on-bg))]'>
-											Обрезка фото и видео
-										</div>
-										<p className='mt-0.5 text-xs text-gray-500'>
-											Зажмите {isMac ? 'Option' : 'Alt'} и потяните любую ручку
-											элемента. Видимая часть обрежется, а рамка и ручки станут
-											красными. Без {isMac ? 'Option' : 'Alt'} рамка меняет размер
-											свободно, а фото и видео заполняют её и обрезаются по краям
-											— картинка не растягивается.
-										</p>
-									</div>
-									<div className='order-3 flex w-full items-center justify-center gap-1.5 sm:order-none sm:w-auto'>
-										<kbd className='sc-key'>{isMac ? 'Option' : 'Alt'}</kbd>
-										<span className='text-xs text-gray-500'>+</span>
-										<kbd className='sc-key'>ручка</kbd>
-									</div>
-								</div>
-							</div>
 							<div className='mt-3 space-y-2'>
 								{SHORTCUT_DEFS.map(def => {
 									const keys = shortcutKeys(shortcuts[def.id], isMac)
