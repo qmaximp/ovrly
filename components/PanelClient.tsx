@@ -5460,7 +5460,6 @@ export default function PanelClient({
 							</svg>
 
 							{selected &&
-								selected.type !== 'telegram' &&
 								selectedIds.size === 0 &&
 								!selected.locked && (
 								<div
@@ -5469,8 +5468,14 @@ export default function PanelClient({
 									style={{
 										left: selected.x,
 										top: selected.y,
-										width: selected.width,
-										height: selected.height,
+										width:
+											selected.type === 'telegram'
+												? 360
+												: selected.width,
+										height:
+											selected.type === 'telegram'
+												? 110
+												: selected.height,
 										transform: selected.rotation
 											? `rotate(${selected.rotation}deg)`
 											: undefined,
@@ -5487,7 +5492,8 @@ export default function PanelClient({
 										}}
 									/>
 									<div className='absolute inset-0 pointer-events-none'>
-										{(
+										{selected.type !== 'telegram' &&
+											(
 											['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const
 										).map(dir => {
 											const cursors: Record<string, string> = {
