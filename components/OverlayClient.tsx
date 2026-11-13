@@ -549,6 +549,7 @@ function OverlayElement({ el, ytStarted }: { el: StreamElement; ytStarted: boole
 					showQr={el.telegramQr !== false}
 					light={!!el.telegramLight}
 					until={el.telegramUntil}
+					duration={el.telegramDuration || 15}
 				/>
 			</div>
 		)

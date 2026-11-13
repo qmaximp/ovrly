@@ -8405,6 +8405,7 @@ function PreviewElementInner({
 					channel={el.telegramChannel}
 					showQr={el.telegramQr !== false}
 					light={!!el.telegramLight}
+					duration={el.telegramDuration || 15}
 				/>
 			</div>
 		)

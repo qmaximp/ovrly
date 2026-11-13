@@ -2432,7 +2432,7 @@ body.obs-pane-moving { user-select: none; cursor: grabbing; }
 	animation: tg-shell-in .8s cubic-bezier(.16, .86, .26, 1) both;
 }
 .tg-shell.tg-out {
-	animation: tg-shell-out .62s cubic-bezier(.55, 0, .9, .45) both;
+	animation: tg-shell-out .8s cubic-bezier(.55, 0, .9, .45) both;
 }
 .tg-left {
 	animation: tg-left-in .9s cubic-bezier(.16, .86, .26, 1) both, tg-breathe 4.6s 1s ease-in-out infinite;
@@ -2443,6 +2443,21 @@ body.obs-pane-moving { user-select: none; cursor: grabbing; }
 .tg-qr-card {
 	animation: tg-qr-in .7s .12s cubic-bezier(.16, .86, .26, 1) both, tg-qr-bob 4s 1s ease-in-out infinite;
 }
+.tg-qr-card::after {
+	content: '';
+	position: absolute;
+	inset: -10px;
+	border-radius: 44px;
+	background: radial-gradient(60% 60% at 50% 50%, rgba(91,75,255,.24), transparent 70%);
+	z-index: -1;
+	animation: tg-glow 3.2s ease-in-out infinite;
+}
+
+@keyframes tg-glow {
+	0%, 100% { opacity: .55; transform: scale(.98); }
+	50% { opacity: 1; transform: scale(1.03); }
+}
+
 .tg-handle {
 	animation: tg-handle-in .5s .3s cubic-bezier(.22, 1, .36, 1) both, tg-handle-pulse 3.4s 1.2s ease-in-out infinite;
 }

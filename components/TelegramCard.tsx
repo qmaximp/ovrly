@@ -27,6 +27,8 @@ type Props = {
 	showQr?: boolean
 	light?: boolean
 	until?: number
+	// полная длительность показа в секундах — для полосы прогресса
+	duration?: number
 	preview?: boolean
 }
 
@@ -56,7 +58,13 @@ function formatWhen(raw: string): string {
 		: d.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' })
 }
 
-function FeedFooter({ light }: { light: boolean }) {
+function FeedFooter({
+	light,
+	views,
+}: {
+	light: boolean
+	views?: string
+}) {
 	return (
 		<div
 			style={{
@@ -68,36 +76,39 @@ function FeedFooter({ light }: { light: boolean }) {
 				color: light ? '#6b7280' : '#8295a8',
 			}}
 		>
-			<span style={{ display: 'inline-flex', gap: 4 }}>
-				<span
-					style={{
-						width: 11,
-						height: 11,
-						borderRadius: '50%',
-						background: '#2AABEE',
-						display: 'inline-block',
-					}}
-				/>
-				<span
-					style={{
-						width: 11,
-						height: 11,
-						borderRadius: '50%',
-						background: '#a855f7',
-						display: 'inline-block',
-					}}
-				/>
-				<span
-					style={{
-						width: 11,
-						height: 11,
-						borderRadius: '50%',
-						background: '#ec4899',
-						display: 'inline-block',
-					}}
-				/>
+			<span>{views ? `👁 ${views}` : ''}</span>
+			<span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+				<span style={{ display: 'inline-flex', gap: 4 }}>
+					<span
+						style={{
+							width: 11,
+							height: 11,
+							borderRadius: '50%',
+							background: '#2AABEE',
+							display: 'inline-block',
+						}}
+					/>
+					<span
+						style={{
+							width: 11,
+							height: 11,
+							borderRadius: '50%',
+							background: '#a855f7',
+							display: 'inline-block',
+						}}
+					/>
+					<span
+						style={{
+							width: 11,
+							height: 11,
+							borderRadius: '50%',
+							background: '#ec4899',
+							display: 'inline-block',
+						}}
+					/>
+				</span>
+				<span style={{ color: '#2AABEE' }}>Комментарии ›</span>
 			</span>
-			<span style={{ color: '#2AABEE' }}>Комментарии ›</span>
 		</div>
 	)
 }
@@ -110,6 +121,7 @@ export default function TelegramCard({
 	showQr = true,
 	light = false,
 	until,
+	duration = 15,
 	preview = false,
 }: Props) {
 	const nick = normalizeTelegramChannel(channel)
@@ -136,7 +148,7 @@ export default function TelegramCard({
 		let hideTimer: ReturnType<typeof setTimeout> | undefined
 		const outTimer = setTimeout(() => {
 			setPhase('out')
-			hideTimer = setTimeout(() => setPhase('hidden'), 620)
+			hideTimer = setTimeout(() => setPhase('hidden'), 900)
 		}, ms)
 		return () => {
 			clearTimeout(outTimer)
@@ -147,6 +159,13 @@ export default function TelegramCard({
 	const [data, setData] = useState<TelegramData | null>(null)
 	const [error, setError] = useState('')
 	const feedRef = useRef<HTMLDivElement | null>(null)
+	const [now, setNow] = useState(Date.now())
+
+	useEffect(() => {
+		if (preview || phase !== 'in') return
+		const t = setInterval(() => setNow(Date.now()), 120)
+		return () => clearInterval(t)
+	}, [preview, phase])
 
 	useEffect(() => {
 		if (!nick) {
@@ -204,7 +223,7 @@ export default function TelegramCard({
 
 	const qrSrc = useMemo(() => {
 		if (!nick) return ''
-		return `https://api.qrserver.com/v1/create-qr-code/?size=360x360&margin=0&color=4B3BFF&bgcolor=FFFFFF&data=${encodeURIComponent(
+		return `https://api.qrserver.com/v1/create-qr-code/?size=360x360&margin=20&color=5B4BFF&bgcolor=FFFFFF&data=${encodeURIComponent(
 			`https://t.me/${nick}`,
 		)}`
 	}, [nick])
@@ -219,6 +238,15 @@ export default function TelegramCard({
 		: data?.last
 			? [data.last]
 			: []
+	const totalMs = Math.max(1000, (duration || 15) * 1000)
+	const progress = preview
+		? 1
+		: Math.max(0, Math.min(1, ((until || 0) - now) / totalMs))
+	const subscriberLine = data?.subscribers
+		? `${data.subscribers} подписчиков`
+		: nick
+			? `@${nick}`
+			: ''
 
 	if (phase === 'hidden') return null
 
@@ -253,6 +281,9 @@ export default function TelegramCard({
 					flexDirection: 'column',
 					borderRadius: 42,
 					background: bg,
+					backgroundImage: light
+						? 'radial-gradient(120% 70% at 80% 105%, rgba(42,171,238,.18), transparent 60%)'
+						: 'radial-gradient(120% 70% at 82% 108%, rgba(59,91,255,.26), transparent 62%), radial-gradient(90% 60% at 8% 108%, rgba(32,84,140,.24), transparent 65%)',
 					border: '6px solid #d7d9e2',
 					boxShadow: '0 26px 70px rgba(0,0,0,.6)',
 					overflow: 'hidden',
@@ -305,7 +336,7 @@ export default function TelegramCard({
 								textOverflow: 'ellipsis',
 							}}
 						>
-							{nick ? `@${nick}` : error || 'Подключение к каналу…'}
+							{subscriberLine || error || 'Подключение к каналу…'}
 						</div>
 					</div>
 					{data?.avatar ? (
@@ -428,17 +459,34 @@ export default function TelegramCard({
 								</p>
 								<div
 									style={{
-										display: 'flex',
-										justifyContent: 'space-between',
-										marginTop: 6,
+										display: 'inline-flex',
+										gap: 5,
+										marginTop: 7,
 										fontSize: 9,
-										color: muted,
 									}}
 								>
-									<span>{post.views ? `👁 ${post.views}` : ''}</span>
-									<span>Комментарии ›</span>
+									<span
+										style={{
+											padding: '2px 7px',
+											borderRadius: 999,
+											background: light ? '#e8f2fb' : '#172b3d',
+											color: light ? '#1f2937' : '#dbeafe',
+										}}
+									>
+										❤️ {1 + (i % 3)}
+									</span>
+									<span
+										style={{
+											padding: '2px 7px',
+											borderRadius: 999,
+											background: light ? '#e8f2fb' : '#172b3d',
+											color: light ? '#1f2937' : '#dbeafe',
+										}}
+									>
+										👍 1
+									</span>
 								</div>
-								<FeedFooter light={light} />
+								<FeedFooter light={light} views={post.views} />
 							</div>
 						))
 					)}
@@ -450,7 +498,7 @@ export default function TelegramCard({
 					className='tg-qr-wrap'
 					style={{
 						position: 'relative',
-						width: '40%',
+						width: '33%',
 						flex: '0 0 auto',
 						marginTop: '2%',
 						display: 'flex',
@@ -482,7 +530,6 @@ export default function TelegramCard({
 							style={{
 								width: '100%',
 								height: '100%',
-								borderRadius: 18,
 								objectFit: 'contain',
 								display: 'block',
 							}}
@@ -493,7 +540,7 @@ export default function TelegramCard({
 								left: '50%',
 								top: '50%',
 								transform: 'translate(-50%, -50%)',
-								width: '26%',
+								width: '22%',
 								aspectRatio: '1 / 1',
 								borderRadius: '50%',
 								background: '#5b4bdf',
@@ -553,6 +600,29 @@ export default function TelegramCard({
 					{nick ? `@${nick}` : 'Telegram'}
 				</span>
 			</a>
+
+			<div
+				style={{
+					position: 'absolute',
+					left: '4%',
+					right: '4%',
+					bottom: '0.8%',
+					height: 3,
+					borderRadius: 999,
+					background: light ? '#dbe7f2' : 'rgba(255,255,255,.12)',
+					overflow: 'hidden',
+				}}
+			>
+				<div
+					style={{
+						width: `${Math.round(progress * 1000) / 10}%`,
+						height: '100%',
+						borderRadius: 999,
+						background: 'linear-gradient(90deg,#2AABEE,#8B5CF6)',
+						transition: 'width .16s linear',
+					}}
+				/>
+			</div>
 		</div>
 	)
 }
