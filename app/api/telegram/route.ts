@@ -148,11 +148,15 @@ function parseTelegram(html: string, channel: string): TelegramData {
 	}
 
 	const posts = chunks
-		.slice(-3)
+		.slice(-8)
 		.map(parseChunk)
 		.filter((p): p is TelegramPost => !!p)
-		.reverse()
-	const last = posts[0]
+		.sort((a, b) => {
+			const at = Date.parse(a.date) || 0
+			const bt = Date.parse(b.date) || 0
+			return at - bt
+		})
+	const last = posts[posts.length - 1] || undefined
 
 	return {
 		channel,

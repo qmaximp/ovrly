@@ -372,6 +372,9 @@ export default function TelegramCard({
 																				autoPlay
 																			/>
 																		)}
+																		<div className={s.roundPlay}>
+																			<span className={s.roundPlayIcon} />
+																		</div>
 																	</div>
 																)
 															return (

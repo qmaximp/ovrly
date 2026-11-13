@@ -307,6 +307,31 @@
 	border-radius: 50%;
 }
 
+.roundPlay {
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	width: 22%;
+	aspect-ratio: 1;
+	transform: translate(-50%, -50%);
+	border-radius: 50%;
+	background: rgba(10, 16, 24, .55);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	box-shadow: 0 4px 14px rgba(0, 0, 0, .35);
+}
+
+.roundPlayIcon {
+	width: 0;
+	height: 0;
+	margin-left: 8%;
+	border-top: 0.34em solid transparent;
+	border-bottom: 0.34em solid transparent;
+	border-left: 0.58em solid #fff;
+	font-size: 34px;
+}
+
 .voice {
 	width: 100%;
 	height: 30px;
