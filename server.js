@@ -405,6 +405,7 @@ const MUTATING_EVENTS = new Set([
 	'element:reorder',
 	'element:zorder-set',
 	'groups:update',
+	'elements:group',
 	'draw:add',
 	'draw:remove',
 	'draw:clear',
@@ -1754,6 +1755,23 @@ app.prepare().then(() => {
 				if (el.groupId && !ids.has(el.groupId)) delete el.groupId
 			}
 			io.to(room).emit('groups:updated', groups)
+			roomRec.dirty = true
+		})
+
+		socket.on('elements:group', raw => {
+			const ids = Array.isArray(raw?.ids)
+				? raw.ids.filter(x => typeof x === 'string').slice(0, MAX_ELEMENTS)
+				: []
+			const groupId =
+				typeof raw?.groupId === 'string'
+					? raw.groupId.replace(/[^\w-]/g, '').slice(0, 40)
+					: ''
+			if (!groupId || !ids.length) return
+			const set = new Set(ids)
+			for (const el of state.elements)
+				if (set.has(el.id)) el.groupId = groupId
+			roomRec.dirty = true
+			io.to(room).emit('elements:grouped', { ids, groupId })
 		})
 
 		// порядок слоёв целиком (перетаскивание в списке): ids снизу вверх

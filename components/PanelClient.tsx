@@ -933,6 +933,17 @@ export default function PanelClient({
 		socket.on('groups:updated', (groups: StreamGroup[]) =>
 			setState(p => ({ ...p, groups: Array.isArray(groups) ? groups : [] })),
 		)
+		socket.on('elements:grouped', ({ ids, groupId }: { ids: string[]; groupId: string }) =>
+			setState(p => {
+				const set = new Set(ids)
+				return {
+					...p,
+					elements: p.elements.map(e =>
+						set.has(e.id) ? { ...e, groupId } : e,
+					),
+				}
+			}),
+		)
 		socket.on('draw:added', (s: Stroke) =>
 			setState(p => {
 				if (!s || typeof s.id !== 'string') return p
@@ -940,22 +951,6 @@ export default function PanelClient({
 				return strokes.some(x => x.id === s.id)
 					? p
 					: { ...p, strokes: [...strokes, s] }
-			}),
-		)
-		socket.on('draw:removed', (id: string) =>
-			setState(p => ({
-				...p,
-				strokes: (p.strokes || []).filter(s => s.id !== id),
-			})),
-		)
-		socket.on('draw:cleared', () => setState(p => ({ ...p, strokes: [] })))
-		socket.on('groups:updated', (groups: StreamGroup[]) =>
-			setState(p => ({ ...p, groups })),
-		)
-		socket.on('draw:added', (s: Stroke) =>
-			setState(p => {
-				if ((p.strokes || []).some(x => x.id === s.id)) return p
-				return { ...p, strokes: [...(p.strokes || []), s] }
 			}),
 		)
 		socket.on('draw:removed', (id: string) =>
@@ -1899,11 +1894,11 @@ export default function PanelClient({
 			el.y + el.height <= bottom - pad
 		)
 			return
-		setView(prev => ({
-			...prev,
-			x: rect.width / 2 - (el.x + el.width / 2) * prev.s,
-			y: rect.height / 2 - (el.y + el.height / 2) * prev.s,
-		}))
+		setView({
+			x: rect.width / 2 - (el.x + el.width / 2),
+			y: rect.height / 2 - (el.y + el.height / 2),
+			s: 1,
+		})
 	}, [])
 
 	const saveGroups = useCallback(
@@ -1958,8 +1953,15 @@ export default function PanelClient({
 			{ id: gid, name: `Группа ${(state.groups || []).length + 1}` },
 		]
 		saveGroups(next)
-		ids.forEach(id => updateElement(id, { groupId: gid }))
-	}, [selectedId, selectedIds, state.groups, saveGroups, updateElement])
+		// одним событием: без гонки с отложенными element:update
+		setState(p => ({
+			...p,
+			elements: p.elements.map(el =>
+				ids.includes(el.id) ? { ...el, groupId: gid } : el,
+			),
+		}))
+		emit('elements:group', { ids, groupId: gid })
+	}, [selectedId, selectedIds, state.groups, saveGroups, emit])
 
 	const rotateRef = useRef<{
 		el: StreamElement
@@ -2299,6 +2301,7 @@ export default function PanelClient({
 			addElement({
 				type: 'audio',
 				src,
+				name: f.name,
 				...p,
 				width: 360,
 				height: 110,
@@ -2337,6 +2340,18 @@ export default function PanelClient({
 			addElement({
 				type: 'audio',
 				src: srcUrl,
+				name: (() => {
+					try {
+						const u = new URL(srcUrl)
+						return (
+							decodeURIComponent(
+								u.pathname.split('/').filter(Boolean).pop() || '',
+							) || 'Звук'
+						)
+					} catch {
+						return 'Звук'
+					}
+				})(),
 				...p,
 				width: 360,
 				height: 110,
@@ -2716,7 +2731,6 @@ export default function PanelClient({
 		// ни разблокировать, ни удалить
 		if (el.locked) {
 			if (e.button !== 0) return
-			setNotice('Элемент заблокирован — снимите замок в списке слоёв (значок 🔒)')
 			if (e.shiftKey || e.ctrlKey || e.metaKey) {
 				setSelectedIds(prev => {
 					const n = new Set(prev)
@@ -2845,7 +2859,15 @@ export default function PanelClient({
 		// смещён и группа «уезжает» при ресайзе (заметно уже на 3+ элементах)
 		centerLocal: { x: number; y: number }
 		startLocal: { x: number; y: number }
-		items: { id: string; x: number; y: number; w: number; h: number }[]
+		items: {
+			id: string
+			x: number
+			y: number
+			w: number
+			h: number
+			flipH?: boolean
+			flipV?: boolean
+		}[]
 		lastTick: number
 	} | null>(null)
 
@@ -2926,15 +2948,21 @@ export default function PanelClient({
 				if (gs.corner.includes('w')) fx = (gs.bw - gs.dx) / gs.bw
 				if (gs.corner.includes('s')) fy = (gs.bh + gs.dy) / gs.bh
 				if (gs.corner.includes('n')) fy = (gs.bh - gs.dy) / gs.bh
-				fx = Math.max(0.05, Math.min(20, fx))
-				fy = Math.max(0.05, Math.min(20, fy))
+				const clampScale = (v: number) => {
+					if (Math.abs(v) < 0.05) return v < 0 ? -0.05 : 0.05
+					return Math.max(-20, Math.min(20, v))
+				}
+				fx = clampScale(fx)
+				fy = clampScale(fy)
 				// Shift — пропорционально; без Shift масштаб свободный по обеим
 				// осям, даже если элементы в группе повёрнуты на разные углы
 				if (e.shiftKey) {
-					const k = Math.max(fx, fy)
-					fx = k
-					fy = k
+					const k = Math.max(Math.abs(fx), Math.abs(fy))
+					fx = k * (fx < 0 ? -1 : 1)
+					fy = k * (fy < 0 ? -1 : 1)
 				}
+				const mirrorX = fx < 0
+				const mirrorY = fy < 0
 				// неподвижный угол в локальных координатах бокса (origin — pivot);
 				// отсчёт от центра рамки, а не от pivot
 				const oxL =
@@ -2955,14 +2983,16 @@ export default function PanelClient({
 						const nLy = oyL + (elLy - oyL) * fy
 						const ncx = gs.pivot.x + nLx * cos - nLy * sin
 						const ncy = gs.pivot.y + nLx * sin + nLy * cos
-						const width = Math.max(4, Math.round(it.w * fx))
-						const height = Math.max(4, Math.round(it.h * fy))
+						const width = Math.max(4, Math.round(it.w * Math.abs(fx)))
+						const height = Math.max(4, Math.round(it.h * Math.abs(fy)))
 						return {
 							...el,
 							x: Math.round(ncx - width / 2),
 							y: Math.round(ncy - height / 2),
 							width,
 							height,
+							flipH: mirrorX ? !it.flipH : it.flipH,
+							flipV: mirrorY ? !it.flipV : it.flipV,
 						}
 					}),
 				}))
@@ -2978,6 +3008,8 @@ export default function PanelClient({
 								y: el.y,
 								width: el.width,
 								height: el.height,
+								flipH: el.flipH,
+								flipV: el.flipV,
 							})
 					})
 				}
@@ -3115,14 +3147,10 @@ export default function PanelClient({
 				// клик по видео без перетаскивания — плей/пауза (плеер прозрачен для курсора)
 				mediaToggle(dr.id)
 			} else if (dr.type === 'widget') {
-				// первый клик — фокус (виджет ещё можно двигать), второй — управление
-				// внутри виджета: iframe перестаёт пропускать клики на панель
-				if (iframeArmRef.current !== dr.id) {
-					iframeArmRef.current = dr.id
-					setInteractiveIframeId(null)
-				} else {
-					setInteractiveIframeId(dr.id)
-				}
+				// виджет сразу интерактивный: клики внутри работают с первого раза.
+				// Двигать его можно за полоску сверху (iframe иначе съедает события).
+				iframeArmRef.current = dr.id
+				setInteractiveIframeId(dr.id)
 			} else if (dr.type === 'iframe') {
 				const el = stateRef.current.elements.find(x => x.id === dr.id)
 				const tw = el ? parseMediaUrl(el.src || '')?.kind : undefined
@@ -3302,11 +3330,21 @@ export default function PanelClient({
 				y: number
 				w: number
 				h: number
+				flipH?: boolean
+				flipV?: boolean
 			}[] = []
 			for (const id of selectedIdsRef.current) {
 				const it = stateRef.current.elements.find(x => x.id === id)
 				if (it && !it.locked && !isLockedByOther(id))
-					items.push({ id, x: it.x, y: it.y, w: it.width, h: it.height })
+					items.push({
+						id,
+						x: it.x,
+						y: it.y,
+						w: it.width,
+						h: it.height,
+						flipH: it.flipH,
+						flipV: it.flipV,
+					})
 			}
 			if (items.length < 2) return
 			items.forEach(it => emit('element:grab', { id: it.id }))
@@ -3677,13 +3715,19 @@ export default function PanelClient({
 					30 / Math.max(orig.width, 1),
 					20 / Math.max(orig.height, 1),
 				)
+				// Shift + перетаскивание за противоположный угол = зеркало
+				// (раньше пропорциональный режим просто не давал уйти в минус)
+				if (dvx * signX < 0) flipH = !flipH
+				if (dvy * signY < 0) flipV = !flipV
+				const effX = flipH ? -signX : signX
+				const effY = flipV ? -signY : signY
 				width = Math.max(30, Math.round(orig.width * k))
 				height = Math.max(20, Math.round(orig.height * k))
 				// центр относительно фиксированного угла
 				const ncx =
-					fixX + axX * (width / 2) * signX + ayX * (height / 2) * signY
+					fixX + axX * (width / 2) * effX + ayX * (height / 2) * effY
 				const ncy =
-					fixY + axY * (width / 2) * signX + ayY * (height / 2) * signY
+					fixY + axY * (width / 2) * effX + ayY * (height / 2) * effY
 				x = Math.round(ncx - width / 2)
 				y = Math.round(ncy - height / 2)
 			} else {
@@ -4640,19 +4684,27 @@ export default function PanelClient({
 							}
 						}}
 						onDragEnter={e => {
+							if (e.dataTransfer.types.includes('application/x-ovrly-layer'))
+								return
 							e.preventDefault()
 							dragDepth.current += 1
 							setDropHover(true)
 						}}
 						onDragOver={e => {
+							if (e.dataTransfer.types.includes('application/x-ovrly-layer'))
+								return
 							e.preventDefault()
 							if (!dropHover) setDropHover(true)
 						}}
 						onDragLeave={e => {
+							if (e.dataTransfer.types.includes('application/x-ovrly-layer'))
+								return
 							dragDepth.current = Math.max(0, dragDepth.current - 1)
 							if (dragDepth.current === 0) setDropHover(false)
 						}}
 						onDrop={e => {
+							if (e.dataTransfer.types.includes('application/x-ovrly-layer'))
+								return
 							e.preventDefault()
 							dragDepth.current = 0
 							setDropHover(false)
@@ -4968,11 +5020,6 @@ export default function PanelClient({
 										data-elwrap='1'
 										data-elid={el.id}
 										className={`absolute select-none group ${el.locked ? '' : 'cursor-grab'}`}
-										title={
-											el.locked
-												? 'Элемент заблокирован — снимите замок в списке слоёв'
-												: undefined
-										}
 										style={{
 											left: el.x,
 											top: el.y,
@@ -7029,6 +7076,7 @@ function LayersPanel({
 				onDragStart={e => {
 					setDragId(el.id)
 					e.dataTransfer.effectAllowed = 'move'
+					e.dataTransfer.setData('application/x-ovrly-layer', el.id)
 					e.dataTransfer.setData('text/plain', el.id)
 				}}
 				onDragEnd={() => {
@@ -7056,14 +7104,16 @@ function LayersPanel({
 			>
 				<div className='relative h-[62px] bg-[#14141c]'>
 					<ElementThumb el={el} />
-					<span className='absolute left-1 top-1 rounded bg-black/60 px-1 text-[9px] tabular-nums text-white/70'>
-						{index + 1}
-					</span>
-					{el.locked && (
-						<span className='absolute left-1 bottom-1 rounded bg-black/60 p-1 text-amber-300'>
-							<Lock size={10} />
+					<div className='absolute left-1 top-1 flex items-center gap-1'>
+						<span className='rounded bg-black/60 px-1 text-[9px] tabular-nums text-white/70'>
+							{index + 1}
 						</span>
-					)}
+						{el.locked && (
+							<span className='rounded bg-black/60 p-0.5 text-amber-300'>
+								<Lock size={9} />
+							</span>
+						)}
+					</div>
 					<div className='absolute right-1 top-1 flex gap-0.5 rounded-md bg-black/55 p-0.5 opacity-100 sm:opacity-0 sm:group-hover/row:opacity-100 transition-opacity'>
 						<button
 							onClick={e => {
@@ -7291,15 +7341,6 @@ function MultiProperties({
 				</span>
 				<div className='flex items-center gap-1'>
 					<button
-						onClick={() =>
-							elements.forEach(e => onUpdate(e.id, { visible: !allVisible }))
-						}
-						title={allVisible ? 'Скрыть выделенные' : 'Показать выделенные'}
-						className='w-7 h-7 rounded-md border border-border text-gray-300 hover:text-white hover:bg-border flex items-center justify-center'
-					>
-						{allVisible ? <Eye size={14} /> : <EyeOff size={14} />}
-					</button>
-					<button
 						onClick={() => elements.forEach(e => onDelete(e.id))}
 						title='Удалить выделенные'
 						className='w-7 h-7 rounded-md border border-red-900/50 text-red-400 hover:bg-red-950/40 flex items-center justify-center'
@@ -7342,11 +7383,12 @@ function MultiProperties({
 					</button>
 					<button
 						onClick={() =>
-							elements.forEach(e => onUpdate(e.id, { visible: true }))
+							elements.forEach(e => onUpdate(e.id, { visible: !allVisible }))
 						}
-						className='px-2 py-1.5 text-xs rounded-lg border border-border text-gray-300 hover:bg-border transition-colors'
+						className='px-2 py-1.5 text-xs rounded-lg border border-border text-gray-300 hover:bg-border transition-colors flex items-center justify-center gap-1.5'
 					>
-						Показать все
+						{allVisible ? <EyeOff size={12} /> : <Eye size={12} />}
+						{allVisible ? 'Скрыть все' : 'Показать все'}
 					</button>
 				</div>
 				<label className='block text-[10px] uppercase tracking-wide text-gray-600'>
@@ -7364,10 +7406,6 @@ function MultiProperties({
 					}
 					className='w-full accent-accent2'
 				/>
-				<div className='rounded-lg border border-border p-2 text-[10px] text-gray-500 leading-relaxed'>
-					Shift/⌘/Ctrl + клик по слою добавляет элемент в выделение. Глазик
-					скрывает и показывает выбранные элементы.
-				</div>
 			</div>
 		</aside>
 	)
@@ -7481,6 +7519,7 @@ function ElementThumb({ el }: { el: StreamElement }) {
 				muted
 				preload='metadata'
 				playsInline
+				draggable={false}
 				className='w-full h-full object-cover'
 			/>
 		)
@@ -8114,19 +8153,27 @@ function PreviewElementInner({
 	}, [el.type, el.fontFamily])
 	if (el.type === 'widget' && el.widget)
 		return (
-			<WidgetFrame
-				widget={el.widget}
-				values={el.widgetValues}
-				isOverlay={false}
-				channel={channel}
-				elementId={el.id}
-				interactive={interactive}
-				background={
-					el.bgColor && el.bgColor !== 'transparent'
-						? colorWithOpacity(el.bgColor, el.bgOpacity ?? 1)
-						: undefined
-				}
-			/>
+			<>
+				<WidgetFrame
+					widget={el.widget}
+					values={el.widgetValues}
+					isOverlay={false}
+					channel={channel}
+					elementId={el.id}
+					interactive={interactive}
+					background={
+						el.bgColor && el.bgColor !== 'transparent'
+							? colorWithOpacity(el.bgColor, el.bgOpacity ?? 1)
+							: undefined
+					}
+				/>
+				{interactive && (
+					<div
+						className='absolute left-0 right-0 top-0 h-3 cursor-grab bg-accent/35 hover:bg-accent/60 transition-colors'
+						title='Перетащить виджет'
+					/>
+				)}
+			</>
 		)
 	if (el.type === 'draw')
 		return (
