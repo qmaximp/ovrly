@@ -467,14 +467,16 @@ export default function PanelClient({
 		drawModeRef.current = next
 		if (!next) {
 			drawStartRef.current = null
-			setLiveStroke(null)
+			liveStrokeRef.current = null
+			if (livePolyRef.current) livePolyRef.current.style.display = 'none'
 		}
 		setDrawMode(next)
 	}, [])
 	const [penColor, setPenColor] = useState('#ff3b30')
 	const [penWidth, setPenWidth] = useState(6)
-	const [liveStroke, setLiveStroke] = useState<Stroke | null>(null)
 	const [draftStrokes, setDraftStrokes] = useState<Stroke[]>([])
+	const liveStrokeRef = useRef<Stroke | null>(null)
+	const livePolyRef = useRef<SVGPolylineElement | null>(null)
 	const drawDoneRef = useRef(false)
 	const drawStartRef = useRef<[number, number] | null>(null)
 	const drawShiftBaseRef = useRef<[number, number][] | null>(null)
@@ -4161,6 +4163,22 @@ export default function PanelClient({
 			Math.round(((e.clientY - r.top - view.y) / view.s) * 10) / 10,
 		] as [number, number]
 	}
+	// Live-штрих рисуем напрямую в SVG: setState на каждый pointermove
+	// перерисовывал всю панель и рисование лагало.
+	const paintLiveStroke = (points: [number, number][]) => {
+		const pl = livePolyRef.current
+		if (!pl) return
+		if (!points.length) {
+			pl.style.display = 'none'
+			return
+		}
+		pl.style.display = ''
+		pl.setAttribute(
+			'points',
+			points.map(([x, y]) => `${x},${y}`).join(' '),
+		)
+	}
+
 	const drawDown = (e: React.PointerEvent) => {
 		// запоздавший pointerdown после отпускания не должен начинать линию
 		if (!drawModeRef.current) return
@@ -4174,42 +4192,53 @@ export default function PanelClient({
 		drawDoneRef.current = false
 		drawStartRef.current = p
 		drawShiftBaseRef.current = null
-		setLiveStroke({
+		liveStrokeRef.current = {
 			id: 'st' + Date.now().toString(36),
 			color: penColor,
 			width: penWidth,
 			points: [p],
-		})
+		}
+		const pl = livePolyRef.current
+		if (pl) {
+			pl.setAttribute('stroke', penColor)
+			pl.setAttribute('stroke-width', String(penWidth))
+		}
+		paintLiveStroke([p])
 	}
 	const drawMove = (e: React.PointerEvent) => {
-		if (!liveStroke) return
+		const live = liveStrokeRef.current
+		if (!live) return
 		const p = drawPoint(e)
 		if (!p) return
 		const start = drawStartRef.current
 		if (e.shiftKey && start) {
 			// Shift — продолжаем рисунок ровным отрезком от последней точки
 			if (!drawShiftBaseRef.current)
-				drawShiftBaseRef.current = liveStroke.points.slice()
+				drawShiftBaseRef.current = live.points.slice()
 			const base = drawShiftBaseRef.current
-			setLiveStroke({ ...liveStroke, points: [...base, p] })
+			live.points = [...base, p]
+			paintLiveStroke(live.points)
 			return
 		}
 		drawShiftBaseRef.current = null
-		const last = liveStroke.points[liveStroke.points.length - 1]
+		const last = live.points[live.points.length - 1]
 		if (last && Math.abs(last[0] - p[0]) < 2 && Math.abs(last[1] - p[1]) < 2)
 			return
-		setLiveStroke({ ...liveStroke, points: [...liveStroke.points, p] })
+		live.points = [...live.points, p]
+		paintLiveStroke(live.points)
 	}
 	const drawUp = () => {
 		if (drawDoneRef.current) return
 		drawDoneRef.current = true
 		drawStartRef.current = null
 		drawShiftBaseRef.current = null
-		if (liveStroke && liveStroke.points.length > 1) {
+		const live = liveStrokeRef.current
+		if (live && live.points.length > 1) {
 			// пока нажимаем «Готово», штрихи живут только в предпросмотре
-			setDraftStrokes(prev => [...prev, liveStroke])
+			setDraftStrokes(prev => [...prev, live])
 		}
-		setLiveStroke(null)
+		liveStrokeRef.current = null
+		paintLiveStroke([])
 	}
 
 	const commitDrawing = () => {
@@ -4255,7 +4284,8 @@ export default function PanelClient({
 			})
 		}
 		setDraftStrokes([])
-		setLiveStroke(null)
+		liveStrokeRef.current = null
+		paintLiveStroke([])
 		drawStartRef.current = null
 		drawShiftBaseRef.current = null
 		drawModeRef.current = false
@@ -4846,7 +4876,8 @@ export default function PanelClient({
 								<button
 									onClick={() => {
 										setDraftStrokes([])
-										setLiveStroke(null)
+										liveStrokeRef.current = null
+										paintLiveStroke([])
 										emit('draw:clear')
 									}}
 									className='rounded-lg px-2 py-1 text-xs text-red-400 hover:bg-red-950/40'
@@ -5360,18 +5391,15 @@ export default function PanelClient({
 										strokeLinejoin='round'
 									/>
 								))}
-								{liveStroke && (
-									<polyline
-										points={liveStroke.points
-											.map(([x, y]) => `${x},${y}`)
-											.join(' ')}
-										fill='none'
-										stroke={liveStroke.color}
-										strokeWidth={liveStroke.width}
-										strokeLinecap='round'
-										strokeLinejoin='round'
-									/>
-								)}
+								<polyline
+									ref={livePolyRef}
+									fill='none'
+									stroke={penColor}
+									strokeWidth={penWidth}
+									strokeLinecap='round'
+									strokeLinejoin='round'
+									style={{ display: 'none' }}
+								/>
 							</svg>
 
 							{selected && selectedIds.size === 0 && !selected.locked && (
