@@ -118,6 +118,8 @@ export interface StreamElement {
   // кастомный виджет: снимок кода + текущие значения переменных
   widget?: WidgetDefinition;
   widgetValues?: Record<string, string>;
+  // громкость звука внутри iframe-виджета, 0..100
+  widgetVolume?: number;
   zIndex: number;
 }
 

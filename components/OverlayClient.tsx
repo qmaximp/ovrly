@@ -528,6 +528,7 @@ function OverlayElement({ el, ytStarted }: { el: StreamElement; ytStarted: boole
 					values={el.widgetValues}
 					isOverlay
 					elementId={el.id}
+					volume={el.widgetVolume}
 					background={
 						el.bgColor && el.bgColor !== 'transparent'
 							? colorWithOpacity(el.bgColor, el.bgOpacity ?? 1)

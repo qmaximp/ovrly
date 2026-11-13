@@ -1541,6 +1541,10 @@ app.prepare().then(() => {
 				if (!widget) return
 				el.widget = widget
 				el.widgetValues = cleanWidgetValues(widget, el.widgetValues)
+				const wv = Number(el.widgetVolume)
+				el.widgetVolume = Number.isFinite(wv)
+					? Math.min(100, Math.max(0, Math.round(wv)))
+					: 100
 			}
 			if (el.type === 'draw' && !cleanDrawElement(el)) return
 			el.zIndex = el.zIndex ?? state.elements.length
@@ -1570,6 +1574,12 @@ app.prepare().then(() => {
 				const g =
 					String(partial.groupId).replace(/[^\w-]/g, '').slice(0, 40) || ''
 				partial.groupId = g && g !== 'null' ? g : undefined
+			}
+			if (partial.widgetVolume !== undefined) {
+				const wv = Number(partial.widgetVolume)
+				partial.widgetVolume = Number.isFinite(wv)
+					? Math.min(100, Math.max(0, Math.round(wv)))
+					: undefined
 			}
 			if (partial.points !== undefined) {
 				const merged = { ...oldEl, ...partial }

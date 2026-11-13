@@ -1888,6 +1888,7 @@ export default function PanelClient({
 		const right = (rect.width - v.x) / v.s
 		const bottom = (rect.height - v.y) / v.s
 		if (
+			v.s <= 1 &&
 			el.x >= left + pad &&
 			el.y >= top + pad &&
 			el.x + el.width <= right - pad &&
@@ -1946,7 +1947,6 @@ export default function PanelClient({
 			: selectedId
 				? [selectedId]
 				: []
-		if (!ids.length) return
 		const gid = 'g' + Date.now().toString(36)
 		const next = [
 			...(state.groups || []),
@@ -8161,6 +8161,7 @@ function PreviewElementInner({
 					channel={channel}
 					elementId={el.id}
 					interactive={interactive}
+					volume={el.widgetVolume}
 					background={
 						el.bgColor && el.bgColor !== 'transparent'
 							? colorWithOpacity(el.bgColor, el.bgOpacity ?? 1)
@@ -8354,10 +8355,13 @@ function PreviewElementInner({
 		)
 	if (el.type === 'audio')
 		return (
-			<div className='w-full h-full flex items-center gap-2 rounded-lg border border-border bg-panel/95 px-3 text-gray-300'>
+			<div
+				title={elementLabel(el)}
+				className='w-full h-full flex items-center gap-2 rounded-lg border border-border bg-panel/95 px-3 text-gray-300'
+			>
 				<Volume2 size={18} className='text-accent2 shrink-0' />
 				<div className='min-w-0'>
-					<p className='text-xs font-medium truncate'>Звук</p>
+					<p className='text-xs font-medium truncate'>{elementLabel(el)}</p>
 					<p className='text-[10px] text-gray-500 truncate'>
 						Проиграть — в свойствах
 					</p>
@@ -9160,6 +9164,27 @@ function PropertyEditor({
 						</button>
 						<p className='mt-1.5 text-[10px] leading-relaxed text-gray-500'>
 							Откроет код и переменные во вкладке «Виджет».
+						</p>
+					</div>
+					<div className='rounded-lg border border-border bg-bg p-3'>
+						<div className='flex items-center justify-between text-xs text-gray-400 mb-1'>
+							<span>Громкость виджета</span>
+							<span className='tabular-nums'>
+								{Math.round(el.widgetVolume ?? 100)}%
+							</span>
+						</div>
+						<input
+							type='range'
+							min={0}
+							max={100}
+							value={el.widgetVolume ?? 100}
+							onChange={e =>
+								update({ widgetVolume: Number(e.target.value) })
+							}
+							className='w-full accent-accent2'
+						/>
+						<p className='mt-1 text-[10px] leading-relaxed text-gray-500'>
+							Громкость звука внутри виджета (audio/video).
 						</p>
 					</div>
 					{el.widget.variables.length === 0 && (

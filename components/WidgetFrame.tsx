@@ -13,6 +13,7 @@ type Props = {
 	background?: string
 	preview?: boolean
 	interactive?: boolean
+	volume?: number
 	className?: string
 }
 
@@ -27,6 +28,7 @@ export default function WidgetFrame({
 	background,
 	preview = false,
 	interactive = false,
+	volume,
 	className = '',
 }: Props) {
 	const frameRef = useRef<HTMLIFrameElement | null>(null)
@@ -88,6 +90,14 @@ export default function WidgetFrame({
 			'*',
 		)
 	}, [liveValues, widget.variables])
+
+	useEffect(() => {
+		if (volume === undefined) return
+		frameRef.current?.contentWindow?.postMessage(
+			{ type: 'widget-volume', value: volume },
+			'*',
+		)
+	}, [volume])
 
 	useEffect(() => {
 		if (!elementId) return
@@ -163,6 +173,13 @@ export default function WidgetFrame({
 			allow='autoplay'
 			referrerPolicy='no-referrer'
 			srcDoc={srcdoc}
+			onLoad={() => {
+				if (volume !== undefined)
+					frameRef.current?.contentWindow?.postMessage(
+						{ type: 'widget-volume', value: volume },
+						'*',
+					)
+			}}
 			className={`block w-full h-full border-0 ${className}`}
 			style={{
 				pointerEvents: interactive ? 'auto' : 'none',

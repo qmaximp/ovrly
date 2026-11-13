@@ -188,6 +188,19 @@ window.addEventListener('message', function (event) {
     if (typeof onLiveVariableUpdate === 'function') {
       onLiveVariableUpdate(data.name, data.value);
     }
+  } else if (data.type === 'widget-volume') {
+    var vol = Math.max(0, Math.min(1, Number(data.value) / 100));
+    window.__ovrlyVolume = vol;
+    if (typeof onWidgetVolume === 'function') {
+      try { onWidgetVolume(vol); } catch (e) {}
+    }
+    var media = document.querySelectorAll('audio, video');
+    for (var i = 0; i < media.length; i++) {
+      try {
+        media[i].volume = vol;
+        media[i].muted = vol === 0;
+      } catch (e) {}
+    }
   } else if (data.type === 'widget-chat') {
     if (typeof onTwitchMessage === 'function') onTwitchMessage(data.data);
   } else if (data.type === 'widget-twitch-event') {
