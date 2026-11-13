@@ -31,6 +31,7 @@ import {
 	loadShortcuts,
 	loadShortcutsEnabled,
 	matchesShortcut,
+	MOUSE_SHORTCUT_DEFS,
 	resetShortcuts,
 	saveShortcuts,
 	saveShortcutsEnabled,
@@ -62,6 +63,7 @@ import {
 	ListVideo,
 	Lock,
 	MessageCircle,
+	MousePointer2,
 	Pause,
 	Pencil,
 	Play,
@@ -2730,6 +2732,24 @@ export default function PanelClient({
 	// снимок элемента на старте ресайза — для такого же отката
 	const resizeSnapRef = useRef<{ id: string; el: StreamElement } | null>(null)
 
+	// Shift/Ctrl/⌘ + клик по элементу на холсте. Если до этого был выбран
+	// один элемент (например только что нарисованный), он должен попасть
+	// в набор вместе с новым — иначе рисование «теряет» выделение.
+	const toggleCanvasSelection = useCallback((id: string) => {
+		const anchor = selectedIdRef.current
+		setSelectedIds(prev => {
+			const n = new Set(prev)
+			if (n.has(id)) {
+				n.delete(id)
+				return n
+			}
+			if (anchor && anchor !== id) n.add(anchor)
+			n.add(id)
+			return n
+		})
+		setSelectedId(null)
+	}, [])
+
 	const handleDragStart = (e: React.PointerEvent, el: StreamElement) => {
 		// клик по другому элементу сбрасывает «взведённый» медиа-клик
 		if (iframeArmRef.current && iframeArmRef.current !== el.id) {
@@ -2741,13 +2761,7 @@ export default function PanelClient({
 		if (el.locked) {
 			if (e.button !== 0) return
 			if (e.shiftKey || e.ctrlKey || e.metaKey) {
-				setSelectedIds(prev => {
-					const n = new Set(prev)
-					if (n.has(el.id)) n.delete(el.id)
-					else n.add(el.id)
-					return n
-				})
-				setSelectedId(null)
+				toggleCanvasSelection(el.id)
 				return
 			}
 			if (selectedIdsRef.current.size) setSelectedIds(new Set())
@@ -2759,13 +2773,7 @@ export default function PanelClient({
 		// двигать, окончательно решает сервер (он отдаст объект стримеру/админу)
 		// ctrl/shift+клик — добавить/убрать элемент из выделения (без драга)
 		if (e.shiftKey || e.ctrlKey || e.metaKey) {
-			setSelectedIds(prev => {
-				const n = new Set(prev)
-				if (n.has(el.id)) n.delete(el.id)
-				else n.add(el.id)
-				return n
-			})
-			setSelectedId(null)
+			toggleCanvasSelection(el.id)
 			return
 		}
 		// драг выделенного при мультивыделении — двигаем всю группу
@@ -4172,6 +4180,15 @@ export default function PanelClient({
 		] as [number, number]
 	}
 	const drawDown = (e: React.PointerEvent) => {
+		// один штрих на включение маркера: запоздавший pointerdown после
+		// pointerup не должен начинать вторую линию
+		if (!drawModeRef.current) return
+		// Shift/Ctrl/⌘ зарезервированы под выделение, а не под рисование
+		if (e.shiftKey || e.ctrlKey || e.metaKey) {
+			drawModeRef.current = false
+			setDrawMode(false)
+			return
+		}
 		const p = drawPoint(e)
 		if (!p) return
 		e.stopPropagation()
@@ -4199,6 +4216,9 @@ export default function PanelClient({
 	const drawUp = () => {
 		if (drawDoneRef.current) return
 		drawDoneRef.current = true
+		// снимаем режим сразу: следующий Shift+клик не должен рисовать линию
+		drawModeRef.current = false
+		setDrawMode(false)
 		if (liveStroke && liveStroke.points.length > 1) {
 			// штрих превращается в обычный элемент: его можно выделить, тащить,
 			// масштабировать и стирать как всё остальное
@@ -4235,8 +4255,6 @@ export default function PanelClient({
 			setSelectedId(id)
 		}
 		setLiveStroke(null)
-		// один штрих — и сразу обратно к выбору/перетаскиванию элементов
-		setDrawMode(false)
 	}
 
 	// вертикальная ориентация телефона — просим повернуть (как на референсе)
@@ -6257,6 +6275,57 @@ export default function PanelClient({
 										</div>
 									)
 								})}
+							</div>
+
+							<div className='mt-7 rounded-2xl border border-border bg-panel p-4 sm:p-5'>
+								<div className='flex items-start gap-3 sm:gap-4'>
+									<span className='w-10 h-10 shrink-0 rounded-xl bg-accent/15 text-accent2 flex items-center justify-center'>
+										<MousePointer2 size={19} />
+									</span>
+									<div className='min-w-0 flex-1'>
+										<h3 className='text-sm font-semibold text-[color:rgb(var(--c-on-bg))]'>
+											Мышь и перетаскивание
+										</h3>
+										<p className='mt-1 text-sm leading-relaxed text-gray-500'>
+											Эти жесты работают на холсте и в списке слоёв. Их нельзя
+											переназначить — здесь только список.
+										</p>
+									</div>
+									<span className='shrink-0 rounded-full border border-border px-2 py-0.5 text-[10px] text-gray-500'>
+										Только просмотр
+									</span>
+								</div>
+							</div>
+
+							<div className='mt-3 space-y-2'>
+								{MOUSE_SHORTCUT_DEFS.map(def => (
+									<div
+										key={def.label}
+										className='flex flex-wrap items-center gap-3 rounded-2xl border border-border bg-panel p-3 sm:p-4'
+									>
+										<div className='min-w-0 flex-1'>
+											<div className='text-sm font-semibold text-[color:rgb(var(--c-on-bg))]'>
+												{def.label}
+											</div>
+											<p className='mt-0.5 text-xs text-gray-500'>{def.hint}</p>
+										</div>
+										<div className='order-3 flex w-full flex-wrap items-center justify-center gap-1.5 sm:order-none sm:w-auto'>
+											{def.keys.map((key, i) => (
+												<kbd key={`${key}-${i}`} className='sc-key'>
+													{key === 'Alt'
+														? isMac
+															? '⌥'
+															: 'Alt'
+														: key === 'Ctrl'
+															? isMac
+																? '⌘'
+																: 'Ctrl'
+															: key}
+												</kbd>
+											))}
+										</div>
+									</div>
+								))}
 							</div>
 						</div>
 					)}
