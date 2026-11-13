@@ -418,10 +418,39 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 				}}
 			>
 				{sorted.map(el =>
-					el.visible ? (
+					el.visible && el.type !== 'telegram' ? (
 						<OverlayElement key={el.id} el={el} ytStarted={ytStarted.has(el.id)} />
 					) : null,
 				)}
+				{sorted
+					.filter(
+						el =>
+							el.type === 'telegram' &&
+							el.visible &&
+							!!el.telegramUntil &&
+							el.telegramUntil > Date.now(),
+					)
+					.map(el => (
+						<div
+							key={el.id}
+							style={{
+								position: 'absolute',
+								left: 0,
+								top: 0,
+								width: state.canvasW,
+								height: state.canvasH,
+								zIndex: 9998,
+								pointerEvents: 'none',
+							}}
+						>
+							<TelegramCard
+								channel={el.telegramChannel}
+								showQr={el.telegramQr !== false}
+								light={!!el.telegramLight}
+								until={el.telegramUntil}
+							/>
+						</div>
+					))}
 				<svg
 					viewBox={`0 0 ${state.canvasW} ${state.canvasH}`}
 					style={{

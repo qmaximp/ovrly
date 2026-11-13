@@ -2735,12 +2735,14 @@ export default function PanelClient({
 	}, [addElement])
 
 	const addTelegramEl = useCallback(() => {
-		const p = { x: 0, y: 0 }
+		// карточка живёт в зоне предзагрузки; во время показа разворачивается
+		// на весь экран как промо в OverlayHub
+		const p = parkingSpot(560, 315)
 		addElement({
 			type: 'telegram',
 			...p,
-			width: 1920,
-			height: 1080,
+			width: 560,
+			height: 315,
 			telegramChannel: '',
 			telegramQr: true,
 			telegramLight: false,
@@ -5107,7 +5109,7 @@ export default function PanelClient({
 									onPointerDown={startGroupMove}
 								/>
 							)}
-							{state.elements.map(el => {
+							{state.elements.filter(el => el.type !== 'telegram').map(el => {
 								const hs = 10 / view.s
 								// у медиа (YouTube/Twitch/видео) плашка управления показывается
 								// наведением — значит, обёртка должна отдавать enter/leave
@@ -5373,6 +5375,33 @@ export default function PanelClient({
 									</div>
 								)
 							})}
+							{/* Telegram — промо-показ как в OverlayHub: элемент живёт в зоне
+							    предзагрузки, а во время показа занимает весь холст */}
+							{state.elements
+								.filter(
+									el =>
+										el.type === 'telegram' &&
+										!!el.telegramUntil &&
+										el.telegramUntil > Date.now(),
+								)
+								.map(el => (
+									<div
+										key={el.id}
+										className='absolute left-0 top-0 pointer-events-none'
+										style={{
+											width: state.canvasW,
+											height: state.canvasH,
+											zIndex: 4000,
+										}}
+									>
+										<TelegramCard
+											channel={el.telegramChannel}
+											showQr={el.telegramQr !== false}
+											light={!!el.telegramLight}
+											until={el.telegramUntil}
+										/>
+									</div>
+								))}
 							{/* Ручки выбранного элемента — отдельным слоем поверх всех элементов:
 							    сам элемент остаётся на своём слое, поэтому «Вперёд/Назад»
 							    видно сразу, а ручки не прячутся под картинками выше */}
@@ -9024,42 +9053,11 @@ function PropertyEditor({
 								: 'Карточка скрыта на оверлее. Нажмите «Показать» — она появится с анимацией.'}
 						</p>
 					</div>
-					<div className='border-t border-border pt-2 space-y-1.5'>
-						<div className='flex items-center justify-between text-xs text-gray-400'>
-							<span>Размер карточки</span>
-							<span className='tabular-nums text-gray-300'>
-								{Math.round((el.width / 1920) * 100)}%
-							</span>
-						</div>
-						<div className='grid grid-cols-4 gap-1'>
-							{[100, 75, 50, 33].map(pct => (
-								<button
-									key={pct}
-									onClick={() => {
-										const f = pct / 100
-										const w = Math.round(1920 * f)
-										const h = Math.round(1080 * f)
-										update({
-											width: w,
-											height: h,
-											x: Math.round(el.x + el.width / 2 - w / 2),
-											y: Math.round(el.y + el.height / 2 - h / 2),
-										})
-									}}
-									className={`rounded-lg py-1 text-[11px] border transition-colors ${
-										Math.abs(el.width / 1920 - pct / 100) < 0.01
-											? 'border-accent text-accent2'
-											: 'border-border text-gray-400 hover:bg-bg'
-									}`}
-								>
-									{pct}%
-								</button>
-							))}
-						</div>
-					</div>
 				</div>
 			)}
-			<div className='grid grid-cols-2 gap-2'>
+			{el.type !== 'telegram' && (
+				<>
+				<div className='grid grid-cols-2 gap-2'>
 				<NumberField label='X' value={el.x} onChange={v => update({ x: v })} />
 				<NumberField label='Y' value={el.y} onChange={v => update({ y: v })} />
 				<NumberField
@@ -9086,6 +9084,7 @@ function PropertyEditor({
 					⟲ Сброс
 				</button>
 			</div>
+			</>)}
 			<div className='flex gap-2'>
 				<button
 					onClick={() =>
