@@ -42,6 +42,8 @@ import { ensureFontLoaded, textBoxStyle } from '@/lib/textStyle'
 import type {
 	RoomUser,
 	StreamElement,
+	StreamGroup,
+	Stroke,
 	SyncState,
 	WidgetDefinition,
 } from '@/lib/types'
@@ -384,6 +386,7 @@ export default function PanelClient({
 	// мультивыделение: рамкой по пустому холсту (мышь) или ctrl+клик;
 	// драг любого выбранного двигает всю группу, Delete удаляет все выбранные
 	const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+	const layerAnchorRef = useRef<string | null>(null)
 	const selectedIdsRef = useRef<Set<string>>(new Set())
 	selectedIdsRef.current = selectedIds
 	// рамка выделения: координаты относительно вьюпорта холста
@@ -451,6 +454,10 @@ export default function PanelClient({
 	}
 	const socketRef = useRef<Socket | null>(null)
 	const [view, setView] = useState({ x: 0, y: 0, s: 0.3 })
+	const [drawMode, setDrawMode] = useState(false)
+	const [penColor, setPenColor] = useState('#ff3b30')
+	const [penWidth, setPenWidth] = useState(6)
+	const [liveStroke, setLiveStroke] = useState<Stroke | null>(null)
 	const viewRef = useRef(view)
 	viewRef.current = view
 	const [panning, setPanning] = useState(false)
@@ -918,6 +925,41 @@ export default function PanelClient({
 				}
 			}),
 		)
+		socket.on('groups:updated', (groups: StreamGroup[]) =>
+			setState(p => ({ ...p, groups: Array.isArray(groups) ? groups : [] })),
+		)
+		socket.on('draw:added', (s: Stroke) =>
+			setState(p => {
+				if (!s || typeof s.id !== 'string') return p
+				const strokes = p.strokes || []
+				return strokes.some(x => x.id === s.id)
+					? p
+					: { ...p, strokes: [...strokes, s] }
+			}),
+		)
+		socket.on('draw:removed', (id: string) =>
+			setState(p => ({
+				...p,
+				strokes: (p.strokes || []).filter(s => s.id !== id),
+			})),
+		)
+		socket.on('draw:cleared', () => setState(p => ({ ...p, strokes: [] })))
+		socket.on('groups:updated', (groups: StreamGroup[]) =>
+			setState(p => ({ ...p, groups })),
+		)
+		socket.on('draw:added', (s: Stroke) =>
+			setState(p => {
+				if ((p.strokes || []).some(x => x.id === s.id)) return p
+				return { ...p, strokes: [...(p.strokes || []), s] }
+			}),
+		)
+		socket.on('draw:removed', (id: string) =>
+			setState(p => ({
+				...p,
+				strokes: (p.strokes || []).filter(s => s.id !== id),
+			})),
+		)
+		socket.on('draw:cleared', () => setState(p => ({ ...p, strokes: [] })))
 		socket.on('elements:cleared', () => {
 			forgetAllElements()
 			setState(p => ({ ...p, elements: [] }))
@@ -1040,10 +1082,11 @@ export default function PanelClient({
 				node.style.height = `${h}px`
 				node.style.transform =
 					`${tr}${opts?.flipH || opts?.flipV ? ` scale(${opts.flipH ? -1 : 1}, ${opts.flipV ? -1 : 1})` : ''}`
-				if (opts?.crop) {
-					const inner = node.querySelector<HTMLElement>('img,video')
-					if (inner) Object.assign(inner.style, cropInnerStyle(opts.crop))
-				}
+				// обрезка должна быть видна сразу: CropFrame в React появится
+				// только после pointerup, поэтому клипуем и картинку двигаем здесь
+				node.style.overflow = opts?.crop ? 'hidden' : ''
+				const inner = node.querySelector<HTMLElement>('img,video')
+				if (inner) Object.assign(inner.style, cropInnerStyle(opts?.crop ?? null))
 			}
 			// рамка выделения живёт отдельным слоем поверх элементов; её и ручки
 			// не отражаем — иначе они прыгают на другую сторону
@@ -1805,7 +1848,10 @@ export default function PanelClient({
 		(el: Omit<StreamElement, 'id' | 'zIndex' | 'visible'>) => {
 			remember()
 			localAddRef.current.expected++
-			emit('element:add', { ...el, visible: true })
+			const name =
+				(el.name || '').trim() ||
+				elementLabel({ ...el, zIndex: 0, visible: true } as StreamElement)
+			emit('element:add', { ...el, name, visible: true })
 		},
 		[emit, remember],
 	)
@@ -1854,6 +1900,61 @@ export default function PanelClient({
 			y: rect.height / 2 - (el.y + el.height / 2) * prev.s,
 		}))
 	}, [])
+
+	const saveGroups = useCallback(
+		(groups: StreamGroup[]) => {
+			setState(p => ({ ...p, groups }))
+			emit('groups:update', groups)
+		},
+		[emit],
+	)
+
+	// ids приходят сверху вниз; сервер и zIndex хранят снизу вверх
+	const setLayerOrder = useCallback(
+		(idsTopDown: string[]) => {
+			const bottomUp = [...idsTopDown].reverse()
+			const z = new Map(bottomUp.map((id, i) => [id, i]))
+			setState(p => ({
+				...p,
+				elements: p.elements.map(e => ({
+					...e,
+					zIndex: z.get(e.id) ?? e.zIndex,
+				})),
+			}))
+			emit('element:zorder-set', bottomUp)
+		},
+		[emit],
+	)
+
+	const deleteElement = useCallback(
+		(id: string) => {
+			remember()
+			emit('element:delete', id)
+			setSelectedId(prev => (prev === id ? null : prev))
+			setSelectedIds(prev => {
+				const n = new Set(prev)
+				n.delete(id)
+				return n
+			})
+		},
+		[emit, remember],
+	)
+
+	const groupSelection = useCallback(() => {
+		const ids = selectedIds.size
+			? [...selectedIds]
+			: selectedId
+				? [selectedId]
+				: []
+		if (!ids.length) return
+		const gid = 'g' + Date.now().toString(36)
+		const next = [
+			...(state.groups || []),
+			{ id: gid, name: `Группа ${(state.groups || []).length + 1}` },
+		]
+		saveGroups(next)
+		ids.forEach(id => updateElement(id, { groupId: gid }))
+	}, [selectedId, selectedIds, state.groups, saveGroups, updateElement])
 
 	const rotateRef = useRef<{
 		el: StreamElement
@@ -3994,6 +4095,46 @@ export default function PanelClient({
 		}
 	}, [canvasEl])
 
+	// ── маркер: координаты холста из экрана (с учётом панорамы и зума) ──
+	const drawPoint = (e: React.PointerEvent) => {
+		const vp = viewportRef.current
+		if (!vp) return null
+		const r = vp.getBoundingClientRect()
+		return [
+			Math.round(((e.clientX - r.left - view.x) / view.s) * 10) / 10,
+			Math.round(((e.clientY - r.top - view.y) / view.s) * 10) / 10,
+		] as [number, number]
+	}
+	const drawDown = (e: React.PointerEvent) => {
+		const p = drawPoint(e)
+		if (!p) return
+		e.stopPropagation()
+		e.preventDefault()
+		try {
+			;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+		} catch {}
+		setLiveStroke({
+			id: 'st' + Date.now().toString(36),
+			color: penColor,
+			width: penWidth,
+			points: [p],
+		})
+	}
+	const drawMove = (e: React.PointerEvent) => {
+		if (!liveStroke) return
+		const p = drawPoint(e)
+		if (!p) return
+		const last = liveStroke.points[liveStroke.points.length - 1]
+		if (last && Math.abs(last[0] - p[0]) < 2 && Math.abs(last[1] - p[1]) < 2)
+			return
+		setLiveStroke({ ...liveStroke, points: [...liveStroke.points, p] })
+	}
+	const drawUp = () => {
+		if (liveStroke && liveStroke.points.length > 1)
+			emit('draw:add', liveStroke)
+		setLiveStroke(null)
+	}
+
 	// вертикальная ориентация телефона — просим повернуть (как на референсе)
 	if (isPortrait) {
 		return (
@@ -4385,6 +4526,13 @@ export default function PanelClient({
 									<Type size={16} />
 									Текст
 								</button>
+								<button
+									onClick={() => setDrawMode(v => !v)}
+									className='flex items-center justify-center gap-1.5 px-2 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
+								>
+									<Pencil size={16} />
+									Рисовать
+								</button>
 							</div>
 						</div>
 
@@ -4411,39 +4559,35 @@ export default function PanelClient({
 						</div>
 						{/* Сетка в 2 столбца: у картинок и видео видно само превью,
 						    а не «data:image/png;base64...» в подписи */}
-						<div className='grid grid-cols-2 gap-2'>
-							{state.elements.map(el => (
-								<ElementCard
-									key={el.id}
-									el={el}
-									selected={selectedId === el.id}
-									active={selectedIds.has(el.id)}
-									onSelect={() => {
-										selectOnly(el.id)
-										revealElement(el)
-									}}
-									onToggleVisible={() => {
-										setState(p => ({
-											...p,
-											elements: p.elements.map(x =>
-												x.id === el.id ? { ...x, visible: !x.visible } : x,
-											),
-										}))
-										emit('element:toggle-visible', el.id)
-									}}
-									onDelete={() => {
-										remember()
-										emit('element:delete', el.id)
-										if (selectedId === el.id) setSelectedId(null)
-									}}
-								/>
-							))}
-						</div>
-						{state.elements.length === 0 && (
-							<p className='text-xs text-gray-600 px-2 py-4'>
-								Нет элементов. Добавьте сверху.
-							</p>
-						)}
+						<LayersPanel
+							elements={state.elements}
+							groups={state.groups || []}
+							selectedId={selectedId}
+							selectedIds={selectedIds}
+							onSelect={(id, additive) => {
+								if (additive) {
+									setSelectedIds(prev => {
+										const n = new Set(prev)
+										// первый клик выбирает один элемент через selectedId —
+										// при Shift добавляем его в набор, чтобы группа собралась
+										if (layerAnchorRef.current) n.add(layerAnchorRef.current)
+										n.add(id)
+										return n
+									})
+									setSelectedId(id)
+								} else {
+									layerAnchorRef.current = id
+									selectOnly(id)
+									const el = state.elements.find(e => e.id === id)
+									if (el) revealElement(el)
+								}
+							}}
+							onUpdate={updateElement}
+							onDelete={deleteElement}
+							onReorder={setLayerOrder}
+							onGroups={saveGroups}
+							onDraw={() => setDrawMode(v => !v)}
+						/>
 					</aside>
 				)}
 
@@ -4513,6 +4657,58 @@ export default function PanelClient({
 							}
 						}}
 					>
+						{drawMode && (
+							<div
+								className='absolute left-1/2 top-3 z-[3100] -translate-x-1/2 flex items-center gap-2 rounded-2xl border border-border bg-panel/95 px-3 py-2 shadow-xl backdrop-blur'
+								data-nopan='1'
+								onPointerDown={e => e.stopPropagation()}
+							>
+								<span className='text-xs font-medium text-[color:rgb(var(--c-on-bg))]'>
+									Маркер
+								</span>
+								{['#ff3b30', '#22d3ee', '#facc15', '#a3e635', '#ffffff'].map(c => (
+									<button
+										key={c}
+										onClick={() => setPenColor(c)}
+										className={`h-5 w-5 rounded-full border-2 ${penColor === c ? 'border-white' : 'border-transparent'}`}
+										style={{ background: c }}
+										title={c}
+									/>
+								))}
+								<input
+									type='range'
+									min={2}
+									max={24}
+									value={penWidth}
+									onChange={e => setPenWidth(Number(e.target.value))}
+									className='w-20'
+									title='Толщина'
+								/>
+								<button
+									onClick={() => {
+										const last = state.strokes?.[state.strokes.length - 1]
+										if (last) emit('draw:remove', last.id)
+									}}
+									className='rounded-lg px-2 py-1 text-xs hover:bg-border'
+									title='Отменить последний штрих'
+								>
+									↶
+								</button>
+								<button
+									onClick={() => emit('draw:clear')}
+									className='rounded-lg px-2 py-1 text-xs text-red-400 hover:bg-red-950/40'
+									title='Очистить всё'
+								>
+									<Trash2 size={14} />
+								</button>
+								<button
+									onClick={() => setDrawMode(false)}
+									className='rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-white'
+								>
+									Готово
+								</button>
+							</div>
+						)}
 						{/* фон канваса + превью: ВНЕ transform-контейнера (transform предка блокирует
                   автовоспроизведение Twitch-плеера). Чёрный бокс = границы холста, скейлится
                   с зумом. Плеер внутри рендерится ОДИН РАЗ в размере 100%-зума и визуально
@@ -4971,6 +5167,56 @@ export default function PanelClient({
 							{/* Ручки выбранного элемента — отдельным слоем поверх всех элементов:
 							    сам элемент остаётся на своём слое, поэтому «Вперёд/Назад»
 							    видно сразу, а ручки не прячутся под картинками выше */}
+							<svg
+								viewBox={`0 0 ${state.canvasW} ${state.canvasH}`}
+								width={state.canvasW}
+								height={state.canvasH}
+								style={{
+									position: 'absolute',
+									left: 0,
+									top: 0,
+									touchAction: 'none',
+									zIndex: drawMode ? 3000 : 1900,
+									pointerEvents: drawMode ? 'auto' : 'none',
+									cursor: drawMode ? 'crosshair' : 'default',
+								}}
+								onPointerDown={drawMode ? drawDown : undefined}
+								onPointerMove={drawMode ? drawMove : undefined}
+								onPointerUp={drawMode ? drawUp : undefined}
+								onPointerCancel={drawMode ? drawUp : undefined}
+							>
+								{drawMode && (
+									<rect
+										width={state.canvasW}
+										height={state.canvasH}
+										fill='transparent'
+									/>
+								)}
+								{(state.strokes || []).map(s => (
+									<polyline
+										key={s.id}
+										points={s.points.map(([x, y]) => `${x},${y}`).join(' ')}
+										fill='none'
+										stroke={s.color}
+										strokeWidth={s.width}
+										strokeLinecap='round'
+										strokeLinejoin='round'
+									/>
+								))}
+								{liveStroke && (
+									<polyline
+										points={liveStroke.points
+											.map(([x, y]) => `${x},${y}`)
+											.join(' ')}
+										fill='none'
+										stroke={liveStroke.color}
+										strokeWidth={liveStroke.width}
+										strokeLinecap='round'
+										strokeLinejoin='round'
+									/>
+								)}
+							</svg>
+
 							{selected && selectedIds.size === 0 && !selected.locked && (
 								<div
 									className='absolute'
@@ -5314,35 +5560,33 @@ export default function PanelClient({
 													</button>
 												</div>
 											)}
-											<div className='grid grid-cols-2 gap-2 p-2 max-h-[45vh] overflow-y-auto'>
-												{state.elements.map(el => (
-													<ElementCard
-														key={el.id}
-														el={el}
-														selected={selectedId === el.id}
-														active={selectedIds.has(el.id)}
-														onSelect={() => {
-															selectOnly(el.id)
-															revealElement(el)
-														}}
-														onToggleVisible={() => {
-															setState(p => ({
-																...p,
-																elements: p.elements.map(x =>
-																	x.id === el.id
-																		? { ...x, visible: !x.visible }
-																		: x,
-																),
-															}))
-															emit('element:toggle-visible', el.id)
-														}}
-														onDelete={() => {
-															remember()
-															emit('element:delete', el.id)
-															if (selectedId === el.id) setSelectedId(null)
-														}}
-													/>
-												))}
+											<div className='p-2 max-h-[45vh] overflow-y-auto'>
+												<LayersPanel
+													elements={state.elements}
+													groups={state.groups || []}
+													selectedId={selectedId}
+													selectedIds={selectedIds}
+													onSelect={(id, additive) => {
+														if (additive) {
+															setSelectedIds(prev => {
+																const n = new Set(prev)
+																if (n.has(id)) n.delete(id)
+																else n.add(id)
+																return n
+															})
+															setSelectedId(id)
+														} else {
+															selectOnly(id)
+															const el = state.elements.find(e => e.id === id)
+															if (el) revealElement(el)
+														}
+													}}
+													onUpdate={updateElement}
+													onDelete={deleteElement}
+													onReorder={setLayerOrder}
+													onGroups={saveGroups}
+							onDraw={() => setDrawMode(v => !v)}
+												/>
 											</div>
 											{state.elements.length === 0 && (
 												<p className='px-3 pb-3 text-xs text-gray-600'>
@@ -5407,6 +5651,12 @@ export default function PanelClient({
 									</DockButton>
 									<DockButton label='Таймер' onClick={addTimerEl}>
 										<Timer size={17} />
+									</DockButton>
+									<DockButton
+										label='Рисовать'
+										onClick={() => setDrawMode(v => !v)}
+									>
+										<Pencil size={17} />
 									</DockButton>
 									<div className='w-px h-6 bg-border mx-1' />
 									<button
@@ -5553,7 +5803,16 @@ export default function PanelClient({
 					</div>
 				</div>
 
-				{selected && (
+				{selectedIds.size > 1 && !isMobile && (
+					<MultiProperties
+						elements={state.elements.filter(e => selectedIds.has(e.id))}
+						onUpdate={updateElement}
+						onDelete={deleteElement}
+						onGroup={groupSelection}
+					/>
+				)}
+
+				{selected && selectedIds.size <= 1 && (
 					<aside
 						className={`w-72 shrink-0 bg-panel border-l border-border p-4 overflow-y-auto ${isMobile ? 'hidden' : ''}`}
 					>
@@ -5564,7 +5823,17 @@ export default function PanelClient({
 							<span className='text-[10px] uppercase tracking-wide text-gray-600'>
 								Элемент
 							</span>
-							<button
+							<div className='flex items-center gap-1'>
+								<button
+									onClick={() =>
+										updateElement(selected.id, { visible: !selected.visible })
+									}
+									title={selected.visible ? 'Скрыть элемент' : 'Показать элемент'}
+									className='w-7 h-7 rounded-md border border-border text-gray-300 hover:text-white hover:bg-border flex items-center justify-center'
+								>
+									{selected.visible ? <Eye size={14} /> : <EyeOff size={14} />}
+								</button>
+								<button
 								onClick={() => {
 									remember()
 									emit('element:delete', selected.id)
@@ -5580,6 +5849,7 @@ export default function PanelClient({
 							>
 								✕
 							</button>
+							</div>
 						</div>
 						<PropertyEditor
 							el={selected}
@@ -6039,6 +6309,14 @@ export default function PanelClient({
 							className='w-8 h-8 rounded-lg hover:bg-border active:bg-accent flex items-center justify-center'
 						>
 							<Timer size={16} />
+						</button>
+						<button
+							title='Рисовать на холсте'
+							aria-label='Рисовать'
+							onClick={() => setDrawMode(v => !v)}
+							className={`w-8 h-8 rounded-lg flex items-center justify-center ${drawMode ? 'bg-accent text-white' : 'hover:bg-border'}`}
+						>
+							<Pencil size={16} />
 						</button>
 						<button
 							title={
@@ -6611,75 +6889,477 @@ export default function PanelClient({
 
 // Карточка элемента в списке: превью, видимость и удаление. Одна и та же
 // в обычной панели и в минималистичном меню.
-function ElementCard({
-	el,
-	selected,
-	active,
+// Слои как в Figma: сверху — то, что выше на стриме. Группы можно создавать,
+// переименовывать, сворачивать и перетаскивать в них элементы.
+type LayersPanelProps = {
+	elements: StreamElement[]
+	groups: StreamGroup[]
+	selectedId: string | null
+	selectedIds: Set<string>
+	onSelect: (id: string, additive: boolean) => void
+	onUpdate: (id: string, partial: Partial<StreamElement>) => void
+	onDelete: (id: string) => void
+	onReorder: (idsTopDown: string[]) => void
+	onGroups: (groups: StreamGroup[]) => void
+	onDraw: () => void
+}
+
+function LayersPanel({
+	elements,
+	groups,
+	selectedId,
+	selectedIds,
 	onSelect,
-	onToggleVisible,
+	onUpdate,
 	onDelete,
-}: {
-	el: StreamElement
-	selected: boolean
-	active: boolean
-	onSelect: () => void
-	onToggleVisible: () => void
-	onDelete: () => void
-}) {
-	return (
-		<div
-			onClick={onSelect}
-			className={`group relative rounded-lg border overflow-hidden cursor-pointer transition-colors ${
-				selected
-					? 'border-accent2'
-					: active
-						? 'border-accent2/60'
-						: 'border-border hover:border-gray-500'
-			}`}
-		>
-			<div className='relative h-16 bg-bg flex items-center justify-center overflow-hidden'>
-				<ElementThumb el={el} />
-			</div>
-			<div className='flex items-center gap-0.5 px-1 py-0.5 bg-panel'>
-				<span className='flex-1 truncate text-[10px] text-gray-400'>
-					{elementLabel(el)}
+	onReorder,
+	onGroups,
+	onDraw,
+}: LayersPanelProps) {
+	const [dragId, setDragId] = useState<string | null>(null)
+	const [dropId, setDropId] = useState<string | null>(null)
+	const [edit, setEdit] = useState<{ kind: 'el' | 'group'; id: string } | null>(
+		null,
+	)
+	const [draft, setDraft] = useState('')
+	const startEdit = (kind: 'el' | 'group', id: string, value: string) => {
+		setEdit({ kind, id })
+		setDraft(value)
+	}
+	const commitEdit = () => {
+		if (!edit) return
+		const v = draft.trim().slice(0, 80)
+		if (v) {
+			if (edit.kind === 'group')
+				onGroups(groups.map(g => (g.id === edit.id ? { ...g, name: v } : g)))
+			else onUpdate(edit.id, { name: v })
+		}
+		setEdit(null)
+	}
+	const sorted = useMemo(
+		() => [...elements].sort((a, b) => (b.zIndex ?? 0) - (a.zIndex ?? 0)),
+		[elements],
+	)
+	const known = useMemo(() => new Set(groups.map(g => g.id)), [groups])
+	const ungrouped = sorted.filter(e => !e.groupId || !known.has(e.groupId))
+
+	const moveTo = (id: string, groupId: string | undefined) => {
+		onUpdate(id, { groupId })
+	}
+	const toggleGroupVisible = (list: StreamElement[]) => {
+		const show = !list.every(e => e.visible)
+		list.forEach(e => {
+			if (e.visible !== show) onUpdate(e.id, { visible: show })
+		})
+	}
+	const createGroup = () => {
+		const id = 'g' + Date.now().toString(36)
+		const next = [
+			...groups,
+			{ id, name: `Группа ${groups.length + 1}`, collapsed: false },
+		]
+		onGroups(next)
+		const ids = new Set(selectedIds)
+		if (selectedId) ids.add(selectedId)
+		ids.forEach(eid => onUpdate(eid, { groupId: id }))
+	}
+	const removeGroup = (g: StreamGroup) => {
+		sorted
+			.filter(e => e.groupId === g.id)
+			.forEach(e => onUpdate(e.id, { groupId: undefined }))
+		onGroups(groups.filter(x => x.id !== g.id))
+	}
+	const toggleCollapsed = (g: StreamGroup) =>
+		onGroups(
+			groups.map(x => (x.id === g.id ? { ...x, collapsed: !x.collapsed } : x)),
+		)
+
+	// перетаскивание строки слоя: меняем порядок и при необходимости группу
+	const dropOnLayer = (target: StreamElement) => {
+		if (!dragId || dragId === target.id) return
+		const ids = sorted.map(e => e.id).filter(id => id !== dragId)
+		const at = ids.indexOf(target.id)
+		ids.splice(at < 0 ? ids.length : at, 0, dragId)
+		onReorder(ids)
+		const src = elements.find(e => e.id === dragId)
+		if (src && (src.groupId || '') !== (target.groupId || ''))
+			moveTo(dragId, target.groupId)
+	}
+	const moveStep = (el: StreamElement, dir: -1 | 1) => {
+		const ids = sorted.map(e => e.id)
+		const i = ids.indexOf(el.id)
+		const j = i + dir
+		if (i < 0 || j < 0 || j >= ids.length) return
+		;[ids[i], ids[j]] = [ids[j], ids[i]]
+		onReorder(ids)
+	}
+
+	const row = (el: StreamElement, index: number) => {
+		const name = elementLabel(el)
+		const active = selectedIds.has(el.id) || selectedId === el.id
+		return (
+			<div
+				key={el.id}
+				draggable
+				onDragStart={e => {
+					setDragId(el.id)
+					e.dataTransfer.effectAllowed = 'move'
+					e.dataTransfer.setData('text/plain', el.id)
+				}}
+				onDragEnd={() => {
+					setDragId(null)
+					setDropId(null)
+				}}
+				onDragOver={e => {
+					e.preventDefault()
+					setDropId(el.id)
+				}}
+				onDragLeave={() => setDropId(d => (d === el.id ? null : d))}
+				onDrop={e => {
+					e.preventDefault()
+					e.stopPropagation()
+					dropOnLayer(el)
+					setDropId(null)
+				}}
+				onClick={e =>
+					onSelect(el.id, e.shiftKey || e.metaKey || e.ctrlKey)
+				}
+				className={`group/row flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer border transition-colors ${
+					active
+						? 'bg-accent/15 border-accent/40'
+						: 'border-transparent hover:bg-border/40'
+				} ${dropId === el.id ? 'ring-1 ring-accent2' : ''} ${el.locked ? 'opacity-60' : ''}`}
+				title={`${name} · слой ${index + 1} из ${sorted.length}`}
+			>
+				<span className='w-4 shrink-0 text-[10px] tabular-nums text-gray-600 text-center'>
+					{index + 1}
+				</span>
+				<span className='relative w-9 h-6 shrink-0 rounded-md overflow-hidden bg-[#14141c] border border-border'>
+					<ElementThumb el={el} />
+				</span>
+				<span className='flex-1 min-w-0'>
+					{edit?.kind === 'el' && edit.id === el.id ? (
+						<input
+							autoFocus
+							value={draft}
+							onChange={e => setDraft(e.target.value)}
+							onBlur={commitEdit}
+							onKeyDown={e => {
+								if (e.key === 'Enter') commitEdit()
+								if (e.key === 'Escape') setEdit(null)
+							}}
+							onClick={e => e.stopPropagation()}
+							className='w-full rounded bg-bg px-1 py-0.5 text-xs text-white outline-none ring-1 ring-accent2'
+						/>
+					) : (
+						<span
+							className={`block truncate text-xs ${active ? 'text-white' : 'text-gray-300'}`}
+							onDoubleClick={e => {
+								e.stopPropagation()
+								startEdit('el', el.id, name)
+							}}
+							title='Двойной клик — переименовать'
+						>
+							{name}
+						</span>
+					)}
+					<span className='block text-[10px] text-gray-600'>
+						{el.type}
+						{el.type === 'audio' ? ' · звук' : ''}
+					</span>
+				</span>
+				<span className='flex items-center gap-0.5 opacity-0 group-hover/row:opacity-100 transition-opacity'>
+					<button
+						onClick={e => {
+							e.stopPropagation()
+							moveStep(el, -1)
+						}}
+						title='Выше'
+						className='w-5 h-5 rounded text-gray-500 hover:text-white hover:bg-border text-xs'
+					>
+						↑
+					</button>
+					<button
+						onClick={e => {
+							e.stopPropagation()
+							moveStep(el, 1)
+						}}
+						title='Ниже'
+						className='w-5 h-5 rounded text-gray-500 hover:text-white hover:bg-border text-xs'
+					>
+						↓
+					</button>
 				</span>
 				<button
 					onClick={e => {
 						e.stopPropagation()
-						onToggleVisible()
+						onUpdate(el.id, { visible: !el.visible })
 					}}
 					title={el.visible ? 'Скрыть' : 'Показать'}
-					aria-label={el.visible ? 'Скрыть элемент' : 'Показать элемент'}
-					className='shrink-0 w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:bg-border hover:text-white transition-colors'
+					className='w-6 h-6 shrink-0 rounded-md text-gray-400 hover:text-white hover:bg-border flex items-center justify-center'
 				>
-					{el.visible ? <Eye size={12} /> : <EyeOff size={12} />}
+					{el.visible ? <Eye size={13} /> : <EyeOff size={13} />}
 				</button>
 				<button
 					onClick={e => {
 						e.stopPropagation()
-						onDelete()
+						onDelete(el.id)
 					}}
 					title='Удалить'
-					aria-label='Удалить элемент'
-					className='shrink-0 w-5 h-5 flex items-center justify-center rounded text-red-400 hover:bg-red-950/40 transition-colors'
+					className='w-6 h-6 shrink-0 rounded-md text-gray-600 hover:text-red-400 hover:bg-red-950/40 flex items-center justify-center'
 				>
-					<Trash2 size={12} />
+					<X size={13} />
 				</button>
 			</div>
-			{el.locked && (
-				<span
-					className='absolute top-0.5 left-0.5 text-gray-300'
-					title='Заблокирован от перетаскивания'
-				>
-					<Lock size={11} />
+		)
+	}
+
+	let index = 0
+	return (
+		<div className='space-y-1'>
+			<div className='flex items-center justify-between px-1 pb-1'>
+				<span className='text-[10px] uppercase tracking-wide text-gray-600'>
+					Сверху — выше на стриме
 				</span>
+				<div className='flex items-center gap-1'>
+					<button
+						onClick={onDraw}
+						title='Маркер: рисовать поверх стрима'
+						className='inline-flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[10px] text-gray-400 hover:text-white hover:bg-border transition-colors'
+					>
+						<Pencil size={11} /> Маркер
+					</button>
+					<button
+						onClick={createGroup}
+						title='Новая группа (выделенные элементы попадут в неё)'
+						className='inline-flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[10px] text-gray-400 hover:text-white hover:bg-border transition-colors'
+					>
+						<Plus size={11} /> Группа
+					</button>
+				</div>
+			</div>
+			{groups.map(g => {
+				const list = sorted.filter(e => e.groupId === g.id)
+				const allVisible = list.length > 0 && list.every(e => e.visible)
+				return (
+					<div
+						key={g.id}
+						onDragOver={e => {
+							e.preventDefault()
+							setDropId('group:' + g.id)
+						}}
+						onDrop={e => {
+							e.preventDefault()
+							e.stopPropagation()
+							if (dragId) moveTo(dragId, g.id)
+							setDropId(null)
+						}}
+						className={`rounded-xl border ${
+							dropId === 'group:' + g.id
+								? 'border-accent2 bg-accent2/5'
+								: 'border-border/60'
+						}`}
+					>
+						<div className='flex items-center gap-1 px-1.5 py-1'>
+							<button
+								onClick={() => toggleCollapsed(g)}
+								title={g.collapsed ? 'Развернуть' : 'Свернуть'}
+								className='w-5 h-5 rounded text-gray-400 hover:text-white flex items-center justify-center'
+							>
+								{g.collapsed ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
+							</button>
+							{edit?.kind === 'group' && edit.id === g.id ? (
+								<input
+									autoFocus
+									value={draft}
+									onChange={e => setDraft(e.target.value)}
+									onBlur={commitEdit}
+									onKeyDown={e => {
+										if (e.key === 'Enter') commitEdit()
+										if (e.key === 'Escape') setEdit(null)
+									}}
+									onClick={e => e.stopPropagation()}
+									className='min-w-0 flex-1 rounded bg-bg px-1 py-0.5 text-xs text-white outline-none ring-1 ring-accent2'
+								/>
+							) : (
+								<span
+									onDoubleClick={() =>
+										startEdit('group', g.id, g.name)
+									}
+									className='flex-1 truncate text-xs font-medium text-gray-300 cursor-text'
+									title='Двойной клик — переименовать'
+								>
+									{g.name}
+								</span>
+							)}
+							<span className='text-[10px] text-gray-600'>{list.length}</span>
+							<button
+								onClick={() => toggleGroupVisible(list)}
+								title={allVisible ? 'Скрыть группу' : 'Показать группу'}
+								className='w-6 h-6 rounded text-gray-400 hover:text-white flex items-center justify-center'
+							>
+								{allVisible ? <Eye size={13} /> : <EyeOff size={13} />}
+							</button>
+							<button
+								onClick={() => removeGroup(g)}
+								title='Удалить группу (элементы останутся)'
+								className='w-6 h-6 rounded text-gray-600 hover:text-red-400 flex items-center justify-center'
+							>
+								<X size={13} />
+							</button>
+						</div>
+						{!g.collapsed && (
+							<div className='px-1 pb-1 space-y-1'>
+								{list.map(el => row(el, index++))}
+								{list.length === 0 && (
+									<p className='px-2 pb-2 text-[10px] text-gray-600'>
+										Перетащите сюда элемент
+									</p>
+								)}
+							</div>
+						)}
+					</div>
+				)
+			})}
+			<div
+				onDragOver={e => {
+					e.preventDefault()
+					setDropId('ungrouped')
+				}}
+				onDrop={e => {
+					e.preventDefault()
+					if (dragId) moveTo(dragId, undefined)
+					setDropId(null)
+				}}
+				className={`rounded-xl ${
+					dropId === 'ungrouped' ? 'ring-1 ring-accent2' : ''
+				}`}
+			>
+				{groups.length > 0 && (
+					<div className='px-2 pt-1 pb-0.5 text-[10px] uppercase tracking-wide text-gray-600'>
+						Без группы
+					</div>
+				)}
+				<div className='space-y-1'>
+					{ungrouped.map(el => row(el, index++))}
+				</div>
+			</div>
+			{elements.length === 0 && (
+				<p className='text-xs text-gray-600 px-2 py-4'>
+					Нет элементов. Добавьте сверху.
+				</p>
 			)}
 		</div>
 	)
 }
 
-// Кнопка нижнего минималистичного меню: только иконка, подпись в подсказке
+function MultiProperties({
+	elements,
+	onUpdate,
+	onDelete,
+	onGroup,
+}: {
+	elements: StreamElement[]
+	onUpdate: (id: string, partial: Partial<StreamElement>) => void
+	onDelete: (id: string) => void
+	onGroup: () => void
+}) {
+	if (!elements.length) return null
+	const allVisible = elements.every(e => e.visible)
+	const allLocked = elements.every(e => e.locked)
+	const opacity = Math.round(
+		(elements.reduce((s, e) => s + (e.opacity ?? 1), 0) / elements.length) * 100,
+	)
+	return (
+		<aside className='w-72 shrink-0 bg-panel border-l border-border p-4 overflow-y-auto'>
+			<div className='flex items-center justify-between mb-3'>
+				<span className='text-[10px] uppercase tracking-wide text-gray-600'>
+					Выбрано {elements.length}
+				</span>
+				<div className='flex items-center gap-1'>
+					<button
+						onClick={() =>
+							elements.forEach(e => onUpdate(e.id, { visible: !allVisible }))
+						}
+						title={allVisible ? 'Скрыть выделенные' : 'Показать выделенные'}
+						className='w-7 h-7 rounded-md border border-border text-gray-300 hover:text-white hover:bg-border flex items-center justify-center'
+					>
+						{allVisible ? <Eye size={14} /> : <EyeOff size={14} />}
+					</button>
+					<button
+						onClick={() => elements.forEach(e => onDelete(e.id))}
+						title='Удалить выделенные'
+						className='w-7 h-7 rounded-md border border-red-900/50 text-red-400 hover:bg-red-950/40 flex items-center justify-center'
+					>
+						<X size={14} />
+					</button>
+				</div>
+			</div>
+			<div className='space-y-3'>
+				<button
+					onClick={onGroup}
+					className='w-full rounded-lg border border-border px-3 py-2 text-xs text-gray-300 hover:text-white hover:bg-border transition-colors text-left'
+				>
+					Сгруппировать выделенные
+				</button>
+				<div className='grid grid-cols-2 gap-2'>
+					<button
+						onClick={() =>
+							elements.forEach(e => onUpdate(e.id, { flipH: !e.flipH }))
+						}
+						className='px-2 py-1.5 text-xs rounded-lg border border-border text-gray-300 hover:bg-border transition-colors'
+					>
+						⇋ Отразить ↔
+					</button>
+					<button
+						onClick={() =>
+							elements.forEach(e => onUpdate(e.id, { flipV: !e.flipV }))
+						}
+						className='px-2 py-1.5 text-xs rounded-lg border border-border text-gray-300 hover:bg-border transition-colors'
+					>
+						⇅ Отразить ↕
+					</button>
+					<button
+						onClick={() =>
+							elements.forEach(e => onUpdate(e.id, { locked: !allLocked }))
+						}
+						className='px-2 py-1.5 text-xs rounded-lg border border-border text-gray-300 hover:bg-border transition-colors'
+					>
+						{allLocked ? '🔓 Разблокировать' : '🔒 Заблокировать'}
+					</button>
+					<button
+						onClick={() =>
+							elements.forEach(e => onUpdate(e.id, { visible: true }))
+						}
+						className='px-2 py-1.5 text-xs rounded-lg border border-border text-gray-300 hover:bg-border transition-colors'
+					>
+						Показать все
+					</button>
+				</div>
+				<label className='block text-[10px] uppercase tracking-wide text-gray-600'>
+					Прозрачность: {opacity}%
+				</label>
+				<input
+					type='range'
+					min={0}
+					max={100}
+					value={opacity}
+					onChange={e =>
+						elements.forEach(x =>
+							onUpdate(x.id, { opacity: Number(e.target.value) / 100 }),
+						)
+					}
+					className='w-full accent-accent2'
+				/>
+				<div className='rounded-lg border border-border p-2 text-[10px] text-gray-500 leading-relaxed'>
+					Shift/⌘/Ctrl + клик по слою добавляет элемент в выделение. Глазик
+					скрывает и показывает выбранные элементы.
+				</div>
+			</div>
+		</aside>
+	)
+}
+
 function DockButton({
 	label,
 	onClick,
@@ -6703,6 +7383,7 @@ function DockButton({
 
 // Подпись элемента в списке: вместо «data:image/png;base64,iVBOR…» — понятное слово
 function elementLabel(el: StreamElement): string {
+	if (el.name?.trim()) return el.name.trim()
 	if (el.type === 'widget') return el.widget?.name || 'Виджеты'
 	if (el.type === 'text') {
 		const t = (el.text || '').trim().replace(/\s+/g, ' ')
@@ -6731,8 +7412,8 @@ function elementLabel(el: StreamElement): string {
 		if (el.type === 'iframe') return u.hostname.replace(/^www\./, '') || 'Сайт'
 		const tail = u.pathname.split('/').filter(Boolean).pop()
 		// у ссылок вида /600/400 «хвост» — просто число: домен понятнее
-		if (!tail || /^d+$/.test(tail) || /^[0-9a-f]{8,}$/i.test(tail))
-			return u.hostname.replace(/^www./, '')
+		if (!tail || /^\d+$/.test(tail) || /^[0-9a-f]{8,}$/i.test(tail))
+			return u.hostname.replace(/^www\./, '')
 		return decodeURIComponent(tail)
 	} catch {
 		return el.type
@@ -7890,6 +8571,17 @@ function PropertyEditor({
 			<h2 className='text-sm font-semibold text-gray-400 uppercase tracking-wide'>
 				Свойства: {el.type}
 			</h2>
+			<label className='block'>
+				<span className='block text-[10px] uppercase tracking-wide text-gray-600 mb-1'>
+					Название в слоях
+				</span>
+				<input
+					value={el.name ?? ''}
+					placeholder={elementLabel(el)}
+					onChange={e => update({ name: e.target.value.slice(0, 80) })}
+					className='w-full px-2 py-1.5 bg-bg border border-border rounded text-sm'
+				/>
+			</label>
 			<div className='grid grid-cols-2 gap-2'>
 				<NumberField label='X' value={el.x} onChange={v => update({ x: v })} />
 				<NumberField label='Y' value={el.y} onChange={v => update({ y: v })} />

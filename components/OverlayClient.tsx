@@ -1,6 +1,6 @@
 'use client'
 
-import type { StreamElement, SyncState } from '@/lib/types'
+import type { StreamElement, Stroke, SyncState } from '@/lib/types'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import WidgetFrame from '@/components/WidgetFrame'
 import { toEmbedUrl } from '@/lib/embed'
@@ -89,6 +89,20 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 				}
 			}),
 		)
+		socket.on('draw:added', (s: Stroke) =>
+			setState(p =>
+				(p.strokes || []).some(x => x.id === s.id)
+					? p
+					: { ...p, strokes: [...(p.strokes || []), s] },
+			),
+		)
+		socket.on('draw:removed', (id: string) =>
+			setState(p => ({
+				...p,
+				strokes: (p.strokes || []).filter(s => s.id !== id),
+			})),
+		)
+		socket.on('draw:cleared', () => setState(p => ({ ...p, strokes: [] })))
 		socket.on('element:updated', (el: StreamElement) => {
 			noteServerClock(el)
 			setState(p => ({
@@ -405,6 +419,29 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 						<OverlayElement key={el.id} el={el} ytStarted={ytStarted.has(el.id)} />
 					) : null,
 				)}
+				<svg
+					viewBox={`0 0 ${state.canvasW} ${state.canvasH}`}
+					style={{
+						position: 'absolute',
+						inset: 0,
+						width: state.canvasW,
+						height: state.canvasH,
+						zIndex: 9999,
+						pointerEvents: 'none',
+					}}
+				>
+					{(state.strokes || []).map(s => (
+						<polyline
+							key={s.id}
+							points={s.points.map(([x, y]) => `${x},${y}`).join(' ')}
+							fill='none'
+							stroke={s.color}
+							strokeWidth={s.width}
+							strokeLinecap='round'
+							strokeLinejoin='round'
+						/>
+					))}
+				</svg>
 			</div>
 		</div>
 	)

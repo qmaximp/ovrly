@@ -109,6 +109,10 @@ export interface StreamElement {
   // обрезка медиа по краям (доли исходника 0..0.98): показываем только
   // оставшееся «окно», а картинка/видео внутри остаётся целой
   crop?: { l: number; t: number; r: number; b: number };
+  // человекочитаемое имя элемента (для слоёв и звуков; можно менять)
+  name?: string;
+  // группа в списке слоёв (как папки в Figma)
+  groupId?: string;
   // кастомный виджет: снимок кода + текущие значения переменных
   widget?: WidgetDefinition;
   widgetValues?: Record<string, string>;
@@ -132,10 +136,28 @@ export interface ObsScene {
   isCurrent: boolean;
 }
 
+export type StreamGroup = {
+  id: string
+  name: string
+  collapsed?: boolean
+}
+
+// Штрих маркерного слоя: точки в координатах холста
+export type Stroke = {
+  id: string
+  color: string
+  width: number
+  points: [number, number][]
+}
+
 export interface SyncState {
   elements: StreamElement[];
   canvasW: number;
   canvasH: number;
+  // группы слоёв комнаты
+  groups?: StreamGroup[];
+  // рисунок поверх оверлея
+  strokes?: Stroke[];
   // библиотека виджетов комнаты (создаётся в панели, лежит в состоянии комнаты)
   widgets?: Record<string, WidgetDefinition>;
 }

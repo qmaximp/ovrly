@@ -162,6 +162,47 @@ function cleanCrop(v) {
 	const round = x => Math.round(x * 10000) / 10000
 	return { l: round(c.l), t: round(c.t), r: round(c.r), b: round(c.b) }
 }
+// группы слоёв: имя — просто строка, id — короткий безопасный
+function cleanGroups(raw) {
+	if (!Array.isArray(raw)) return []
+	const out = []
+	const seen = new Set()
+	for (const g of raw.slice(0, 100)) {
+		if (!g || typeof g !== 'object') continue
+		const id = typeof g.id === 'string' ? g.id.replace(/[^\w-]/g, '').slice(0, 40) : ''
+		if (!id || seen.has(id)) continue
+		seen.add(id)
+		out.push({
+			id,
+			name: String(g.name ?? 'Группа').slice(0, 60),
+			collapsed: !!g.collapsed,
+		})
+	}
+	return out
+}
+
+// рисунок: ограничиваем число штрихов, точек и длину
+const MAX_STROKES = 200
+const MAX_POINTS = 400
+function cleanStroke(raw) {
+	if (!raw || typeof raw !== 'object') return null
+	const pts = Array.isArray(raw.points) ? raw.points : []
+	const points = []
+	for (const p of pts.slice(0, MAX_POINTS)) {
+		if (!Array.isArray(p) || p.length < 2) continue
+		const x = asCoord(Number(p[0]), -1000, 4000)
+		const y = asCoord(Number(p[1]), -1000, 4000)
+		if (x !== null && y !== null) points.push([Math.round(x), Math.round(y)])
+	}
+	if (points.length < 2) return null
+	return {
+		id: String(raw.id || Date.now() + '-' + Math.random().toString(36).slice(2, 8)).slice(0, 40),
+		color: /^#[0-9a-f]{3,8}$/i.test(String(raw.color || '')) ? String(raw.color) : '#ff3b30',
+		width: Math.max(1, Math.min(40, Number(raw.width) || 6)),
+		points,
+	}
+}
+
 // размер «прочих» полей без медиа и уже проверенных widget/playlist
 function extraBytes(obj) {
 	try {
@@ -334,6 +375,11 @@ const MUTATING_EVENTS = new Set([
 	'element:resize',
 	'element:delete',
 	'element:reorder',
+	'element:zorder-set',
+	'groups:update',
+	'draw:add',
+	'draw:remove',
+	'draw:clear',
 	'playlist:step',
 	'widget:save',
 	'widget:delete',
@@ -1414,6 +1460,9 @@ app.prepare().then(() => {
 			// Если id уже есть (отмена удаления), заменяем элемент, а не добавляем
 			// второй: иначе Ctrl+Z раздувал комнату дублями.
 			el.id = el.id || Date.now() + '-' + Math.random().toString(36).slice(2, 9)
+			if (el.name !== undefined) el.name = String(el.name).slice(0, 80)
+			if (el.groupId !== undefined)
+				el.groupId = String(el.groupId).replace(/[^\w-]/g, '').slice(0, 40) || undefined
 			const existing = state.elements.findIndex(e => e.id === el.id)
 			if (existing < 0 && state.elements.length >= MAX_ELEMENTS) {
 				console.log('[io] лимит элементов комнаты:', room.slice(0, 12))
@@ -1475,6 +1524,11 @@ app.prepare().then(() => {
 				return
 			}
 			const oldEl = state.elements[idx]
+			if (partial.name !== undefined)
+				partial.name = String(partial.name).slice(0, 80)
+			if (partial.groupId !== undefined)
+				partial.groupId =
+					String(partial.groupId).replace(/[^\w-]/g, '').slice(0, 40) || undefined
 			if (partial.widget !== undefined) {
 				const widget = cleanWidgetDefinition(partial.widget)
 				if (!widget) return
@@ -1641,6 +1695,59 @@ app.prepare().then(() => {
 				'element:zorder',
 				list.map(e => e.id),
 			)
+		})
+
+		socket.on('groups:update', raw => {
+			const groups = cleanGroups(raw)
+			state.groups = groups
+			const ids = new Set(groups.map(g => g.id))
+			for (const el of state.elements) {
+				if (el.groupId && !ids.has(el.groupId)) delete el.groupId
+			}
+			io.to(room).emit('groups:updated', groups)
+		})
+
+		// порядок слоёв целиком (перетаскивание в списке): ids снизу вверх
+		socket.on('element:zorder-set', raw => {
+			if (!Array.isArray(raw)) return
+			const want = raw.filter(x => typeof x === 'string').slice(0, MAX_ELEMENTS)
+			const byId = new Map(state.elements.map(e => [e.id, e]))
+			const list = []
+			for (const id of want) {
+				const el = byId.get(id)
+				if (el) {
+					list.push(el)
+					byId.delete(id)
+				}
+			}
+			// всё, что не прислали, оставляем сверху в исходном порядке
+			for (const el of byId.values()) list.push(el)
+			list.forEach((e, i) => {
+				e.zIndex = i
+			})
+			state.elements = list
+			io.to(room).emit('element:zorder', list.map(e => e.id))
+		})
+
+		socket.on('draw:add', raw => {
+			const s = cleanStroke(raw)
+			if (!s) return
+			state.strokes = Array.isArray(state.strokes) ? state.strokes : []
+			state.strokes.push(s)
+			if (state.strokes.length > MAX_STROKES) state.strokes.shift()
+			io.to(room).emit('draw:added', s)
+		})
+
+		socket.on('draw:remove', id => {
+			if (typeof id !== 'string' || !Array.isArray(state.strokes)) return
+			const before = state.strokes.length
+			state.strokes = state.strokes.filter(s => s.id !== id)
+			if (state.strokes.length !== before) io.to(room).emit('draw:removed', id)
+		})
+
+		socket.on('draw:clear', () => {
+			state.strokes = []
+			io.to(room).emit('draw:cleared')
 		})
 
 		socket.on('widget:save', raw => {
