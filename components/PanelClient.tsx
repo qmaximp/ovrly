@@ -9024,6 +9024,39 @@ function PropertyEditor({
 								: 'Карточка скрыта на оверлее. Нажмите «Показать» — она появится с анимацией.'}
 						</p>
 					</div>
+					<div className='border-t border-border pt-2 space-y-1.5'>
+						<div className='flex items-center justify-between text-xs text-gray-400'>
+							<span>Размер карточки</span>
+							<span className='tabular-nums text-gray-300'>
+								{Math.round((el.width / 1920) * 100)}%
+							</span>
+						</div>
+						<div className='grid grid-cols-4 gap-1'>
+							{[100, 75, 50, 33].map(pct => (
+								<button
+									key={pct}
+									onClick={() => {
+										const f = pct / 100
+										const w = Math.round(1920 * f)
+										const h = Math.round(1080 * f)
+										update({
+											width: w,
+											height: h,
+											x: Math.round(el.x + el.width / 2 - w / 2),
+											y: Math.round(el.y + el.height / 2 - h / 2),
+										})
+									}}
+									className={`rounded-lg py-1 text-[11px] border transition-colors ${
+										Math.abs(el.width / 1920 - pct / 100) < 0.01
+											? 'border-accent text-accent2'
+											: 'border-border text-gray-400 hover:bg-bg'
+									}`}
+								>
+									{pct}%
+								</button>
+							))}
+						</div>
+					</div>
 				</div>
 			)}
 			<div className='grid grid-cols-2 gap-2'>
