@@ -94,7 +94,6 @@ export default function TelegramCard({
 		return () => clearTimeout(t)
 	}, [until, preview])
 
-	if (!preview && hidden) return null
 	const [data, setData] = useState<TelegramData | null>(null)
 	const [error, setError] = useState('')
 
@@ -148,6 +147,7 @@ export default function TelegramCard({
 			? [data.last]
 			: []
 
+	if (!preview && hidden) return null
 	return (
 		<div
 			data-telegram-card='1'
@@ -159,7 +159,7 @@ export default function TelegramCard({
 				overflow: 'hidden',
 				display: 'flex',
 				alignItems: 'flex-start',
-				gap: '2%',
+				gap: '5%',
 				padding: '3%',
 				boxSizing: 'border-box',
 				fontFamily:
@@ -171,16 +171,16 @@ export default function TelegramCard({
 				className='tg-left'
 				style={{
 					position: 'relative',
-					width: showQr ? '58%' : '94%',
+					width: showQr ? '34%' : '94%',
 					height: '88%',
 					flex: '0 0 auto',
 					boxSizing: 'border-box',
 					display: 'flex',
 					flexDirection: 'column',
-					borderRadius: 18,
+					borderRadius: 34,
 					background: bg,
-					border: `1px solid ${line}`,
-					boxShadow: '0 18px 50px rgba(0,0,0,.35)',
+					border: '3px solid #516172',
+					boxShadow: '0 18px 50px rgba(0,0,0,.45)',
 					overflow: 'hidden',
 				}}
 			>
@@ -366,64 +366,88 @@ export default function TelegramCard({
 
 			{showQr && nick && (
 				<div
-					className='tg-qr-card'
+					className='tg-qr-wrap'
 					style={{
 						position: 'relative',
-						width: '39%',
+						width: '40%',
 						flex: '0 0 auto',
 						marginTop: '4%',
-						aspectRatio: '1 / 1',
-						background: '#fff',
-						borderRadius: 18,
-						padding: 8,
-						boxSizing: 'border-box',
-						boxShadow: '0 24px 60px rgba(0,0,0,.5)',
-						border: '4px solid #fff',
+						display: 'flex',
+						flexDirection: 'column',
+						alignItems: 'center',
+						gap: '3%',
 					}}
 				>
-					<img
-						src={qrSrc}
-						alt='QR Telegram'
-						onError={e => {
-							e.currentTarget.style.display = 'none'
-						}}
-						style={{
-							width: '100%',
-							height: '100%',
-							borderRadius: 10,
-							objectFit: 'contain',
-							display: 'block',
-						}}
-					/>
 					<div
 						style={{
-							position: 'absolute',
-							left: '50%',
-							top: '50%',
-							transform: 'translate(-50%, -50%)',
-							width: '26%',
-							aspectRatio: '1 / 1',
-							borderRadius: '50%',
-							background: '#17212b',
-							border: '3px solid #fff',
-							display: 'grid',
-							placeItems: 'center',
-							overflow: 'hidden',
+							fontSize: 12,
+							fontWeight: 600,
+							letterSpacing: '0.18em',
+							color: light ? '#334155' : '#d9e9f4',
+							textTransform: 'uppercase',
+							whiteSpace: 'nowrap',
 						}}
 					>
-						{data?.avatar ? (
-							<img
-								src={data.avatar}
-								alt=''
-								style={{
-									width: '100%',
-									height: '100%',
-									objectFit: 'cover',
-								}}
-							/>
-						) : (
-							<TelegramLogo size={20} />
-						)}
+						Мы в Telegram
+					</div>
+					<div
+						className='tg-qr-card'
+						style={{
+							position: 'relative',
+							width: '100%',
+							aspectRatio: '1 / 1',
+							background: '#fff',
+							borderRadius: 26,
+							padding: 8,
+							boxSizing: 'border-box',
+							boxShadow: '0 24px 60px rgba(0,0,0,.5)',
+							border: '4px solid #fff',
+						}}
+					>
+						<img
+							src={qrSrc}
+							alt='QR Telegram'
+							onError={e => {
+								e.currentTarget.style.display = 'none'
+							}}
+							style={{
+								width: '100%',
+								height: '100%',
+								borderRadius: 16,
+								objectFit: 'contain',
+								display: 'block',
+							}}
+						/>
+						<div
+							style={{
+								position: 'absolute',
+								left: '50%',
+								top: '50%',
+								transform: 'translate(-50%, -50%)',
+								width: '26%',
+								aspectRatio: '1 / 1',
+								borderRadius: '50%',
+								background: '#17212b',
+								border: '3px solid #fff',
+								display: 'grid',
+								placeItems: 'center',
+								overflow: 'hidden',
+							}}
+						>
+							{data?.avatar ? (
+								<img
+									src={data.avatar}
+									alt=''
+									style={{
+										width: '100%',
+										height: '100%',
+										objectFit: 'cover',
+									}}
+								/>
+							) : (
+								<TelegramLogo size={20} />
+							)}
+						</div>
 					</div>
 				</div>
 			)}

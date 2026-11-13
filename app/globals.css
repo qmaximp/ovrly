@@ -2389,8 +2389,13 @@ body.obs-pane-moving { user-select: none; cursor: grabbing; }
 	to { opacity: 1; transform: translateY(0) scale(1); }
 }
 @keyframes tg-left-in {
-	from { opacity: 0; transform: translateX(-36px); }
-	to { opacity: 1; transform: translateX(0); }
+	0% { opacity: 0; transform: translateY(28px); }
+	43% { opacity: 1; transform: translateY(-12px); }
+	100% { opacity: 1; transform: translateY(0); }
+}
+@keyframes tg-heading-in {
+	from { opacity: 0; transform: translateY(8px); }
+	to { opacity: 1; transform: translateY(0); }
 }
 @keyframes tg-post-in {
 	from { opacity: 0; transform: translateY(14px); }
@@ -2414,12 +2419,13 @@ body.obs-pane-moving { user-select: none; cursor: grabbing; }
 	animation: tg-shell-in .55s cubic-bezier(.22, 1, .36, 1) both;
 }
 .tg-left {
-	animation: tg-left-in .6s cubic-bezier(.22, 1, .36, 1) both;
+	animation: tg-left-in .9s cubic-bezier(.18, .72, .2, 1) both;
+}
+.tg-qr-wrap {
+	animation: tg-heading-in .45s .18s ease-out both;
 }
 .tg-qr-card {
-	animation:
-		tg-qr-in .7s .12s cubic-bezier(.22, 1, .36, 1) both,
-		tg-qr-float 4.5s 1s ease-in-out infinite;
+	animation: tg-qr-in .55s .18s ease-out both;
 }
 .tg-handle {
 	animation: tg-handle-in .5s .32s cubic-bezier(.22, 1, .36, 1) both;
@@ -2431,6 +2437,7 @@ body.obs-pane-moving { user-select: none; cursor: grabbing; }
 @media (prefers-reduced-motion: reduce) {
 	.tg-shell,
 	.tg-left,
+	.tg-qr-wrap,
 	.tg-qr-card,
 	.tg-handle,
 	.tg-post {
