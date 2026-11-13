@@ -461,10 +461,21 @@ export default function PanelClient({
 	useEffect(() => {
 		drawModeRef.current = drawMode
 	}, [drawMode])
+
+	const toggleDrawMode = useCallback(() => {
+		const next = !drawModeRef.current
+		drawModeRef.current = next
+		if (!next) {
+			drawStartRef.current = null
+			setLiveStroke(null)
+		}
+		setDrawMode(next)
+	}, [])
 	const [penColor, setPenColor] = useState('#ff3b30')
 	const [penWidth, setPenWidth] = useState(6)
 	const [liveStroke, setLiveStroke] = useState<Stroke | null>(null)
 	const drawDoneRef = useRef(false)
+	const drawStartRef = useRef<[number, number] | null>(null)
 	const viewRef = useRef(view)
 	viewRef.current = view
 	const [panning, setPanning] = useState(false)
@@ -4180,15 +4191,8 @@ export default function PanelClient({
 		] as [number, number]
 	}
 	const drawDown = (e: React.PointerEvent) => {
-		// один штрих на включение маркера: запоздавший pointerdown после
-		// pointerup не должен начинать вторую линию
+		// запоздавший pointerdown после отпускания не должен начинать линию
 		if (!drawModeRef.current) return
-		// Shift/Ctrl/⌘ зарезервированы под выделение, а не под рисование
-		if (e.shiftKey || e.ctrlKey || e.metaKey) {
-			drawModeRef.current = false
-			setDrawMode(false)
-			return
-		}
 		const p = drawPoint(e)
 		if (!p) return
 		e.stopPropagation()
@@ -4197,6 +4201,7 @@ export default function PanelClient({
 			;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
 		} catch {}
 		drawDoneRef.current = false
+		drawStartRef.current = p
 		setLiveStroke({
 			id: 'st' + Date.now().toString(36),
 			color: penColor,
@@ -4208,6 +4213,12 @@ export default function PanelClient({
 		if (!liveStroke) return
 		const p = drawPoint(e)
 		if (!p) return
+		const start = drawStartRef.current
+		if (e.shiftKey && start) {
+			// Shift — ровная линия от точки, где начали, до курсора
+			setLiveStroke({ ...liveStroke, points: [start, p] })
+			return
+		}
 		const last = liveStroke.points[liveStroke.points.length - 1]
 		if (last && Math.abs(last[0] - p[0]) < 2 && Math.abs(last[1] - p[1]) < 2)
 			return
@@ -4216,9 +4227,7 @@ export default function PanelClient({
 	const drawUp = () => {
 		if (drawDoneRef.current) return
 		drawDoneRef.current = true
-		// снимаем режим сразу: следующий Shift+клик не должен рисовать линию
-		drawModeRef.current = false
-		setDrawMode(false)
+		drawStartRef.current = null
 		if (liveStroke && liveStroke.points.length > 1) {
 			// штрих превращается в обычный элемент: его можно выделить, тащить,
 			// масштабировать и стирать как всё остальное
@@ -4649,7 +4658,7 @@ export default function PanelClient({
 									Текст
 								</button>
 								<button
-									onClick={() => setDrawMode(v => !v)}
+									onClick={toggleDrawMode}
 									className='flex items-center justify-center gap-1.5 px-2 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
 								>
 									<Pencil size={16} />
@@ -4842,7 +4851,12 @@ export default function PanelClient({
 									<Trash2 size={14} />
 								</button>
 								<button
-									onClick={() => setDrawMode(false)}
+									onClick={() => {
+										drawModeRef.current = false
+										drawStartRef.current = null
+										setLiveStroke(null)
+										setDrawMode(false)
+									}}
 									className='rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-white'
 								>
 									Готово
@@ -5804,7 +5818,7 @@ export default function PanelClient({
 									</DockButton>
 									<DockButton
 										label='Рисовать'
-										onClick={() => setDrawMode(v => !v)}
+										onClick={toggleDrawMode}
 									>
 										<Pencil size={17} />
 									</DockButton>
@@ -6288,7 +6302,8 @@ export default function PanelClient({
 										</h3>
 										<p className='mt-1 text-sm leading-relaxed text-gray-500'>
 											Эти жесты работают на холсте и в списке слоёв. Их нельзя
-											переназначить — здесь только список.
+											переназначить — здесь только список. В режиме маркера можно
+											рисовать несколько штрихов подряд, пока не нажать «Готово».
 										</p>
 									</div>
 									<span className='shrink-0 rounded-full border border-border px-2 py-0.5 text-[10px] text-gray-500'>
@@ -6514,7 +6529,7 @@ export default function PanelClient({
 						<button
 							title='Рисовать на холсте'
 							aria-label='Рисовать'
-							onClick={() => setDrawMode(v => !v)}
+							onClick={toggleDrawMode}
 							className={`w-8 h-8 rounded-lg flex items-center justify-center ${drawMode ? 'bg-accent text-white' : 'hover:bg-border'}`}
 						>
 							<Pencil size={16} />
