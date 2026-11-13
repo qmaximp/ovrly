@@ -5383,6 +5383,7 @@ export default function PanelClient({
 								.filter(
 									el =>
 										el.type === 'telegram' &&
+										el.visible !== false &&
 										el.telegramUntil &&
 										el.telegramUntil > Date.now(),
 								)
