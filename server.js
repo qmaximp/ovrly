@@ -1667,6 +1667,10 @@ app.prepare().then(() => {
 			const idx = state.elements.findIndex(e => e.id === id)
 			const cropProvided = data?.crop !== undefined
 			const crop = cropProvided ? cleanCrop(data.crop) : null
+			const pointsProvided = data?.points !== undefined
+			const points = pointsProvided
+				? cleanDrawPoints(data.points, width, height)
+				: null
 			if (idx >= 0) {
 				const lock = roomRec.locks.get(id)
 				const now = Date.now()
@@ -1686,10 +1690,12 @@ app.prepare().then(() => {
 					lock.until = now + 5000
 				}
 				const el = state.elements[idx]
+				if (pointsProvided && el.type === 'draw' && !points) return
 				if (x !== null) el.x = x
 				if (y !== null) el.y = y
 				el.width = width
 				el.height = height
+				if (pointsProvided && points) el.points = points
 				if (cropProvided) el.crop = crop
 				const flipProvided =
 					typeof data?.flipH === 'boolean' || typeof data?.flipV === 'boolean'
@@ -1702,6 +1708,7 @@ app.prepare().then(() => {
 					width,
 					height,
 					...(cropProvided ? { crop } : {}),
+					...(pointsProvided && points ? { points } : {}),
 					...(flipProvided
 						? { flipH: !!el.flipH, flipV: !!el.flipV }
 						: {}),

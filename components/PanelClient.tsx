@@ -2876,6 +2876,7 @@ export default function PanelClient({
 			h: number
 			flipH?: boolean
 			flipV?: boolean
+			points?: [number, number][]
 		}[]
 		lastTick: number
 	} | null>(null)
@@ -2994,6 +2995,16 @@ export default function PanelClient({
 						const ncy = gs.pivot.y + nLx * sin + nLy * cos
 						const width = Math.max(4, Math.round(it.w * Math.abs(fx)))
 						const height = Math.max(4, Math.round(it.h * Math.abs(fy)))
+						const scaledPoints =
+							el.type === 'draw' && it.points?.length
+								? it.points.map(
+										([px, py]) =>
+											[
+												(px * width) / Math.max(1, it.w),
+												(py * height) / Math.max(1, it.h),
+											] as [number, number],
+									)
+								: undefined
 						return {
 							...el,
 							x: Math.round(ncx - width / 2),
@@ -3002,6 +3013,7 @@ export default function PanelClient({
 							height,
 							flipH: mirrorX ? !it.flipH : it.flipH,
 							flipV: mirrorY ? !it.flipV : it.flipV,
+							...(scaledPoints ? { points: scaledPoints } : {}),
 						}
 					}),
 				}))
@@ -3019,6 +3031,12 @@ export default function PanelClient({
 								height: el.height,
 								flipH: el.flipH,
 								flipV: el.flipV,
+								points: it.points
+									? it.points.map(([px, py]) => [
+											px * Math.abs(fx),
+											py * Math.abs(fy),
+										])
+									: undefined,
 							})
 					})
 				}
@@ -3341,6 +3359,7 @@ export default function PanelClient({
 				h: number
 				flipH?: boolean
 				flipV?: boolean
+				points?: [number, number][]
 			}[] = []
 			for (const id of selectedIdsRef.current) {
 				const it = stateRef.current.elements.find(x => x.id === id)
@@ -3353,6 +3372,7 @@ export default function PanelClient({
 						h: it.height,
 						flipH: it.flipH,
 						flipV: it.flipV,
+						points: it.points,
 					})
 			}
 			if (items.length < 2) return
@@ -3548,6 +3568,7 @@ export default function PanelClient({
 		crop?: Crop
 		flipH?: boolean
 		flipV?: boolean
+		points?: [number, number][]
 	} | null>(null)
 
 	const handleResizeStart = (
@@ -3770,6 +3791,16 @@ export default function PanelClient({
 				y = Math.round(ncy - height / 2)
 			}
 			const cropOut = crop ?? null
+			const drawPoints =
+				orig.type === 'draw' && orig.points?.length
+					? orig.points.map(
+							([px, py]) =>
+								[
+									(px * width) / Math.max(1, orig.width),
+									(py * height) / Math.max(1, orig.height),
+								] as [number, number],
+						)
+					: undefined
 			paintGeometry(orig.id, x, y, width, height, {
 				crop: cropOut,
 				rot: orig.rotation,
@@ -3785,6 +3816,7 @@ export default function PanelClient({
 				crop: cropOut ?? undefined,
 				flipH,
 				flipV,
+				points: drawPoints,
 			}
 			const now = performance.now()
 			if (now - resizeThrottleRef.current >= 33) {
@@ -3798,6 +3830,7 @@ export default function PanelClient({
 					crop: cropOut,
 					flipH,
 					flipV,
+					points: drawPoints,
 				})
 			}
 		},
@@ -3827,6 +3860,7 @@ export default function PanelClient({
 									crop: lr.crop,
 									flipH: lr.flipH,
 									flipV: lr.flipV,
+									...(lr.points ? { points: lr.points } : {}),
 								}
 							: el,
 					),
@@ -5256,13 +5290,15 @@ export default function PanelClient({
 							    сам элемент остаётся на своём слое, поэтому «Вперёд/Назад»
 							    видно сразу, а ручки не прячутся под картинками выше */}
 							<svg
-								viewBox={`0 0 ${state.canvasW} ${state.canvasH}`}
-								width={state.canvasW}
-								height={state.canvasH}
+								viewBox={`${-view.x / view.s} ${-view.y / view.s} ${
+									(canvasEl?.clientWidth || 1920) / view.s
+								} ${(canvasEl?.clientHeight || 1080) / view.s}`}
 								style={{
 									position: 'absolute',
-									left: 0,
-									top: 0,
+									left: -view.x / view.s,
+									top: -view.y / view.s,
+									width: (canvasEl?.clientWidth || 1920) / view.s,
+									height: (canvasEl?.clientHeight || 1080) / view.s,
 									touchAction: 'none',
 									zIndex: drawMode ? 3000 : 1900,
 									pointerEvents: drawMode ? 'auto' : 'none',
@@ -5275,8 +5311,10 @@ export default function PanelClient({
 							>
 								{drawMode && (
 									<rect
-										width={state.canvasW}
-										height={state.canvasH}
+										x={-view.x / view.s}
+										y={-view.y / view.s}
+										width={(canvasEl?.clientWidth || 1920) / view.s}
+										height={(canvasEl?.clientHeight || 1080) / view.s}
 										fill='transparent'
 									/>
 								)}
