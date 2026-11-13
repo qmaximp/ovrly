@@ -3387,6 +3387,23 @@ export default function PanelClient({
 			let crop: Crop | undefined = orig.crop ? { ...orig.crop } : undefined
 			const signX = dir.includes('w') ? -1 : dir.includes('e') ? 1 : 0
 			const signY = dir.includes('n') ? -1 : dir.includes('s') ? 1 : 0
+			// фото/видео/iframe при обычном ресайзе не растягиваем
+			const isMedia =
+				orig.type === 'image' ||
+				orig.type === 'gif' ||
+				orig.type === 'video' ||
+				orig.type === 'iframe'
+			// Alt можно зажать/отпустить прямо по ходу перетаскивания — режим
+			// переключается на лету, красное выделение следует за ним.
+			if (isMedia && !orig.rotation) {
+				if (!resizeRef.current.crop && e.altKey) {
+					resizeRef.current.crop = true
+					setCroppingId(orig.id)
+				} else if (resizeRef.current.crop && !e.altKey) {
+					resizeRef.current.crop = false
+					setCroppingId(null)
+				}
+			}
 			if (resizeRef.current.crop) {
 				// ── Alt+ручка: подрезаем картинку, бокс остаётся видимым окном ──
 				const c = crop ?? { l: 0, t: 0, r: 0, b: 0 }
@@ -3436,8 +3453,11 @@ export default function PanelClient({
 							b: Math.round(c.b * 10000) / 10000,
 						}
 					: undefined
-			} else if (dir.length === 2 && e.shiftKey) {
-				// пропорционально: фиксированный угол — противоположный тянемому
+			} else if (dir.length === 2 && (e.shiftKey || isMedia)) {
+				// пропорционально: фиксированный угол — противоположный тянемому.
+				// Медиа (фото/видео/iframe) масштабируем пропорционально всегда,
+				// чтобы картинка не растягивалась при обычном перетаскивании.
+				// Свободно менять пропорции можно через Alt+ручку (обрезка).
 				const fixX =
 					cx0 - axX * (orig.width / 2) * signX - ayX * (orig.height / 2) * signY
 				const fixY =
@@ -3497,6 +3517,23 @@ export default function PanelClient({
 							el.id === orig.id ? { ...el, flipH, flipV } : el,
 						),
 					}))
+				}
+			}
+			// Медиа тянем за грань — вторая сторона подстраивается по пропорции,
+			// а не растягивается. Повёрнутые элементы не трогаем: там своя геометрия.
+			if (
+				isMedia &&
+				!resizeRef.current.crop &&
+				dir.length === 1 &&
+				!orig.rotation
+			) {
+				const ar = orig.width / Math.max(1, orig.height)
+				if (signX) {
+					height = Math.max(20, Math.round(width / ar))
+					y = Math.round(orig.y + (orig.height - height) / 2)
+				} else {
+					width = Math.max(30, Math.round(height * ar))
+					x = Math.round(orig.x + (orig.width - width) / 2)
 				}
 			}
 			const cropOut = crop ?? null
@@ -5655,6 +5692,26 @@ export default function PanelClient({
 								>
 									Сбросить всё
 								</button>
+							</div>
+							<div className='mt-3 rounded-2xl border border-border bg-panel p-3 sm:p-4'>
+								<div className='flex flex-wrap items-center gap-3'>
+									<div className='min-w-0 flex-1'>
+										<div className='text-sm font-semibold text-[color:rgb(var(--c-on-bg))]'>
+											Обрезка фото и видео
+										</div>
+										<p className='mt-0.5 text-xs text-gray-500'>
+											Зажмите {isMac ? 'Option' : 'Alt'} и потяните любую ручку
+											элемента. Видимая часть обрежется, а рамка и ручки станут
+											красными. Без {isMac ? 'Option' : 'Alt'} медиа масштабируется с
+											сохранением пропорций.
+										</p>
+									</div>
+									<div className='order-3 flex w-full items-center justify-center gap-1.5 sm:order-none sm:w-auto'>
+										<kbd className='sc-key'>{isMac ? 'Option' : 'Alt'}</kbd>
+										<span className='text-xs text-gray-500'>+</span>
+										<kbd className='sc-key'>ручка</kbd>
+									</div>
+								</div>
 							</div>
 							<div className='mt-3 space-y-2'>
 								{SHORTCUT_DEFS.map(def => {
