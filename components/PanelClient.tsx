@@ -693,11 +693,14 @@ export default function PanelClient({
 		socket.on(
 			'element:lock',
 			({ id, by, until }: { id: string; by: string; until: number }) => {
-				setElementLocks(prev => ({ ...prev, [id]: { by, until } }))
-				// лок перехватили у нас (например, стример забрал элемент) — принудительно
-				// прекращаем перетаскивание и возвращаем элемент в серверную позицию:
-				// иначе на нашем экране он «уезжает» локально, хотя сервер другие изменения отклонил
+				// Свой лок не храним: он не нужен для isLockedByOther, а setState
+				// здесь вызывает ре-рендер прямо во время перетаскивания — элемент
+				// на кадр отпрыгивает назад.
 				if (by !== (userLogin ?? '')) {
+					setElementLocks(prev => ({ ...prev, [id]: { by, until } }))
+					// лок перехватили у нас (например, стример забрал элемент) — принудительно
+					// прекращаем перетаскивание и возвращаем элемент в серверную позицию:
+					// иначе на нашем экране он «уезжает» локально, хотя сервер другие изменения отклонил
 					if (dragRef.current?.id === id) {
 						dragRef.current = null
 						lastMoveRef.current = null
@@ -3409,7 +3412,6 @@ export default function PanelClient({
 		orig: StreamElement
 		crop?: boolean
 	} | null>(null)
-	const [croppingId, setCroppingId] = useState<string | null>(null)
 	const resizeThrottleRef = useRef(0)
 	const lastResizeRef = useRef<{
 		id: string
@@ -3448,7 +3450,9 @@ export default function PanelClient({
 				e.altKey &&
 				(el.type === 'image' || el.type === 'gif' || el.type === 'video'),
 		}
-		if (e.altKey && resizeRef.current.crop) setCroppingId(el.id)
+		viewportRef.current?.classList.remove('canvas-cropping')
+		if (e.altKey && resizeRef.current.crop)
+			viewportRef.current?.classList.add('canvas-cropping')
 		resizeSnapRef.current = { id: el.id, el: { ...el } }
 	}
 
@@ -3497,10 +3501,12 @@ export default function PanelClient({
 			if (isMedia && !orig.rotation) {
 				if (!resizeRef.current.crop && e.altKey) {
 					resizeRef.current.crop = true
-					setCroppingId(orig.id)
+					// только CSS-класс: setState здесь вызывает ре-рендер и элемент
+					// сбрасывается в старую позицию — отсюда был рывок при обрезке
+					viewportRef.current?.classList.add('canvas-cropping')
 				} else if (resizeRef.current.crop && !e.altKey) {
 					resizeRef.current.crop = false
-					setCroppingId(null)
+					viewportRef.current?.classList.remove('canvas-cropping')
 				}
 			}
 			if (resizeRef.current.crop) {
@@ -3512,23 +3518,45 @@ export default function PanelClient({
 				const dH = signY === 1 ? lvy : signY === -1 ? -lvy : 0
 				const minW = Math.min(12 / baseW, 0.5)
 				const minH = Math.min(12 / baseH, 0.5)
-				if (signX === 1) {
+				// у отражённого элемента визуальный край — это противоположный
+				// край исходника: тянем справа — режем левую часть картинки и т.д.
+				const sideX =
+					signX === 0
+						? null
+						: flipH
+							? signX === 1
+								? 'l'
+								: 'r'
+							: signX === 1
+								? 'r'
+								: 'l'
+				const sideY =
+					signY === 0
+						? null
+						: flipV
+							? signY === 1
+								? 't'
+								: 'b'
+							: signY === 1
+								? 'b'
+								: 't'
+				if (sideX === 'r') {
 					c.r = Math.max(
 						0,
 						Math.min(CROP_MAX - c.l - minW, c.r - dW / baseW),
 					)
-				} else if (signX === -1) {
+				} else if (sideX === 'l') {
 					c.l = Math.max(
 						0,
 						Math.min(CROP_MAX - c.r - minW, c.l - dW / baseW),
 					)
 				}
-				if (signY === 1) {
+				if (sideY === 'b') {
 					c.b = Math.max(
 						0,
 						Math.min(CROP_MAX - c.t - minH, c.b - dH / baseH),
 					)
-				} else if (signY === -1) {
+				} else if (sideY === 't') {
 					c.t = Math.max(
 						0,
 						Math.min(CROP_MAX - c.b - minH, c.t - dH / baseH),
@@ -3536,13 +3564,17 @@ export default function PanelClient({
 				}
 				width = Math.max(8, Math.round(baseW * (1 - c.l - c.r)))
 				height = Math.max(8, Math.round(baseH * (1 - c.t - c.b)))
-				// при обрезке слева/сверху контент не должен съезжать: двигаем
-				// бокс вслед за новым краем, чтобы правый/нижний остались на месте
+				// бокс двигаем только когда срезаем визуальный левый/верхний край.
+				// Для отражённого элемента это правый/нижний край исходника.
+				const anchorX = flipH ? 'r' : 'l'
+				const anchorY = flipV ? 'b' : 't'
 				x = Math.round(
-					orig.x + (c.l - (orig.crop?.l ?? 0)) * baseW,
+					orig.x +
+						(c[anchorX] - (orig.crop?.[anchorX] ?? 0)) * baseW,
 				)
 				y = Math.round(
-					orig.y + (c.t - (orig.crop?.t ?? 0)) * baseH,
+					orig.y +
+						(c[anchorY] - (orig.crop?.[anchorY] ?? 0)) * baseH,
 				)
 				crop = cropActive(c)
 					? {
@@ -3643,7 +3675,7 @@ export default function PanelClient({
 	useEffect(() => {
 		const fn = () => {
 			resizeRef.current = null
-			setCroppingId(null)
+			viewportRef.current?.classList.remove('canvas-cropping')
 			document.body.classList.remove('dragging')
 			if (lastResizeRef.current) {
 				const lr = lastResizeRef.current
@@ -4956,23 +4988,11 @@ export default function PanelClient({
 										zIndex: 2000,
 									}}
 								>
+									<div className='crop-tint absolute inset-0 pointer-events-none' />
 									<div
-										className='absolute inset-0 pointer-events-none'
+										className='crop-outline absolute inset-0 pointer-events-none'
 										style={{
-											background:
-												croppingId === selected.id
-													? 'rgba(239,68,68,0.14)'
-													: undefined,
-										}}
-									/>
-									<div
-										className='absolute inset-0 pointer-events-none'
-										style={{
-											outline: `${2 / view.s}px solid ${
-												croppingId === selected.id
-													? '#ef4444'
-													: 'rgb(var(--c-accent2))'
-											}`,
+											outline: `${2 / view.s}px solid rgb(var(--c-accent2))`,
 										}}
 									/>
 									<div className='absolute inset-0 pointer-events-none'>
@@ -4995,10 +5015,7 @@ export default function PanelClient({
 												width: hs,
 												height: hs,
 												pointerEvents: 'auto',
-												background:
-													croppingId === selected.id
-														? '#ef4444'
-														: 'rgb(var(--c-accent2))',
+												background: 'rgb(var(--c-accent2))',
 												border: `${2 / view.s}px solid #fff`,
 												borderRadius: 2,
 												cursor: cursors[dir],

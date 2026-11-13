@@ -2369,3 +2369,14 @@ body.obs-pane-moving { user-select: none; cursor: grabbing; }
   box-shadow: 0 12px 30px rgb(145 70 255 / 0.35);
 }
 .err-actions .btn { display: inline-flex; align-items: center; gap: 0.55rem; }
+
+.canvas-cropping .crop-tint {
+	background: rgba(239, 68, 68, 0.14);
+}
+.canvas-cropping .crop-outline {
+	outline-color: #ef4444 !important;
+}
+.canvas-cropping .handle {
+	background: #ef4444 !important;
+}
+
