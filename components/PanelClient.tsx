@@ -10,6 +10,7 @@ import {
 import TextStyleControls from '@/components/TextStyleControls'
 import WidgetVariableControl from '@/components/WidgetControls'
 import WidgetFrame from '@/components/WidgetFrame'
+import TelegramCard from '@/components/TelegramCard'
 import { NumberField } from '@/components/fields'
 import { noteServerClock, serverClockLag } from '@/lib/clock'
 import { colorWithOpacity } from '@/lib/color'
@@ -68,6 +69,7 @@ import {
 	Pencil,
 	Play,
 	Plus,
+	Send,
 	Settings,
 	SlidersHorizontal,
 	Smile,
@@ -2731,6 +2733,19 @@ export default function PanelClient({
 		})
 	}, [addElement])
 
+	const addTelegramEl = useCallback(() => {
+		const p = parkingSpot(420, 260)
+		addElement({
+			type: 'telegram',
+			...p,
+			width: 420,
+			height: 260,
+			telegramChannel: '',
+			telegramQr: true,
+			telegramLight: false,
+		})
+	}, [addElement])
+
 	const dragRef = useRef<{
 		id: string
 		offX: number
@@ -4684,6 +4699,13 @@ export default function PanelClient({
 									Текст
 								</button>
 								<button
+									onClick={addTelegramEl}
+									className='flex items-center justify-center gap-1.5 px-2 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
+								>
+									<Send size={16} />
+									Telegram
+								</button>
+								<button
 									onClick={toggleDrawMode}
 									className='flex items-center justify-center gap-1.5 px-2 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
 								>
@@ -5849,6 +5871,12 @@ export default function PanelClient({
 									>
 										<Pencil size={17} />
 									</DockButton>
+									<DockButton
+										label='Telegram-канал'
+										onClick={addTelegramEl}
+									>
+										<Send size={17} />
+									</DockButton>
 									<div className='w-px h-6 bg-border mx-1' />
 									<button
 										onClick={() => setBetaElementsOpen(v => !v)}
@@ -6043,6 +6071,7 @@ export default function PanelClient({
 							</div>
 						</div>
 						<PropertyEditor
+							key={selected.id}
 							el={selected}
 							update={partial => updateElement(selected.id, partial)}
 							emit={emit}
@@ -6554,6 +6583,14 @@ export default function PanelClient({
 							<Timer size={16} />
 						</button>
 						<button
+							title='Telegram-канал'
+							aria-label='Telegram-канал'
+							onClick={addTelegramEl}
+							className='w-8 h-8 rounded-lg hover:bg-border active:bg-accent flex items-center justify-center'
+						>
+							<Send size={16} />
+						</button>
+						<button
 							title='Рисовать на холсте'
 							aria-label='Рисовать'
 							onClick={toggleDrawMode}
@@ -6931,6 +6968,7 @@ export default function PanelClient({
 						</div>
 					</div>
 					<PropertyEditor
+						key={selected.id}
 						el={selected}
 						update={partial => updateElement(selected.id, partial)}
 						emit={emit}
@@ -7595,6 +7633,8 @@ function elementLabel(el: StreamElement): string {
 	if (el.name?.trim()) return el.name.trim()
 	if (el.type === 'widget') return el.widget?.name || 'Виджеты'
 	if (el.type === 'draw') return 'Рисунок'
+	if (el.type === 'telegram')
+		return el.telegramChannel ? `Telegram · ${el.telegramChannel}` : 'Telegram'
 	if (el.type === 'text') {
 		const t = (el.text || '').trim().replace(/\s+/g, ' ')
 		return t ? t.slice(0, 40) : 'Текст'
@@ -7633,6 +7673,12 @@ function elementLabel(el: StreamElement): string {
 // Мини-превью в списке: у картинки/гифки/видео показываем сам файл, у остальных —
 // иконку по типу (в списке это понятнее, чем первые символы URL)
 function ElementThumb({ el }: { el: StreamElement }) {
+	if (el.type === 'telegram')
+		return (
+			<span className='absolute inset-0 flex items-center justify-center bg-[#1b2733] text-[#2aabee]'>
+				<Send size={22} />
+			</span>
+		)
 	if (el.type === 'widget')
 		return (
 			<span className='absolute inset-0 flex items-center justify-center bg-[#14141c] text-accent2'>
@@ -8344,6 +8390,16 @@ function PreviewElementInner({
 				)}
 			</>
 		)
+	if (el.type === 'telegram')
+		return (
+			<div className='w-full h-full pointer-events-none'>
+				<TelegramCard
+					channel={el.telegramChannel}
+					showQr={el.telegramQr !== false}
+					light={!!el.telegramLight}
+				/>
+			</div>
+		)
 	if (el.type === 'draw')
 		return (
 			<svg
@@ -8852,7 +8908,7 @@ function PropertyEditor({
 	return (
 		<div className='space-y-4'>
 			<h2 className='text-sm font-semibold text-gray-400 uppercase tracking-wide'>
-				Свойства: {el.type}
+				Свойства: {el.type === 'telegram' ? 'Telegram' : el.type}
 			</h2>
 			<label className='block'>
 				<span className='block text-[10px] uppercase tracking-wide text-gray-600 mb-1'>
@@ -8865,6 +8921,48 @@ function PropertyEditor({
 					className='w-full px-2 py-1.5 bg-bg border border-border rounded text-sm'
 				/>
 			</label>
+			{el.type === 'telegram' && (
+				<div className='space-y-2 rounded-lg border border-border bg-bg p-3'>
+					<label className='block'>
+						<span className='block text-[10px] uppercase tracking-wide text-gray-600 mb-1'>
+							Telegram-канал
+						</span>
+						<input
+							defaultValue={el.telegramChannel ?? ''}
+							placeholder='@channel или https://t.me/channel'
+							onBlur={e => update({ telegramChannel: e.target.value.slice(0, 120) })}
+							onKeyDown={e => {
+								if (e.key === 'Enter') e.currentTarget.blur()
+							}}
+							className='w-full px-2 py-1.5 bg-panel border border-border rounded text-sm'
+						/>
+					</label>
+					<div className='flex items-center justify-between text-xs text-gray-400'>
+						<span>QR-код канала</span>
+						<button
+							onClick={() => update({ telegramQr: el.telegramQr === false })}
+							className={`w-9 h-5 rounded-full transition-colors relative ${el.telegramQr === false ? 'bg-gray-600' : 'bg-green-500'}`}
+						>
+							<span
+								className='absolute top-[2px] w-4 h-4 bg-white rounded-full transition-all'
+								style={{ left: el.telegramQr === false ? 2 : 18 }}
+							/>
+						</button>
+					</div>
+					<div className='flex items-center justify-between text-xs text-gray-400'>
+						<span>Светлая тема</span>
+						<button
+							onClick={() => update({ telegramLight: !el.telegramLight })}
+							className={`w-9 h-5 rounded-full transition-colors relative ${el.telegramLight ? 'bg-green-500' : 'bg-gray-600'}`}
+						>
+							<span
+								className='absolute top-[2px] w-4 h-4 bg-white rounded-full transition-all'
+								style={{ left: el.telegramLight ? 18 : 2 }}
+							/>
+						</button>
+					</div>
+				</div>
+			)}
 			<div className='grid grid-cols-2 gap-2'>
 				<NumberField label='X' value={el.x} onChange={v => update({ x: v })} />
 				<NumberField label='Y' value={el.y} onChange={v => update({ y: v })} />

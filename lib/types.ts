@@ -1,4 +1,4 @@
-export type ElementType = 'image' | 'gif' | 'video' | 'audio' | 'iframe' | 'text' | 'timer' | 'widget' | 'draw';
+export type ElementType = 'image' | 'gif' | 'video' | 'audio' | 'iframe' | 'text' | 'timer' | 'widget' | 'draw' | 'telegram';
 
 // --- кастомные виджеты (HTML/CSS/JS в sandboxed iframe) ---
 // Набор повторяет типы Pogly: 1 String … 12 Checkboxes (см. TYPE_TO_NUM в lib/widgets.ts)
@@ -121,6 +121,10 @@ export interface StreamElement {
   points?: [number, number][]
   // несколько штрихов в одном рисунке (цвет и толщина у каждого свои)
   strokes?: DrawStroke[]
+  // Telegram-канал: карточка последнего поста для оверлея
+  telegramChannel?: string;
+  telegramQr?: boolean;
+  telegramLight?: boolean;
   // группа в списке слоёв (как папки в Figma)
   groupId?: string;
   // кастомный виджет: снимок кода + текущие значения переменных

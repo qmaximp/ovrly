@@ -257,6 +257,16 @@ function cleanDrawElement(el) {
 	return true
 }
 
+// Telegram-канал: @name, name или ссылка t.me/name
+function cleanTelegramChannel(raw) {
+	let s = String(raw || '').trim()
+	s = s.replace(/^https?:\/\/t\.me\//i, '')
+	s = s.replace(/^t\.me\//i, '')
+	s = s.replace(/^s\//i, '')
+	s = s.replace(/^@/, '')
+	return s.split(/[/?#]/)[0].replace(/[^A-Za-z0-9_]/g, '').slice(0, 64)
+}
+
 // размер «прочих» полей без медиа и уже проверенных widget/playlist
 function extraBytes(obj) {
 	try {
@@ -1573,6 +1583,11 @@ app.prepare().then(() => {
 					: 100
 			}
 			if (el.type === 'draw' && !cleanDrawElement(el)) return
+			if (el.type === 'telegram') {
+				el.telegramChannel = cleanTelegramChannel(el.telegramChannel)
+				el.telegramQr = el.telegramQr !== false
+				el.telegramLight = !!el.telegramLight
+			}
 			el.zIndex = el.zIndex ?? state.elements.length
 			el.visible = el.visible ?? true
 			if ('crop' in el) el.crop = cleanCrop(el.crop)
@@ -1614,6 +1629,11 @@ app.prepare().then(() => {
 				partial.strokeColor = merged.strokeColor
 				partial.strokeWidth = merged.strokeWidth
 			}
+			if (partial.telegramChannel !== undefined)
+				partial.telegramChannel = cleanTelegramChannel(partial.telegramChannel)
+			if (partial.telegramQr !== undefined) partial.telegramQr = !!partial.telegramQr
+			if (partial.telegramLight !== undefined)
+				partial.telegramLight = !!partial.telegramLight
 			if (partial.widget !== undefined) {
 				const widget = cleanWidgetDefinition(partial.widget)
 				if (!widget) return

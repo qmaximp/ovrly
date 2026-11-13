@@ -2190,6 +2190,9 @@ html.light .admin-room-badge.dirty { color: #b45309; }
   min-height: 0;
   overflow: hidden;
 }
+/* как в макете: по умолчанию пульт занимает половину экрана, а не всю высоту.
+   после ручной раскладки (obs-desk-free) размеры берутся из сохранённой геометрии */
+.obs-desk:not(.obs-desk-free) { max-height: 530px; }
 .obs-desk-free { display: block; position: relative; }
 .obs-desk-free > .obs-pane { position: absolute; }
 .obs-pane { min-width: 140px; min-height: 120px; }

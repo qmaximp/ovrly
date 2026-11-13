@@ -768,6 +768,37 @@ export default function ObsPanel({
 		} catch {}
 	}
 
+	// Возвращаем раскладку пульта после перезагрузки: раньше геометрия
+	// сохранялась, но никогда не читалась обратно.
+	useEffect(() => {
+		let saved: Record<string, unknown>
+		try {
+			saved = JSON.parse(localStorage.getItem(LS_PANE_GEO) || '{}')
+		} catch {
+			return
+		}
+		if (!saved || typeof saved !== 'object') return
+		const next: Record<string, Geo> = {}
+		for (const key of PANE_KEYS) {
+			const v = saved[key] as Partial<Geo> | undefined
+			if (!v) continue
+			const x = Number(v.x)
+			const y = Number(v.y)
+			const w = Number(v.w)
+			const h = Number(v.h)
+			if (![x, y, w, h].every(Number.isFinite)) continue
+			next[key] = {
+				x: Math.max(0, Math.round(x)),
+				y: Math.max(0, Math.round(y)),
+				w: Math.max(PANE_MIN_W[key], Math.round(w)),
+				h: Math.max(120, Math.round(h)),
+			}
+		}
+		if (!Object.keys(next).length) return
+		geoRef.current = next
+		setGeo(next)
+	}, [])
+
 	// при первом же перетаскивании снимаем геометрию всех панелей и дальше живём
 	// в свободном режиме: каждая панель — на своих координатах
 	const seed = () => {

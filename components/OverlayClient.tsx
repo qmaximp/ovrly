@@ -1,6 +1,7 @@
 'use client'
 
 import type { StreamElement, Stroke, SyncState } from '@/lib/types'
+import TelegramCard from '@/components/TelegramCard'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import WidgetFrame from '@/components/WidgetFrame'
 import { toEmbedUrl } from '@/lib/embed'
@@ -536,6 +537,16 @@ function OverlayElement({ el, ytStarted }: { el: StreamElement; ytStarted: boole
 							? colorWithOpacity(el.bgColor, el.bgOpacity ?? 1)
 							: undefined
 					}
+				/>
+			</div>
+		)
+	if (el.type === 'telegram')
+		return (
+			<div style={style}>
+				<TelegramCard
+					channel={el.telegramChannel}
+					showQr={el.telegramQr !== false}
+					light={!!el.telegramLight}
 				/>
 			</div>
 		)
