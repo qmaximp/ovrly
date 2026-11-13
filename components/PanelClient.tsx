@@ -10,7 +10,6 @@ import {
 import TextStyleControls from '@/components/TextStyleControls'
 import WidgetVariableControl from '@/components/WidgetControls'
 import WidgetFrame from '@/components/WidgetFrame'
-import TelegramCard from '@/components/TelegramCard'
 import { normalizeTelegramChannel } from '@/lib/telegram'
 import { NumberField } from '@/components/fields'
 import { noteServerClock, serverClockLag } from '@/lib/clock'
@@ -1898,6 +1897,7 @@ export default function PanelClient({
 	// Клик по элементу в списке: если он за пределами видимой области —
 	// центрируем холст на нём (иначе выбор «терялся» за краем экрана)
 	const revealElement = useCallback((el: StreamElement) => {
+		if (el.type === 'telegram') return
 		const vp = viewportRef.current
 		if (!vp) return
 		const rect = vp.getBoundingClientRect()
@@ -2737,12 +2737,12 @@ export default function PanelClient({
 	const addTelegramEl = useCallback(() => {
 		// карточка живёт в зоне предзагрузки; во время показа разворачивается
 		// на весь экран как промо в OverlayHub
-		const p = parkingSpot(560, 315)
+		const p = parkingSpot(360, 110)
 		addElement({
 			type: 'telegram',
 			...p,
-			width: 560,
-			height: 315,
+			width: 360,
+			height: 110,
 			telegramChannel: '',
 			telegramQr: true,
 			telegramLight: false,
@@ -5109,7 +5109,7 @@ export default function PanelClient({
 									onPointerDown={startGroupMove}
 								/>
 							)}
-							{state.elements.filter(el => el.type !== 'telegram').map(el => {
+							{state.elements.map(el => {
 								const hs = 10 / view.s
 								// у медиа (YouTube/Twitch/видео) плашка управления показывается
 								// наведением — значит, обёртка должна отдавать enter/leave
@@ -5120,6 +5120,7 @@ export default function PanelClient({
 								// ими управляет общий бокс группы, иначе над ним появляется
 								// вторая «крутилка» и перехватывает мышь
 								const multiSelect = selectedIds.size > 1
+								const tgTile = el.type === 'telegram'
 								// не держим в памяти медиа за пределами экрана: телефон с
 								// десятком видео/сайтов иначе начинает тормозить и греться.
 								// выбранный элемент рендерим всегда — иначе пропадёт превью,
@@ -5154,9 +5155,11 @@ export default function PanelClient({
 										className={`absolute select-none group ${el.locked ? '' : 'cursor-grab'}`}
 										style={{
 											left: el.x,
-											top: el.y,
-											width: el.width,
-											height: el.height,
+											top: tgTile
+												? Math.max(el.y, state.canvasH + 40)
+												: el.y,
+											width: tgTile ? 360 : el.width,
+											height: tgTile ? 110 : el.height,
 											// слой элемента подчиняется своему zIndex и в выделении:
 											// иначе кнопки «Вперёд/Назад» визуально ничего не меняют,
 											// пока элемент выбран. Ручки вынесены в отдельный слой выше.
@@ -5375,33 +5378,6 @@ export default function PanelClient({
 									</div>
 								)
 							})}
-							{/* Telegram — промо-показ как в OverlayHub: элемент живёт в зоне
-							    предзагрузки, а во время показа занимает весь холст */}
-							{state.elements
-								.filter(
-									el =>
-										el.type === 'telegram' &&
-										!!el.telegramUntil &&
-										el.telegramUntil > Date.now(),
-								)
-								.map(el => (
-									<div
-										key={el.id}
-										className='absolute left-0 top-0 pointer-events-none'
-										style={{
-											width: state.canvasW,
-											height: state.canvasH,
-											zIndex: 4000,
-										}}
-									>
-										<TelegramCard
-											channel={el.telegramChannel}
-											showQr={el.telegramQr !== false}
-											light={!!el.telegramLight}
-											until={el.telegramUntil}
-										/>
-									</div>
-								))}
 							{/* Ручки выбранного элемента — отдельным слоем поверх всех элементов:
 							    сам элемент остаётся на своём слое, поэтому «Вперёд/Назад»
 							    видно сразу, а ручки не прячутся под картинками выше */}
@@ -5456,7 +5432,10 @@ export default function PanelClient({
 								/>
 							</svg>
 
-							{selected && selectedIds.size === 0 && !selected.locked && (
+							{selected &&
+								selected.type !== 'telegram' &&
+								selectedIds.size === 0 &&
+								!selected.locked && (
 								<div
 									className='absolute'
 									data-selbox={selected.id}
@@ -8424,15 +8403,21 @@ function PreviewElementInner({
 		)
 	if (el.type === 'telegram')
 		return (
-			<div className='w-full h-full pointer-events-none'>
-				<TelegramCard
-					key={el.telegramUntil || 'off'}
-					preview
-					channel={el.telegramChannel}
-					showQr={el.telegramQr !== false}
-					light={!!el.telegramLight}
-					duration={el.telegramDuration || 15}
-				/>
+			<div
+				title={el.telegramChannel ? `@${normalizeTelegramChannel(el.telegramChannel)}` : 'Telegram'}
+				className='w-full h-full flex items-center gap-2 rounded-lg border border-border bg-panel/95 px-3 text-gray-300'
+			>
+				<Send size={18} className='text-accent2 shrink-0' />
+				<div className='min-w-0'>
+					<p className='text-xs font-medium truncate'>
+						{el.telegramChannel
+							? `@${normalizeTelegramChannel(el.telegramChannel)}`
+							: 'Telegram'}
+					</p>
+					<p className='text-[10px] text-gray-500 truncate'>
+						Запустить — в свойствах
+					</p>
+				</div>
 			</div>
 		)
 	if (el.type === 'draw')
