@@ -3944,6 +3944,7 @@ export default function PanelClient({
 		}
 
 		const down = (e: PointerEvent) => {
+			if (drawMode) return
 			const target = e.target as HTMLElement | null
 			const onNoPan = !!target?.closest?.('[data-nopan]')
 			const onEl = !!target?.closest?.('[data-elwrap]')
@@ -4093,7 +4094,7 @@ export default function PanelClient({
 			window.removeEventListener('pointerup', up)
 			window.removeEventListener('pointercancel', up)
 		}
-	}, [canvasEl])
+	}, [canvasEl, drawMode])
 
 	// ── маркер: координаты холста из экрана (с учётом панорамы и зума) ──
 	const drawPoint = (e: React.PointerEvent) => {
@@ -4133,6 +4134,8 @@ export default function PanelClient({
 		if (liveStroke && liveStroke.points.length > 1)
 			emit('draw:add', liveStroke)
 		setLiveStroke(null)
+		// один штрих — и сразу обратно к выбору/перетаскиванию элементов
+		setDrawMode(false)
 	}
 
 	// вертикальная ориентация телефона — просим повернуть (как на референсе)
@@ -4542,20 +4545,29 @@ export default function PanelClient({
 							<h2 className='text-sm font-semibold text-gray-400 uppercase tracking-wide'>
 								Элементы ({state.elements.length})
 							</h2>
-							{state.elements.length > 0 && (
+							<div className='flex items-center gap-1 shrink-0'>
 								<button
-									onClick={() => {
-										if (confirm('Очистить все элементы?')) {
-											remember()
-											emit('elements:clear')
-										}
-									}}
-									title='Очистить все элементы'
-									className='px-2 py-1 text-[10px] rounded-md border border-red-900/50 text-red-400 hover:bg-red-950/40 transition-colors shrink-0'
+									onClick={groupSelection}
+									title='Собрать выделенные элементы в группу'
+									className='px-2 py-1 text-[10px] rounded-md border border-border text-gray-400 hover:text-white hover:bg-border transition-colors'
 								>
-									Очистить
+									Группа
 								</button>
-							)}
+								{state.elements.length > 0 && (
+									<button
+										onClick={() => {
+											if (confirm('Очистить все элементы?')) {
+												remember()
+												emit('elements:clear')
+											}
+										}}
+										title='Очистить все элементы'
+										className='px-2 py-1 text-[10px] rounded-md border border-red-900/50 text-red-400 hover:bg-red-950/40 transition-colors'
+									>
+										Очистить
+									</button>
+								)}
+							</div>
 						</div>
 						{/* Сетка в 2 столбца: у картинок и видео видно само превью,
 						    а не «data:image/png;base64...» в подписи */}
@@ -4586,7 +4598,6 @@ export default function PanelClient({
 							onDelete={deleteElement}
 							onReorder={setLayerOrder}
 							onGroups={saveGroups}
-							onDraw={() => setDrawMode(v => !v)}
 						/>
 					</aside>
 				)}
@@ -4604,6 +4615,8 @@ export default function PanelClient({
 							backgroundPosition: `${view.x}px ${view.y}px`,
 						}}
 						onClick={e => {
+							// в режиме маркера клик по холсту не должен ничего выделять
+							if (drawMode) return
 							if (e.target === e.currentTarget) {
 								setSelectedId(null)
 								setInteractiveIframeId(null)
@@ -5544,8 +5557,15 @@ export default function PanelClient({
 									</button>
 									{betaElementsOpen && (
 										<div className='border-t border-border'>
-											{state.elements.length > 0 && (
-												<div className='flex justify-end px-2 pt-2'>
+											<div className='flex justify-end gap-1 px-2 pt-2'>
+												<button
+													onClick={groupSelection}
+													title='Собрать выделенные элементы в группу'
+													className='inline-flex items-center gap-1 px-2 py-1 text-[10px] rounded-md border border-border text-gray-400 hover:text-white hover:bg-border transition-colors'
+												>
+													Группа
+												</button>
+												{state.elements.length > 0 && (
 													<button
 														onClick={() => {
 															if (confirm('Очистить все элементы?')) {
@@ -5558,8 +5578,8 @@ export default function PanelClient({
 														<Trash2 size={11} />
 														Очистить
 													</button>
-												</div>
-											)}
+												)}
+											</div>
 											<div className='p-2 max-h-[45vh] overflow-y-auto'>
 												<LayersPanel
 													elements={state.elements}
@@ -5585,7 +5605,6 @@ export default function PanelClient({
 													onDelete={deleteElement}
 													onReorder={setLayerOrder}
 													onGroups={saveGroups}
-							onDraw={() => setDrawMode(v => !v)}
 												/>
 											</div>
 											{state.elements.length === 0 && (
@@ -6901,7 +6920,6 @@ type LayersPanelProps = {
 	onDelete: (id: string) => void
 	onReorder: (idsTopDown: string[]) => void
 	onGroups: (groups: StreamGroup[]) => void
-	onDraw: () => void
 }
 
 function LayersPanel({
@@ -6914,7 +6932,6 @@ function LayersPanel({
 	onDelete,
 	onReorder,
 	onGroups,
-	onDraw,
 }: LayersPanelProps) {
 	const [dragId, setDragId] = useState<string | null>(null)
 	const [dropId, setDropId] = useState<string | null>(null)
@@ -6951,17 +6968,6 @@ function LayersPanel({
 		list.forEach(e => {
 			if (e.visible !== show) onUpdate(e.id, { visible: show })
 		})
-	}
-	const createGroup = () => {
-		const id = 'g' + Date.now().toString(36)
-		const next = [
-			...groups,
-			{ id, name: `Группа ${groups.length + 1}`, collapsed: false },
-		]
-		onGroups(next)
-		const ids = new Set(selectedIds)
-		if (selectedId) ids.add(selectedId)
-		ids.forEach(eid => onUpdate(eid, { groupId: id }))
 	}
 	const removeGroup = (g: StreamGroup) => {
 		sorted
@@ -7021,23 +7027,43 @@ function LayersPanel({
 					dropOnLayer(el)
 					setDropId(null)
 				}}
-				onClick={e =>
-					onSelect(el.id, e.shiftKey || e.metaKey || e.ctrlKey)
-				}
-				className={`group/row flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer border transition-colors ${
+				onClick={e => onSelect(el.id, e.shiftKey || e.metaKey || e.ctrlKey)}
+				className={`group/row relative rounded-xl border overflow-hidden cursor-pointer transition-colors ${
 					active
 						? 'bg-accent/15 border-accent/40'
-						: 'border-transparent hover:bg-border/40'
+						: 'border-border/70 hover:border-border'
 				} ${dropId === el.id ? 'ring-1 ring-accent2' : ''} ${el.locked ? 'opacity-60' : ''}`}
 				title={`${name} · слой ${index + 1} из ${sorted.length}`}
 			>
-				<span className='w-4 shrink-0 text-[10px] tabular-nums text-gray-600 text-center'>
-					{index + 1}
-				</span>
-				<span className='relative w-9 h-6 shrink-0 rounded-md overflow-hidden bg-[#14141c] border border-border'>
+				<div className='relative h-[62px] bg-[#14141c]'>
 					<ElementThumb el={el} />
-				</span>
-				<span className='flex-1 min-w-0'>
+					<span className='absolute left-1 top-1 rounded bg-black/60 px-1 text-[9px] tabular-nums text-white/70'>
+						{index + 1}
+					</span>
+					<div className='absolute right-1 top-1 flex gap-0.5 rounded-md bg-black/55 p-0.5 opacity-100 sm:opacity-0 sm:group-hover/row:opacity-100 transition-opacity'>
+						<button
+							onClick={e => {
+								e.stopPropagation()
+								onUpdate(el.id, { visible: !el.visible })
+							}}
+							title={el.visible ? 'Скрыть' : 'Показать'}
+							className='w-5 h-5 rounded text-gray-300 hover:text-white hover:bg-white/10 flex items-center justify-center'
+						>
+							{el.visible ? <Eye size={12} /> : <EyeOff size={12} />}
+						</button>
+						<button
+							onClick={e => {
+								e.stopPropagation()
+								onDelete(el.id)
+							}}
+							title='Удалить'
+							className='w-5 h-5 rounded text-gray-300 hover:text-red-400 hover:bg-red-950/40 flex items-center justify-center'
+						>
+							<X size={12} />
+						</button>
+					</div>
+				</div>
+				<div className='px-1.5 py-1'>
 					{edit?.kind === 'el' && edit.id === el.id ? (
 						<input
 							autoFocus
@@ -7063,53 +7089,25 @@ function LayersPanel({
 							{name}
 						</span>
 					)}
-					<span className='block text-[10px] text-gray-600'>
-						{el.type}
-						{el.type === 'audio' ? ' · звук' : ''}
-					</span>
-				</span>
-				<span className='flex items-center gap-0.5 opacity-0 group-hover/row:opacity-100 transition-opacity'>
-					<button
-						onClick={e => {
-							e.stopPropagation()
-							moveStep(el, -1)
-						}}
-						title='Выше'
-						className='w-5 h-5 rounded text-gray-500 hover:text-white hover:bg-border text-xs'
-					>
-						↑
-					</button>
-					<button
-						onClick={e => {
-							e.stopPropagation()
-							moveStep(el, 1)
-						}}
-						title='Ниже'
-						className='w-5 h-5 rounded text-gray-500 hover:text-white hover:bg-border text-xs'
-					>
-						↓
-					</button>
-				</span>
-				<button
-					onClick={e => {
-						e.stopPropagation()
-						onUpdate(el.id, { visible: !el.visible })
-					}}
-					title={el.visible ? 'Скрыть' : 'Показать'}
-					className='w-6 h-6 shrink-0 rounded-md text-gray-400 hover:text-white hover:bg-border flex items-center justify-center'
-				>
-					{el.visible ? <Eye size={13} /> : <EyeOff size={13} />}
-				</button>
-				<button
-					onClick={e => {
-						e.stopPropagation()
-						onDelete(el.id)
-					}}
-					title='Удалить'
-					className='w-6 h-6 shrink-0 rounded-md text-gray-600 hover:text-red-400 hover:bg-red-950/40 flex items-center justify-center'
-				>
-					<X size={13} />
-				</button>
+					<div className='flex items-center justify-between gap-1'>
+						<span className='truncate text-[10px] text-gray-600'>
+							{el.type}
+							{el.type === 'audio' ? ' · звук' : ''}
+						</span>
+						{el.groupId && (
+							<button
+								onClick={e => {
+									e.stopPropagation()
+									onUpdate(el.id, { groupId: undefined })
+								}}
+								title='Убрать из группы'
+								className='shrink-0 rounded px-1 text-[11px] text-gray-500 hover:text-white hover:bg-border'
+							>
+								⤴
+							</button>
+						)}
+					</div>
+				</div>
 			</div>
 		)
 	}
@@ -7117,27 +7115,6 @@ function LayersPanel({
 	let index = 0
 	return (
 		<div className='space-y-1'>
-			<div className='flex items-center justify-between px-1 pb-1'>
-				<span className='text-[10px] uppercase tracking-wide text-gray-600'>
-					Сверху — выше на стриме
-				</span>
-				<div className='flex items-center gap-1'>
-					<button
-						onClick={onDraw}
-						title='Маркер: рисовать поверх стрима'
-						className='inline-flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[10px] text-gray-400 hover:text-white hover:bg-border transition-colors'
-					>
-						<Pencil size={11} /> Маркер
-					</button>
-					<button
-						onClick={createGroup}
-						title='Новая группа (выделенные элементы попадут в неё)'
-						className='inline-flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[10px] text-gray-400 hover:text-white hover:bg-border transition-colors'
-					>
-						<Plus size={11} /> Группа
-					</button>
-				</div>
-			</div>
 			{groups.map(g => {
 				const list = sorted.filter(e => e.groupId === g.id)
 				const allVisible = list.length > 0 && list.every(e => e.visible)
@@ -7209,7 +7186,7 @@ function LayersPanel({
 							</button>
 						</div>
 						{!g.collapsed && (
-							<div className='px-1 pb-1 space-y-1'>
+							<div className='grid grid-cols-2 gap-1.5 p-1.5'>
 								{list.map(el => row(el, index++))}
 								{list.length === 0 && (
 									<p className='px-2 pb-2 text-[10px] text-gray-600'>
@@ -7240,7 +7217,7 @@ function LayersPanel({
 						Без группы
 					</div>
 				)}
-				<div className='space-y-1'>
+				<div className='grid grid-cols-2 gap-1.5'>
 					{ungrouped.map(el => row(el, index++))}
 				</div>
 			</div>
