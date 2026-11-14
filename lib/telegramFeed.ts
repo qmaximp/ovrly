@@ -31,6 +31,11 @@ export type TelegramChannel = {
 }
 
 const CACHE_TTL = 5 * 60 * 1000
+// Базу t.me можно заменить на прокси/релей (Cloudflare Worker), если сервер
+// не может ходить в Telegram напрямую.
+const WEB_BASE = (process.env.TELEGRAM_WEB_BASE || 'https://t.me').replace(
+	/\/+$/,
+	'')
 const cache = new Map<string, { at: number; data: TelegramChannel }>()
 
 function decodeEntities(s: string): string {
@@ -182,11 +187,14 @@ export async function loadTelegramChannel(
 		const hit = cache.get(key)
 		if (hit && Date.now() - hit.at < CACHE_TTL) return hit.data
 	}
-	const res = await fetch(`https://t.me/s/${channel}`, {
+	const res = await fetch(`${WEB_BASE}/s/${channel}`, {
 		headers: {
 			'user-agent':
 				'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36',
 			'accept-language': 'ru,en;q=0.9',
+			...(process.env.TELEGRAM_PROXY_SECRET
+				? { 'x-ovrly-secret': process.env.TELEGRAM_PROXY_SECRET }
+				: {}),
 		},
 		signal: AbortSignal.timeout(opts.timeout || 9000),
 		cache: 'no-store',

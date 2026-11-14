@@ -96,7 +96,12 @@ async function callApi<T>(
 	try {
 		res = await fetch(`${API}/bot${token}/${method}`, {
 			method: 'POST',
-			headers: { 'content-type': 'application/json' },
+			headers: {
+				'content-type': 'application/json',
+				...(process.env.TELEGRAM_PROXY_SECRET
+					? { 'x-ovrly-secret': process.env.TELEGRAM_PROXY_SECRET }
+					: {}),
+			},
 			body: JSON.stringify(params),
 			cache: 'no-store',
 			signal: AbortSignal.timeout(10000),

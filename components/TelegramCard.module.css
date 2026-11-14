@@ -119,6 +119,16 @@
 	flex-direction: column;
 	gap: 9px;
 }
+.empty {
+	margin: auto;
+	padding: 10px 14px;
+	border-radius: 12px;
+	background: rgba(14, 21, 31, 0.66);
+	color: rgba(255, 255, 255, 0.55);
+	font-size: 13px;
+	letter-spacing: 0.01em;
+}
+
 .topFade {
 	position: absolute;
 	left: 0;

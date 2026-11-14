@@ -97,9 +97,9 @@ async function main() {
 			})
 			const list = await input.json().catch(() => ({ channels: [] }))
 			for (const channel of list?.channels || []) {
-				// Свежий канал не трогаем: t.me дёргаем не чаще раза в 3 минуты.
+				// Свежий канал не трогаем: t.me дёргаем не чаще раза в 90 секунд.
 				const at = lastFetch.get(channel) || 0
-				if (Date.now() - at < 3 * 60 * 1000) continue
+				if (Date.now() - at < 90 * 1000) continue
 				lastFetch.set(channel, Date.now())
 				try {
 					const page = await fetch(`https://t.me/s/${channel}`, {
@@ -132,8 +132,8 @@ async function main() {
 	}
 
 	await pumpChannels()
-	// Частый опрос списка: новый канал в карточке подхватывается за ~20 секунд.
-	setInterval(() => void pumpChannels(), 20 * 1000)
+	// Частый опрос списка: новый канал в карточке подхватывается за ~3 секунды.
+	setInterval(() => void pumpChannels(), 3 * 1000)
 
 	// getUpdates не работает, пока включён вебхук — снимаем его на время работы
 	// моста. Необработанные апдейты при этом не теряются.

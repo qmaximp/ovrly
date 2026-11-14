@@ -197,7 +197,7 @@ export default function TelegramCard({
 						tries += 1
 						setTimeout(() => {
 							if (alive) void load()
-						}, 4000)
+						}, 2000)
 					}
 					return
 				}
@@ -351,6 +351,11 @@ export default function TelegramCard({
 									<div className={s.pattern} />
 								</div>
 								<div ref={feedRef} className={s.feed}>
+									{posts.length === 0 && (
+										<div className={s.empty}>
+											{error ? 'Канал недоступен' : 'Загружаем канал…'}
+										</div>
+									)}
 									{posts.map((post, index) => (
 										<div
 											key={`${post.date}-${index}`}
