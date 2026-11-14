@@ -51,6 +51,49 @@ async function forward(update) {
 }
 
 async function main() {
+	const pumpChannels = async () => {
+		try {
+			const base = new URL(TARGET)
+			const neededUrl = new URL('/api/telegram/needed', base.origin)
+			const input = await fetch(neededUrl, {
+				headers: { 'x-ovrly-secret': SECRET },
+				signal: AbortSignal.timeout(15000),
+			})
+			const list = await input.json().catch(() => ({ channels: [] }))
+			for (const channel of list?.channels || []) {
+				try {
+					const page = await fetch(`https://t.me/s/${channel}`, {
+						headers: {
+							'user-agent':
+								'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36',
+							'accept-language': 'ru,en;q=0.9',
+						},
+						signal: AbortSignal.timeout(15000),
+					})
+					if (!page.ok) continue
+					const html = await page.text()
+					const push = await fetch(new URL('/api/telegram/cache', base.origin), {
+						method: 'POST',
+						headers: {
+							'content-type': 'application/json',
+							'x-ovrly-secret': SECRET,
+						},
+						body: JSON.stringify({ channel, html }),
+						signal: AbortSignal.timeout(20000),
+					})
+					if (push.ok) console.log(`[bridge] канал ${channel} обновлён`)
+				} catch (e) {
+					console.error(`[bridge] канал ${channel}:`, e.message)
+				}
+			}
+		} catch (e) {
+			console.error('[bridge] список каналов:', e.message)
+		}
+	}
+
+	await pumpChannels()
+	setInterval(() => void pumpChannels(), 3 * 60 * 1000)
+
 	// getUpdates не работает, пока включён вебхук — снимаем его на время работы
 	// моста. Необработанные апдейты при этом не теряются.
 	await fetch(api('deleteWebhook'), {

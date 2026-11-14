@@ -1,24 +1,30 @@
 import { NextResponse } from 'next/server'
+import * as storage from '@/lib/storage'
 import { clientIp, rateLimit } from '@/lib/api'
 import { normalizeTelegramChannel } from '@/lib/telegram'
 import { loadTelegramChannel } from '@/lib/telegramFeed'
 
-// Публичная карточка Telegram-канала для оверлея: последние посты, подписчики,
-// аватар и ссылка. Разбор и кэш — в lib/telegramFeed.
+// Свежесть кэша, который наполняет мост на ПК (сервер в РФ не видит t.me).
+const CACHE_TTL = 10 * 60 * 1000
+const cacheKey = (channel: string) => `tgcache:${channel}`
+
+type Cached = { at: number; data: unknown }
+
 export async function GET(req: Request) {
-	// Публичный прокси к t.me: ограничиваем, чтобы им не качали чужие каналы пачками.
 	if (!rateLimit(`tg:${clientIp(req)}`, 30, 60_000))
 		return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 })
 	const raw = new URL(req.url).searchParams.get('channel') || ''
 	const channel = normalizeTelegramChannel(raw)
-	if (!channel) {
-		return NextResponse.json(
-			{ error: 'Укажите Telegram-канал' },
-			{ status: 400 },
-		)
-	}
+	if (!channel)
+		return NextResponse.json({ error: 'Укажите Telegram-канал' }, { status: 400 })
 	try {
+		const hit = (await storage.getSetting<Cached>(cacheKey(channel))) || null
+		if (hit && Date.now() - hit.at < CACHE_TTL)
+			return NextResponse.json(hit.data, {
+				headers: { 'Cache-Control': 'public, max-age=60' },
+			})
 		const data = await loadTelegramChannel(channel)
+		await storage.setSetting(cacheKey(channel), { at: Date.now(), data })
 		return NextResponse.json(data, {
 			headers: {
 				'Cache-Control': 'public, max-age=300',
@@ -26,6 +32,9 @@ export async function GET(req: Request) {
 			},
 		})
 	} catch (e) {
+		// t.me недоступен (блокировка у хостинга) — отдаём что успел сохранить мост.
+		const stale = (await storage.getSetting<Cached>(cacheKey(channel))) || null
+		if (stale) return NextResponse.json(stale.data, { headers: { 'Cache-Control': 'public, max-age=60' } })
 		const message = (e as Error)?.message || ''
 		if (message.includes('Канал не найден'))
 			return NextResponse.json({ error: message }, { status: 404 })

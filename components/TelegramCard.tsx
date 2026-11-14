@@ -243,10 +243,11 @@ export default function TelegramCard({
 		}
 	}, [until, preview])
 
-	// Вход повторяем после загрузки данных: так лента уже содержится в кадре.
+	// Вход запускаем сразу, не дожидаясь данных канала: иначе при недоступном
+	// Telegram (сервер в РФ) карточка навсегда оставалась невидимой.
 	useEffect(() => {
-		if (!visible || !data) return
-		const key = `${until || 0}:${data.channel}`
+		if (!visible) return
+		const key = `${until || 0}:${data?.channel || nick || ""}`
 		if (enteredRef.current === key) return
 		enteredRef.current = key
 
