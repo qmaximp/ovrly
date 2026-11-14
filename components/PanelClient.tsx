@@ -4722,20 +4722,51 @@ export default function PanelClient({
 									<Volume2 size={18} />
 								</button>
 							</div>
-							<button
-								onClick={() => openEmotePicker()}
-								className='w-full flex items-center justify-center gap-2 px-3 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
-							>
-								<Smile size={16} />
-								Добавить смайлик
-							</button>
-							<button
-								onClick={addIframeEl}
-								className='w-full flex items-center justify-center gap-2 px-3 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
-							>
-								<Globe size={16} />
-								Сайт
-							</button>
+							<div className='grid grid-cols-3 gap-2'>
+								<button
+									onClick={() => openEmotePicker()}
+									title='Добавить смайлик'
+									aria-label='Добавить смайлик'
+									className='h-10 flex items-center justify-center bg-accent hover:bg-accent-hover text-white rounded-lg transition-colors'
+								>
+									<Smile size={18} />
+								</button>
+								<button
+									onClick={addTimerEl}
+									title='Таймер'
+									aria-label='Таймер'
+									className='h-10 flex items-center justify-center bg-accent hover:bg-accent-hover text-white rounded-lg transition-colors'
+								>
+									<Timer size={18} />
+								</button>
+								<button
+									onClick={addTextEl}
+									title='Текст'
+									aria-label='Текст'
+									className='h-10 flex items-center justify-center bg-accent hover:bg-accent-hover text-white rounded-lg transition-colors'
+								>
+									<Type size={18} />
+								</button>
+							</div>
+							<div className='grid grid-cols-2 gap-2'>
+								<button
+									onClick={addIframeEl}
+									className='flex items-center justify-center gap-1.5 px-2 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
+								>
+									<Globe size={16} />
+									Сайт
+								</button>
+								<button
+									onClick={() => {
+										setPlaylistOpen(true)
+										setPlaylistError('')
+									}}
+									className='flex items-center justify-center gap-1.5 px-2 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
+								>
+									<ListVideo size={16} />
+									YouTube плейлист
+								</button>
+							</div>
 							<button
 								onClick={() => setWidgetPickerOpen(true)}
 								title='Добавить виджет на холст'
@@ -4744,31 +4775,7 @@ export default function PanelClient({
 								<Blocks size={16} />
 								Виджеты
 							</button>
-							<button
-								onClick={() => {
-									setPlaylistOpen(true)
-									setPlaylistError('')
-								}}
-								className='w-full flex items-center justify-center gap-2 px-3 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
-							>
-								<ListVideo size={16} />
-								YouTube плейлист
-							</button>
 							<div className='grid grid-cols-2 gap-2'>
-								<button
-									onClick={addTimerEl}
-									className='flex items-center justify-center gap-1.5 px-2 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
-								>
-									<Timer size={16} />
-									Таймер
-								</button>
-								<button
-									onClick={addTextEl}
-									className='flex items-center justify-center gap-1.5 px-2 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
-								>
-									<Type size={16} />
-									Текст
-								</button>
 								<button
 									onClick={addTelegramEl}
 									className='flex items-center justify-center gap-1.5 px-2 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
