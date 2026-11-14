@@ -22,7 +22,7 @@ export const GUIDE_STEPS = [
 	{
 		title: 'Открой расширенные свойства звука',
 		text: 'В микшере OBS нажми на шестерёнку у нужного источника и выбери «Расширенные свойства звука».',
-		image: '/guide/step-4-advanced-audio.png?v=3',
+		image: '/guide/step-4-advanced-audio.png?v=4',
 		alt: 'Микшер OBS: меню настроек и пункт «Расширенные свойства звука»',
 	},
 	{
