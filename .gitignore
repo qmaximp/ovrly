@@ -7,3 +7,4 @@ tsconfig.tsbuildinfo
 uploads/
 data/
 scripts/.telegram-bridge.json
+logs-telegram-bridge.txt
