@@ -95,7 +95,7 @@ export default function ChangelogDialog({
 					<p className='changelog-state'>Загружаю обновления…</p>
 				) : error ? (
 					<p className='changelog-state changelog-error'>{error}</p>
-				) : !data?.channel ? (
+				) : !data || (!data.channel && data.entries.length === 0) ? (
 					<p className='changelog-state'>
 						Список обновлений ещё не подключён. Администратор может указать
 						Telegram-канал в админ-панели.
@@ -108,9 +108,13 @@ export default function ChangelogDialog({
 					<>
 						<p className='changelog-source'>
 							Источник:{' '}
-							<a href={data.url} target='_blank' rel='noopener noreferrer'>
-								{data.title || `@${data.channel}`}
-							</a>
+							{data.url ? (
+								<a href={data.url} target='_blank' rel='noopener noreferrer'>
+									{data.title || `@${data.channel}`}
+								</a>
+							) : (
+								<span>{data.title || 'Ovrly'}</span>
+							)}
 						</p>
 						<div className='changelog-list'>
 							{data.entries.map((entry, index) => (
@@ -142,14 +146,16 @@ export default function ChangelogDialog({
 								</article>
 							))}
 						</div>
-						<a
-							href={data.url}
-							target='_blank'
-							rel='noopener noreferrer'
-							className='btn btn-ghost btn-sm changelog-all'
-						>
-							Все обновления в Telegram ↗
-						</a>
+						{data.url && (
+							<a
+								href={data.url}
+								target='_blank'
+								rel='noopener noreferrer'
+								className='btn btn-ghost btn-sm changelog-all'
+							>
+								Все обновления в Telegram ↗
+							</a>
+						)}
 					</>
 				)}
 			</section>

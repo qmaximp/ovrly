@@ -1,7 +1,9 @@
 import { isAdminLogin } from '@/lib/admin'
 import { verifySession } from '@/lib/session'
 import {
+	addManualEntry,
 	loadChangelog,
+	removeManualEntry,
 	setChangelogChannel,
 } from '@/lib/changelog'
 import { normalizeTelegramChannel } from '@/lib/telegram'
@@ -36,11 +38,30 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
 	if (!adminLogin(req)) return json({ error: 'forbidden' }, 403)
-	let body: { channel?: string } = {}
+	let body: {
+		channel?: string
+		add?: { text?: string; url?: string; date?: string }
+		remove?: string
+	} = {}
 	try {
 		body = await req.json()
 	} catch {
 		return json({ error: 'bad json' }, 400)
+	}
+	if (body.remove) {
+		await removeManualEntry(String(body.remove))
+		return json(await loadChangelog())
+	}
+	if (body.add) {
+		try {
+			await addManualEntry(body.add)
+		} catch (e) {
+			return json(
+				{ error: (e as Error)?.message || 'Не удалось добавить запись' },
+				400,
+			)
+		}
+		return json(await loadChangelog())
 	}
 	const raw = String(body.channel || '').trim()
 	if (!raw) {

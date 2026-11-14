@@ -61,7 +61,13 @@ type AdminWidget = {
 type AdminChangelog = {
 	channel?: string
 	title?: string
-	entries?: { text: string; date: string; url: string; photo?: string }[]
+	entries?: {
+		id?: string
+		text: string
+		date: string
+		url: string
+		photo?: string
+	}[]
 	error?: string
 }
 
@@ -138,6 +144,8 @@ export default function AdminClient({
 	const [changelogData, setChangelogData] = useState<AdminChangelog | null>(null)
 	const [changelogBusy, setChangelogBusy] = useState(false)
 	const [changelogError, setChangelogError] = useState('')
+	const [manualText, setManualText] = useState('')
+	const [manualUrl, setManualUrl] = useState('')
 	const [streamers, setStreamers] = useState<StreamerEntry[]>([])
 	const [streamerThreshold, setStreamerThreshold] = useState(50)
 	const [streamerLogin, setStreamerLogin] = useState('')
@@ -249,6 +257,49 @@ export default function AdminClient({
 			setChangelogBusy(false)
 		}
 	}, [changelogChannel])
+
+	const addChangelogEntry = useCallback(async () => {
+		if (!manualText.trim() && !manualUrl.trim()) return
+		setChangelogBusy(true)
+		setChangelogError('')
+		try {
+			const res = await fetch('/api/admin/changelog', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					add: { text: manualText.trim(), url: manualUrl.trim() },
+				}),
+			})
+			const data = await res.json()
+			if (!res.ok) throw new Error(data?.error || 'Не удалось добавить запись')
+			setChangelogData(data)
+			setManualText('')
+			setManualUrl('')
+		} catch (e: any) {
+			setChangelogError(e?.message || 'Не удалось добавить запись')
+		} finally {
+			setChangelogBusy(false)
+		}
+	}, [manualText, manualUrl])
+
+	const removeChangelogEntry = useCallback(async (id: string) => {
+		setChangelogBusy(true)
+		setChangelogError('')
+		try {
+			const res = await fetch('/api/admin/changelog', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ remove: id }),
+			})
+			const data = await res.json()
+			if (!res.ok) throw new Error(data?.error || 'Не удалось удалить запись')
+			setChangelogData(data)
+		} catch (e: any) {
+			setChangelogError(e?.message || 'Не удалось удалить запись')
+		} finally {
+			setChangelogBusy(false)
+		}
+	}, [])
 
 	useEffect(() => {
 		if (adminTab === 'changelog') void loadChangelog()
@@ -1052,6 +1103,37 @@ export default function AdminClient({
 											</button>
 										)}
 									</div>
+									<div className='mt-4 rounded-xl border border-white/10 p-3'>
+										<p className='text-xs text-gray-400'>
+											Добавить запись вручную — для закрытых групп, куда
+											Telegram не отдаёт посты.
+										</p>
+										<textarea
+											value={manualText}
+											onChange={e => setManualText(e.target.value)}
+											rows={2}
+											placeholder='Текст обновления'
+											className='admin-input mt-2 w-full resize-y'
+										/>
+										<div className='mt-2 flex flex-wrap gap-2'>
+											<input
+												value={manualUrl}
+												onChange={e => setManualUrl(e.target.value)}
+												placeholder='https://t.me/ovrly_control/1'
+												className='admin-input min-w-[200px] flex-1'
+											/>
+											<button
+												className='btn btn-ghost btn-sm'
+												disabled={
+													changelogBusy ||
+													(!manualText.trim() && !manualUrl.trim())
+												}
+												onClick={() => void addChangelogEntry()}
+											>
+												Добавить
+											</button>
+										</div>
+									</div>
 									{changelogError && (
 										<p className='alert mt-3'>{changelogError}</p>
 									)}
@@ -1089,6 +1171,14 @@ export default function AdminClient({
 														>
 															Открыть в Telegram ↗
 														</a>
+													)}
+													{post.id && (
+														<button
+															onClick={() => void removeChangelogEntry(post.id!)}
+															className='ml-3 mt-2 text-xs text-red-400'
+														>
+															Удалить
+														</button>
 													)}
 												</div>
 											))}

@@ -2481,3 +2481,41 @@ body.obs-pane-moving { user-select: none; cursor: grabbing; }
 	.changelog-entry-head { flex-direction: column; align-items: flex-start; gap: 4px; }
 }
 
+
+.cabinet-changelog-btn {
+	border: 1px solid rgb(var(--c-accent2) / .45);
+	color: rgb(var(--c-accent2));
+	background: rgb(var(--c-panel) / .72);
+	letter-spacing: .055em;
+	text-transform: uppercase;
+	font-size: 11px;
+	font-weight: 700;
+}
+
+@media (min-width: 861px) {
+	.changelog-overlay {
+		align-items: flex-start;
+		justify-content: flex-end;
+		padding: 78px 24px 24px;
+		background: transparent;
+		backdrop-filter: none;
+	}
+	.changelog-dialog {
+		height: 100%;
+		max-height: none;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+		width: min(430px, 100%);
+		background: rgb(var(--c-panel) / .97);
+	}
+	.changelog-list {
+		overflow: auto;
+		min-height: 0;
+		padding-right: 4px;
+	}
+	.changelog-all { flex: 0 0 auto; }
+}
+.changelog-list {
+	flex: 1 1 auto;
+}

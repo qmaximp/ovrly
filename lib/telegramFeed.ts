@@ -24,6 +24,7 @@ export type TelegramChannel = {
 	subscribers: string
 	description: string
 	avatar: string
+	isGroup?: boolean
 	url: string
 	posts: TelegramPost[]
 	last?: TelegramPost
@@ -75,6 +76,11 @@ export function parseTelegramHtml(
 			break
 		}
 	}
+
+	const extraText = decodeEntities(
+		plainText(firstMatch(html, /<div class="tgme_page_extra">([^<]*)<\/div>/)),
+	)
+	const isGroup = /member/i.test(extraText)
 
 	const avatar =
 		firstMatch(
@@ -158,6 +164,7 @@ export function parseTelegramHtml(
 		subscribers,
 		description,
 		avatar,
+		isGroup,
 		url: `https://t.me/${channel}`,
 		posts,
 		last: posts[posts.length - 1],
@@ -170,7 +177,7 @@ export async function loadTelegramChannel(
 ): Promise<TelegramChannel> {
 	const channel = normalizeTelegramChannel(rawChannel)
 	if (!channel) throw new Error('Укажите Telegram-канал')
-	const key = `${channel}:v4`
+	const key = `${channel}:v5`
 	if (!opts.fresh) {
 		const hit = cache.get(key)
 		if (hit && Date.now() - hit.at < CACHE_TTL) return hit.data
