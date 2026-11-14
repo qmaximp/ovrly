@@ -9005,18 +9005,6 @@ function PropertyEditor({
 							/>
 						</button>
 					</div>
-					<div className='flex items-center justify-between text-xs text-gray-400'>
-						<span>Светлая тема</span>
-						<button
-							onClick={() => update({ telegramLight: !el.telegramLight })}
-							className={`w-9 h-5 rounded-full transition-colors relative ${el.telegramLight ? 'bg-green-500' : 'bg-gray-600'}`}
-						>
-							<span
-								className='absolute top-[2px] w-4 h-4 bg-white rounded-full transition-all'
-								style={{ left: el.telegramLight ? 18 : 2 }}
-							/>
-						</button>
-					</div>
 					<div className='border-t border-border pt-2 space-y-2'>
 						<div className='flex items-center justify-between text-xs text-gray-400'>
 							<span>Длительность показа</span>
