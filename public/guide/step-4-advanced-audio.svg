@@ -10,16 +10,16 @@
   <rect width="720" height="420" fill="url(#bg4)"/>
   <g opacity=".55" fill="#9db0c4" font-size="10"><text x="18" y="15">Фильтры</text><text x="80" y="15">Взаимодействовать</text><text x="210" y="15">Обновить</text></g>
   <rect x="8" y="26" width="704" height="386" rx="9" fill="url(#mix4)" stroke="#313b48"/>
-  <text x="22" y="49" font-size="17" font-weight="700" fill="#eef4fb">Микшер</text>
+  <text x="22" y="49" font-size="17" font-weight="700" fill="#eef4fb">Микшер звука</text>
 
   <g font-size="8.5" fill="#9aabba">
-    <text x="24" y="72">Global</text><text x="110" y="72">Global</text><text x="196" y="72">Active</text><text x="282" y="72">Active</text><text x="368" y="72">Active</text>
+    <text x="24" y="72">Global</text><text x="110" y="72">Global</text><text x="196" y="72">Active</text><text x="282" y="72">Active</text><text x="368" y="72">Active</text><text x="454" y="72">Active</text>
   </g>
   <g font-size="8" fill="#c6d2df">
-    <text x="24" y="89">Звук раб. стола</text><text x="110" y="89">Микр/дон</text><text x="196" y="89">dis</text><text x="282" y="89">ovrly</text><text x="368" y="89">муз</text>
+    <text x="24" y="89">Звук раб. стола</text><text x="110" y="89">Микр/дон</text><text x="196" y="89">dis</text><text x="282" y="89">ovrly</text><text x="368" y="89">муз</text><text x="454" y="89">Мультимедиа</text>
   </g>
   <g font-size="8" fill="#dfe9f3">
-    <text x="24" y="102">0.0 dB</text><text x="110" y="102">0.0 dB</text><text x="196" y="102">0.0 dB</text><text x="282" y="102">-13.9 dB</text><text x="368" y="102">0.0 dB</text>
+    <text x="24" y="102">0.0 dB</text><text x="110" y="102">0.0 dB</text><text x="196" y="102">0.0 dB</text><text x="282" y="102">-13.9 dB</text><text x="368" y="102">0.0 dB</text><text x="454" y="102">0.0 dB</text>
   </g>
 
   <g>
@@ -27,12 +27,12 @@
     <rect x="110" y="112" width="12" height="224" rx="5" fill="#0e1319"/><rect x="113" y="124" width="6" height="200" rx="3" fill="url(#meter4)" opacity=".92"/>
     <rect x="196" y="112" width="12" height="224" rx="5" fill="#0e1319"/><rect x="199" y="124" width="6" height="200" rx="3" fill="url(#meter4)" opacity=".92"/>
     <rect x="282" y="112" width="12" height="224" rx="5" fill="#0e1319"/><rect x="285" y="124" width="6" height="200" rx="3" fill="url(#meter4)" opacity=".92"/>
-    <rect x="368" y="112" width="12" height="224" rx="5" fill="#0e1319"/><rect x="371" y="164" width="6" height="160" rx="3" fill="url(#meter4)" opacity=".92"/>
+    <rect x="368" y="112" width="12" height="224" rx="5" fill="#0e1319"/><rect x="371" y="164" width="6" height="160" rx="3" fill="url(#meter4)" opacity=".92"/><rect x="454" y="112" width="12" height="224" rx="5" fill="#0e1319"/><rect x="457" y="124" width="6" height="200" rx="3" fill="url(#meter4)" opacity=".92"/>
   </g>
   <g fill="#fff">
-    <rect x="25" y="110" width="10" height="4" rx="2" opacity=".9"/><rect x="111" y="110" width="10" height="4" rx="2" opacity=".9"/><rect x="197" y="110" width="10" height="4" rx="2" opacity=".9"/><rect x="283" y="110" width="10" height="4" rx="2" opacity=".9"/><rect x="369" y="150" width="10" height="4" rx="2" opacity=".9"/>
+    <rect x="25" y="110" width="10" height="4" rx="2" opacity=".9"/><rect x="111" y="110" width="10" height="4" rx="2" opacity=".9"/><rect x="197" y="110" width="10" height="4" rx="2" opacity=".9"/><rect x="283" y="110" width="10" height="4" rx="2" opacity=".9"/><rect x="369" y="150" width="10" height="4" rx="2" opacity=".9"/><rect x="455" y="110" width="10" height="4" rx="2" opacity=".9"/>
   </g>
-  <g fill="#93a6b8" font-size="9"><text x="25" y="356">🔊</text><text x="111" y="356">🔊</text><text x="197" y="356">🔊</text><text x="283" y="356">🔊</text><text x="369" y="356">🔇</text></g>
+  <g fill="#93a6b8" font-size="9"><text x="25" y="356">🔊</text><text x="111" y="356">🔊</text><text x="197" y="356">🔊</text><text x="283" y="356">🔊</text><text x="369" y="356">🔇</text><text x="455" y="356">🔊</text></g>
   <g font-size="7" fill="#778a9c">
     <text x="40" y="120">0</text><text x="40" y="145">-6</text><text x="40" y="170">-12</text><text x="40" y="195">-18</text><text x="40" y="220">-24</text><text x="40" y="245">-30</text><text x="40" y="270">-36</text><text x="40" y="295">-42</text><text x="40" y="320">-48</text><text x="40" y="345">-60</text>
   </g>
