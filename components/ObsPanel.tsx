@@ -798,6 +798,21 @@ export default function ObsPanel({
 			}
 		}
 		if (!Object.keys(next).length) return
+		// старое сохранение делалось с зазором 8 px, а в макете 6: подтягиваем
+		// соседние панели, иначе после перезагрузки остаётся кривой зазор
+		const row = PANE_KEYS.filter(k => next[k])
+			.slice()
+			.sort((a, b) => next[a].x - next[b].x)
+		const originalX = Object.fromEntries(row.map(k => [k, next[k].x]))
+		let shift = 0
+		for (let i = 1; i < row.length; i++) {
+			const prev = next[row[i - 1]]
+			const cur = next[row[i]]
+			if (cur.y !== prev.y || cur.h !== prev.h) continue
+			const gap = originalX[row[i]] - (originalX[row[i - 1]] + prev.w)
+			if (gap === 8) shift += 2
+			cur.x = originalX[row[i]] - shift
+		}
 		geoRef.current = next
 		setGeo(next)
 	}, [])
@@ -847,7 +862,7 @@ export default function ObsPanel({
 	// прилипание: край панели цепляется к краям соседей и рабочей области
 	const SNAP = 10
 	// обязательный зазор между панелями — вплотную не прилипаем
-	const GAP = 8
+	const GAP = 6
 	const snapVal = (v: number, targets: number[]) => {
 		let best = v
 		let dist = SNAP + 1
