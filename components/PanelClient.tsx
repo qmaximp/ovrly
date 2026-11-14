@@ -13,6 +13,13 @@ import WidgetFrame from '@/components/WidgetFrame'
 import TelegramCard from '@/components/TelegramCard'
 import { normalizeTelegramChannel } from '@/lib/telegram'
 import {
+	MB,
+	MediaFileError,
+	SOUND_MAX_MB,
+	VIDEO_MAX_MB,
+	checkMediaFile,
+} from '@/lib/mediaLimits'
+import {
 	ACCENT_PRESETS,
 	SURFACE_PRESETS,
 	accentPaletteFromCss,
@@ -123,9 +130,14 @@ const WidgetStudio = dynamic(() => import('@/components/WidgetStudio'), {
 const CANVAS_W = 1920
 const CANVAS_H = 1080
 
-// Файл с ПК: сначала пробуем R2 (сервер вернёт URL), иначе — прежний base64.
-// 501 от /api/media означает, что R2 не настроен: панель работает как раньше.
-async function uploadMediaFile(file: File): Promise<string | null> {
+// Файл с ПК: сначала пробуем файловое хранилище (сервер вернёт URL).
+// 501 означает, что хранилище не настроено: в разработке можно base64,
+// но в проде это запрещено — медиа не должно возвращаться в состояние комнаты.
+type UploadResult =
+	| { ok: true; url: string }
+	| { ok: false; status: number; error?: string; maxBytes?: number }
+
+async function uploadMediaFile(file: File): Promise<UploadResult> {
 	try {
 		const qs = new URLSearchParams({ name: file.name, type: file.type || '' })
 		const res = await fetch(`/api/media?${qs}`, {
@@ -133,11 +145,18 @@ async function uploadMediaFile(file: File): Promise<string | null> {
 			headers: { 'Content-Type': file.type || 'application/octet-stream' },
 			body: file,
 		})
-		if (!res.ok) return null
-		const data = (await res.json()) as { url?: unknown }
-		return typeof data?.url === 'string' ? data.url : null
+		const data = (await res.json().catch(() => null)) as
+			| { url?: unknown; error?: string; maxBytes?: number }
+			| null
+		if (res.ok && typeof data?.url === 'string') return { ok: true, url: data.url }
+		return {
+			ok: false,
+			status: res.status,
+			error: data?.error,
+			maxBytes: data?.maxBytes,
+		}
 	} catch {
-		return null
+		return { ok: false, status: 0, error: 'network' }
 	}
 }
 
@@ -150,8 +169,42 @@ function fileToDataUrl(file: File): Promise<string> {
 	})
 }
 
+// base64 без сервера допустим только для небольших файлов и только в dev:
+// иначе одна комната снова раздуется до сотен мегабайт
+const DATA_URL_FALLBACK_MAX = 3 * MB
+
 async function fileToSrc(file: File): Promise<string> {
-	return (await uploadMediaFile(file)) || fileToDataUrl(file)
+	// размер проверяем до отправки, чтобы не ждать загрузку ради 413
+	checkMediaFile(file)
+	const uploaded = await uploadMediaFile(file)
+	if (uploaded.ok) return uploaded.url
+
+	if (uploaded.status === 413) {
+		const limit = uploaded.maxBytes ? Math.round(uploaded.maxBytes / MB) : null
+		throw new MediaFileError(
+			`Файл «${file.name}» не помещается${limit ? ` в ${limit} МБ` : ''}. Сожмите его или добавьте ссылкой.`,
+		)
+	}
+	if (uploaded.status === 415) {
+		throw new MediaFileError(
+			`Формат файла «${file.name}» не поддерживается. Используйте PNG, JPEG, WebP, MP4, WebM, MP3 или WAV.`,
+		)
+	}
+	// хранилище не настроено (501) — в разработке можно как раньше, но не для тяжёлых файлов
+	if (uploaded.status === 501 && file.size <= DATA_URL_FALLBACK_MAX) {
+		return fileToDataUrl(file)
+	}
+	if (uploaded.status === 501) {
+		throw new MediaFileError(
+			'Хранилище файлов не настроено на сервере. Добавьте файл ссылкой или сообщите администратору.',
+		)
+	}
+	if (uploaded.status === 401) {
+		throw new MediaFileError('Сессия истекла — обновите страницу и войдите снова.')
+	}
+	throw new MediaFileError(
+		`Не удалось загрузить «${file.name}». Попробуйте ещё раз или добавьте ссылкой.`,
+	)
 }
 
 type Emote = {
@@ -2304,7 +2357,16 @@ export default function PanelClient({
 					drop()
 					return
 				}
-				void onPick(f).finally(drop)
+				// ошибки лимитов/загрузки показываем один раз и не роняем панель
+				void onPick(f)
+					.catch(err => {
+						alert(
+							err instanceof MediaFileError
+								? err.message
+								: 'Не удалось добавить файл. Попробуйте ещё раз.',
+						)
+					})
+					.finally(drop)
 			})
 			document.body.appendChild(input)
 			input.click()
@@ -2343,8 +2405,8 @@ export default function PanelClient({
 
 	const addVideoPC = useCallback(() => {
 		void pickFile('video/*', async f => {
-			if (f.size > 40 * 1024 * 1024) {
-				alert('Файл больше 40 МБ. Лучше использовать ссылку.')
+			if (f.size > VIDEO_MAX_MB * MB) {
+				alert(`Файл больше ${VIDEO_MAX_MB} МБ. Лучше использовать ссылку.`)
 				return
 			}
 			const src = await fileToSrc(f)
@@ -2395,8 +2457,8 @@ export default function PanelClient({
 	// На оверлее он не рисуется — это звуковая кнопка, которой управляют из свойств
 	const addAudioPC = useCallback(() => {
 		void pickFile('audio/*', async f => {
-			if (f.size > 12 * 1024 * 1024) {
-				alert('Звук больше 12 МБ. Лучше использовать ссылку.')
+			if (f.size > SOUND_MAX_MB * MB) {
+				alert(`Звук больше ${SOUND_MAX_MB} МБ. Лучше использовать ссылку.`)
 				return
 			}
 			const src = await fileToSrc(f)
@@ -2614,7 +2676,8 @@ export default function PanelClient({
 	const handleDropFiles = useCallback(
 		async (files: File[]) => {
 			for (const f of files) {
-				if (isImageFile(f)) {
+				try {
+					if (isImageFile(f)) {
 					const src = await fileToSrc(f)
 					const size = await getImageSize(src)
 					const k = Math.min(1, 1280 / Math.max(size.w, size.h))
@@ -2630,8 +2693,8 @@ export default function PanelClient({
 						text: '',
 					})
 				} else if (isVideoFile(f)) {
-					if (f.size > 40 * 1024 * 1024) {
-						alert(`«${f.name}» больше 40 МБ — добавьте видео по ссылке.`)
+					if (f.size > VIDEO_MAX_MB * MB) {
+						alert(`«${f.name}» больше ${VIDEO_MAX_MB} МБ — добавьте видео по ссылке.`)
 						continue
 					}
 					const src = await fileToSrc(f)
@@ -2645,8 +2708,8 @@ export default function PanelClient({
 						text: '',
 					})
 				} else if (isAudioFile(f)) {
-					if (f.size > 12 * 1024 * 1024) {
-						alert(`«${f.name}» больше 12 МБ — добавьте звук по ссылке.`)
+					if (f.size > SOUND_MAX_MB * MB) {
+						alert(`«${f.name}» больше ${SOUND_MAX_MB} МБ — добавьте звук по ссылке.`)
 						continue
 					}
 					const src = await fileToSrc(f)
@@ -2673,6 +2736,13 @@ export default function PanelClient({
 					)
 				} else {
 					alert(`«${f.name}» — это не картинка, не видео и не звук.`)
+				}
+				} catch (err) {
+					alert(
+						err instanceof MediaFileError
+							? err.message
+							: `Не удалось добавить «${f.name}». Попробуйте ещё раз.`,
+					)
 				}
 			}
 		},
@@ -8568,8 +8638,12 @@ function TimerSoundControls({
 						soundDuration: TRIM_MAX,
 						soundVolume: volume,
 					})
-				} catch {
-					alert('Не удалось прочитать файл. Попробуйте MP3, WAV или OGG.')
+				} catch (err) {
+					alert(
+						err instanceof MediaFileError
+							? err.message
+							: 'Не удалось прочитать файл. Попробуйте MP3, WAV или OGG.',
+					)
 				} finally {
 					setBusy(false)
 					drop()

@@ -117,15 +117,37 @@ function cleanObsCmd(d) {
 // При вытеснении комната сначала сохраняется на диск — вернётся, когда в неё зайдут снова
 const MAX_ROOMS = 200
 
-// предохранитель по памяти: медиа «с ПК» лежат в памяти как base64, одна комната
-// не должна занять всю RAM сервера. Для хостинга ~2 ГБ 128 МБ на комнату —
-// запас под несколько тяжёлых оверлеев
-const MAX_ROOM_BYTES = 128 * 1024 * 1024
+// предохранитель по памяти: медиа «с ПК» лежат в файлах, но старые комнаты ещё
+// могут содержать base64. Для хостинга ~2 ГБ держим 24 МБ на комнату — это
+// несколько десятков картинок и запас под оверлеи. Переопределяется env.
+const MAX_ROOM_MB = Number(process.env.MAX_ROOM_MB || 24)
+const MAX_ROOM_BYTES = MAX_ROOM_MB * 1024 * 1024
 
 // общий предел памяти на все комнаты: при превышении выгружаем самые давние
-// комнаты без подключений (их состояние остаётся на диске). 768 МБ оставляют
-// около гигабайта под Node/Next, GC и временные копии при сохранении/рассылке
-const MAX_TOTAL_ROOM_BYTES = 768 * 1024 * 1024
+// комнаты без подключений (их состояние остаётся на диске)
+const MAX_TOTAL_ROOM_MB = Number(process.env.MAX_TOTAL_ROOM_MB || 320)
+const MAX_TOTAL_ROOM_BYTES = MAX_TOTAL_ROOM_MB * 1024 * 1024
+
+// Комнаты, созданные до переноса base64 в файлы, бывают больше нового лимита.
+// Им разрешаем сохраняться, но не расти больше чем на 5%: иначе правки встанут
+// намертво, пока медиа не мигрировано.
+function roomLimit(currentBytes) {
+	return currentBytes > MAX_ROOM_BYTES
+		? Math.round(currentBytes * 1.05)
+		: MAX_ROOM_BYTES
+}
+
+// мягкое предупреждение в панель при заполнении комнаты (не чаще раза в 10 минут)
+function warnRoomLimit(io, rec, room, size) {
+	if (size < MAX_ROOM_BYTES * 0.75 || size > MAX_ROOM_BYTES) return
+	const now = Date.now()
+	if (now - (rec.limitWarnAt || 0) < 10 * 60 * 1000) return
+	rec.limitWarnAt = now
+	io.to(room).emit('server:notice', {
+		text: `В комнате занято ${Math.round(size / 1024 / 1024)} МБ из ${MAX_ROOM_MB} МБ. Большие файлы лучше добавлять ссылкой.`,
+		at: now,
+	})
+}
 
 // свой звук таймера хранится в стейте как base64; 3 МБ base64 — примерно 2,2 МБ файла.
 // Клиент ограничивает файл 2 МБ, сервер дополнительно не даёт залить больше
@@ -478,7 +500,9 @@ function noteEvent(room, login, event) {
 }
 
 // как часто сбрасывать изменения комнат на диск
-const ROOM_FLUSH_MS = 5000
+// 20 секунд вместо 5: большая комната перезаписывается реже, WAL и I/O спокойнее.
+// Потерять при аварии максимум последние 20 секунд правок — приемлемо.
+const ROOM_FLUSH_MS = 20000
 
 // проверка cookie-сессии (payload.sig, как в lib/session.ts). Логин из query больше
 // не считается доказательством: иначе отозванный модератор мог переподключиться
@@ -1552,7 +1576,7 @@ app.prepare().then(() => {
 				current -
 				(existing >= 0 ? roomStore.roomBytes({ elements: [state.elements[existing]] }) : 0) +
 				roomStore.roomBytes({ elements: [el] })
-			if (withNew > MAX_ROOM_BYTES) {
+			if (withNew > roomLimit(current)) {
 				console.log(
 					'[io] комната переполнена, элемент не добавлен:',
 					room.slice(0, 12),
@@ -1604,6 +1628,7 @@ app.prepare().then(() => {
 			if (existing >= 0) state.elements[existing] = el
 			else state.elements.push(el)
 			io.to(room).emit('element:added', el)
+			warnRoomLimit(io, roomRec, room, withNew)
 			if (el.type === 'widget') syncTwitchChat(room, state)
 			void trimMemory()
 		})
@@ -1689,13 +1714,17 @@ app.prepare().then(() => {
 			if (partial.src !== undefined || partial.soundSrc !== undefined) {
 				const before = roomStore.roomBytes({ elements: [oldEl] })
 				const after = roomStore.roomBytes({ elements: [{ ...oldEl, ...partial }] })
-				if (roomStore.roomBytes(state) - before + after > MAX_ROOM_BYTES) {
+				const cur = roomStore.roomBytes(state)
+				if (cur - before + after > roomLimit(cur)) {
 					console.log('[io] комната переполнена, обновление отклонено:', room.slice(0, 12))
 					return
 				}
 			}
 			state.elements[idx] = { ...oldEl, ...partial }
 			socket.broadcast.to(room).emit('element:updated', state.elements[idx])
+			if (partial.src !== undefined || partial.soundSrc !== undefined) {
+				warnRoomLimit(io, roomRec, room, roomStore.roomBytes(state))
+			}
 			if (partial.widget !== undefined) syncTwitchChat(room, state)
 		})
 
@@ -1933,14 +1962,17 @@ app.prepare().then(() => {
 			if (!def) return
 			state.widgets = state.widgets || {}
 			const old = state.widgets[def.id]
+			const before = roomStore.roomBytes(state)
 			state.widgets[def.id] = def
-			if (roomStore.roomBytes(state) > MAX_ROOM_BYTES) {
+			const size = roomStore.roomBytes(state)
+			if (size > roomLimit(before)) {
 				if (old) state.widgets[def.id] = old
 				else delete state.widgets[def.id]
 				console.log('[io] виджет не сохранён: комната переполнена')
 				return
 			}
 			io.to(room).emit('widget:updated', def)
+			warnRoomLimit(io, roomRec, room, size)
 		})
 
 		socket.on('widget:delete', id => {
