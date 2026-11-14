@@ -937,6 +937,8 @@ export default function PanelClient({
 				crop?: import('@/lib/crop').Crop | null
 				flipH?: boolean
 				flipV?: boolean
+				drawW?: number
+				drawH?: number
 			}) =>
 				setState(p => ({
 					...p,
@@ -951,6 +953,8 @@ export default function PanelClient({
 									...(d.crop !== undefined ? { crop: d.crop ?? undefined } : {}),
 									...(typeof d.flipH === 'boolean' ? { flipH: d.flipH } : {}),
 									...(typeof d.flipV === 'boolean' ? { flipV: d.flipV } : {}),
+									...(typeof d.drawW === 'number' ? { drawW: d.drawW } : {}),
+									...(typeof d.drawH === 'number' ? { drawH: d.drawH } : {}),
 								}
 							: e,
 					),
@@ -1253,8 +1257,15 @@ export default function PanelClient({
 		(id: string, partial: Partial<StreamElement>) => {
 			remember()
 			// новый источник — старая обрезка к нему не относится
-			const patch =
+			let patch =
 				partial.src !== undefined ? { ...partial, crop: undefined } : partial
+			const cur = stateRef.current.elements.find(e => e.id === id)
+			if (
+				cur?.type === 'draw' &&
+				cur.drawW === undefined &&
+				(partial.width !== undefined || partial.height !== undefined)
+			)
+				patch = { ...patch, drawW: cur.width, drawH: cur.height }
 			setState(p => ({
 				...p,
 				elements: p.elements.map(e => (e.id === id ? { ...e, ...patch } : e)),
@@ -3660,6 +3671,8 @@ export default function PanelClient({
 		crop?: Crop
 		flipH?: boolean
 		flipV?: boolean
+		drawW?: number
+		drawH?: number
 	} | null>(null)
 
 	const handleResizeStart = (
@@ -3882,6 +3895,10 @@ export default function PanelClient({
 				y = Math.round(ncy - height / 2)
 			}
 			const cropOut = crop ?? null
+			const drawBaseW =
+				orig.type === 'draw' ? (orig.drawW ?? orig.width) : undefined
+			const drawBaseH =
+				orig.type === 'draw' ? (orig.drawH ?? orig.height) : undefined
 			paintGeometry(orig.id, x, y, width, height, {
 				crop: cropOut,
 				rot: orig.rotation,
@@ -3897,6 +3914,8 @@ export default function PanelClient({
 				crop: cropOut ?? undefined,
 				flipH,
 				flipV,
+				drawW: drawBaseW,
+				drawH: drawBaseH,
 			}
 			const now = performance.now()
 			if (now - resizeThrottleRef.current >= 33) {
@@ -3910,6 +3929,9 @@ export default function PanelClient({
 					crop: cropOut,
 					flipH,
 					flipV,
+					...(drawBaseW !== undefined
+						? { drawW: drawBaseW, drawH: drawBaseH }
+						: {}),
 				})
 			}
 		},
@@ -3939,6 +3961,9 @@ export default function PanelClient({
 									crop: lr.crop,
 									flipH: lr.flipH,
 									flipV: lr.flipV,
+									...(lr.drawW !== undefined
+										? { drawW: lr.drawW, drawH: lr.drawH }
+										: {}),
 								}
 							: el,
 					),
@@ -4362,6 +4387,8 @@ export default function PanelClient({
 				y,
 				width,
 				height,
+				drawW: width,
+				drawH: height,
 				points: elStrokes[0].points,
 				strokes: elStrokes,
 				strokeColor: elStrokes[0].color,
@@ -8028,7 +8055,7 @@ function ElementThumb({ el }: { el: StreamElement }) {
 		return (
 			<span className='absolute inset-0 block bg-[#14141c]'>
 				<svg
-					viewBox={`0 0 ${Math.max(1, el.width)} ${Math.max(1, el.height)}`}
+					viewBox={`0 0 ${Math.max(1, el.drawW ?? el.width)} ${Math.max(1, el.drawH ?? el.height)}`}
 					preserveAspectRatio='none'
 					className='w-full h-full'
 				>
@@ -8754,7 +8781,7 @@ function PreviewElementInner({
 	if (el.type === 'draw')
 		return (
 			<svg
-				viewBox={`0 0 ${Math.max(1, el.width)} ${Math.max(1, el.height)}`}
+				viewBox={`0 0 ${Math.max(1, el.drawW ?? el.width)} ${Math.max(1, el.drawH ?? el.height)}`}
 				preserveAspectRatio='none'
 				className='w-full h-full pointer-events-none'
 			>

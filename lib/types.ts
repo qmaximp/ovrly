@@ -121,6 +121,10 @@ export interface StreamElement {
   points?: [number, number][]
   // несколько штрихов в одном рисунке (цвет и толщина у каждого свои)
   strokes?: DrawStroke[]
+  // базовые размеры рисунка (в этих координатах хранятся точки); при ресайзе
+  // меняются width/height, а точки масштабируются SVG-вьюпортом
+  drawW?: number
+  drawH?: number
   // Telegram-канал: карточка последнего поста для оверлея
   telegramChannel?: string;
   telegramQr?: boolean;

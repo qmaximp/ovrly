@@ -238,7 +238,11 @@ function cleanDrawStrokes(raw, w, h) {
 function cleanDrawElement(el) {
 	const w = Math.max(4, Math.min(8000, Number(el.width) || 4))
 	const h = Math.max(4, Math.min(8000, Number(el.height) || 4))
-	const strokes = cleanDrawStrokes(el.strokes, w, h)
+	const baseW = Math.max(4, Math.min(8000, Number(el.drawW) || w))
+	const baseH = Math.max(4, Math.min(8000, Number(el.drawH) || h))
+	if (el.drawW !== undefined) el.drawW = baseW
+	if (el.drawH !== undefined) el.drawH = baseH
+	const strokes = cleanDrawStrokes(el.strokes, baseW, baseH)
 	if (strokes) {
 		el.strokes = strokes
 		el.points = strokes[0].points
@@ -246,7 +250,7 @@ function cleanDrawElement(el) {
 		el.strokeWidth = strokes[0].width
 		return true
 	}
-	const points = cleanDrawPoints(el.points, w, h)
+	const points = cleanDrawPoints(el.points, baseW, baseH)
 	if (!points) return false
 	el.points = points
 	delete el.strokes
@@ -1733,6 +1737,14 @@ app.prepare().then(() => {
 			const points = pointsProvided
 				? cleanDrawPoints(data.points, width, height)
 				: null
+			const drawWProvided = typeof data?.drawW === 'number'
+			const drawHProvided = typeof data?.drawH === 'number'
+			const drawW = drawWProvided
+				? Math.max(4, Math.min(8000, Number(data.drawW) || 4))
+				: null
+			const drawH = drawHProvided
+				? Math.max(4, Math.min(8000, Number(data.drawH) || 4))
+				: null
 			if (idx >= 0) {
 				const lock = roomRec.locks.get(id)
 				const now = Date.now()
@@ -1757,6 +1769,8 @@ app.prepare().then(() => {
 				if (y !== null) el.y = y
 				el.width = width
 				el.height = height
+				if (drawWProvided && drawW !== null) el.drawW = drawW
+				if (drawHProvided && drawH !== null) el.drawH = drawH
 				if (pointsProvided && points) el.points = points
 				if (cropProvided) el.crop = crop
 				const flipProvided =
@@ -1771,6 +1785,8 @@ app.prepare().then(() => {
 					height,
 					...(cropProvided ? { crop } : {}),
 					...(pointsProvided && points ? { points } : {}),
+					...(drawWProvided && drawW !== null ? { drawW } : {}),
+					...(drawHProvided && drawH !== null ? { drawH } : {}),
 					...(flipProvided
 						? { flipH: !!el.flipH, flipV: !!el.flipV }
 						: {}),

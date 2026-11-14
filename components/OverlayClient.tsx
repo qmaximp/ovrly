@@ -131,6 +131,8 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 				flipH?: boolean
 				flipV?: boolean
 				points?: [number, number][]
+				drawW?: number
+				drawH?: number
 			}) =>
 				setState(p => ({
 					...p,
@@ -146,6 +148,8 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 									...(typeof d.flipH === 'boolean' ? { flipH: d.flipH } : {}),
 									...(typeof d.flipV === 'boolean' ? { flipV: d.flipV } : {}),
 									...(d.points ? { points: d.points } : {}),
+									...(typeof d.drawW === 'number' ? { drawW: d.drawW } : {}),
+									...(typeof d.drawH === 'number' ? { drawH: d.drawH } : {}),
 								}
 							: e,
 					),
@@ -586,7 +590,7 @@ function OverlayElement({ el, ytStarted }: { el: StreamElement; ytStarted: boole
 		return (
 			<div style={style}>
 				<svg
-					viewBox={`0 0 ${Math.max(1, el.width)} ${Math.max(1, el.height)}`}
+					viewBox={`0 0 ${Math.max(1, el.drawW ?? el.width)} ${Math.max(1, el.drawH ?? el.height)}`}
 					preserveAspectRatio='none'
 					style={{ width: '100%', height: '100%', display: 'block' }}
 				>
