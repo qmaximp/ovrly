@@ -4437,7 +4437,7 @@ export default function PanelClient({
 	// размер — Twitch-плеер не перерисовывается при зуме и не глючит
 	const previewPill = (
 		<div
-			className={`absolute right-4 bottom-3 z-10 flex items-center gap-2 bg-panel border border-border rounded-full pl-3 pr-3 py-1.5 pointer-events-auto ${betaUI && !isMobile ? 'preview-pill' : ''}`}
+			className='absolute right-4 bottom-3 z-10 flex items-center gap-2 bg-panel border border-border rounded-full pl-3 pr-3 py-1.5 pointer-events-auto'
 			// ниже окна чата (z-30): Twitch блокирует чат владельцу/модератору,
 			// если на странице есть элементы с z-index выше iframe, даже без перекрытия
 			style={{ boxShadow: '0 2px 10px rgba(0,0,0,.25)', zIndex: 20 }}
@@ -5958,7 +5958,7 @@ export default function PanelClient({
 						{/* минималистичное меню: нижнее меню добавления элементов */}
 						{betaUI && !isMobile && (
 							<div
-								className='absolute bottom-4 left-1/2 -translate-x-1/2 z-20'
+								className='desk-dock absolute bottom-4 left-1/2 -translate-x-1/2 z-20'
 								data-nopan='1'
 								onPointerDown={e => e.stopPropagation()}
 							>

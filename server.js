@@ -1677,6 +1677,14 @@ app.prepare().then(() => {
 				return
 			}
 			if ('crop' in partial) partial.crop = cleanCrop(partial.crop)
+			if (
+				oldEl.type === 'draw' &&
+				!oldEl.drawW &&
+				(partial.width !== undefined || partial.height !== undefined)
+			) {
+				partial.drawW = oldEl.width
+				partial.drawH = oldEl.height
+			}
 			// медиа можно менять и через update: проверяем, что комната не переполнится
 			if (partial.src !== undefined || partial.soundSrc !== undefined) {
 				const before = roomStore.roomBytes({ elements: [oldEl] })
@@ -1765,6 +1773,14 @@ app.prepare().then(() => {
 				}
 				const el = state.elements[idx]
 				if (pointsProvided && el.type === 'draw' && !points) return
+				if (
+					el.type === 'draw' &&
+					!el.drawW &&
+					(data.width !== undefined || data.height !== undefined)
+				) {
+					el.drawW = el.width
+					el.drawH = el.height
+				}
 				if (x !== null) el.x = x
 				if (y !== null) el.y = y
 				el.width = width

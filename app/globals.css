@@ -2385,6 +2385,6 @@ body.obs-pane-moving { user-select: none; cursor: grabbing; }
 
 @property --rev { syntax: '<percentage>'; inherits: false; initial-value: 0%; }
 
-@media (max-width: 1280px) {
-	.preview-pill { bottom: 64px; }
+@media (max-width: 1050px) {
+	.desk-dock { bottom: 64px; }
 }

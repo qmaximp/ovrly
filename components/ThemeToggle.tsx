@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { applySurfaceForTheme } from '@/lib/theme'
 
 type Theme = 'dark' | 'light'
 
@@ -26,6 +27,7 @@ export default function ThemeToggle({ className = '' }: { className?: string }) 
 		document
 			.querySelector('meta[name="theme-color"]')
 			?.setAttribute('content', next === 'light' ? '#f3f0e8' : '#070b12')
+		applySurfaceForTheme(next)
 		setTheme(next)
 		window.setTimeout(() => root.classList.remove('theme-anim'), 450)
 	}
