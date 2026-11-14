@@ -2606,7 +2606,7 @@ body.obs-pane-moving { user-select: none; cursor: grabbing; }
 @media (min-width: 861px) and (min-height: 621px) {
 	.changelog-dialog {
 		top: 16px;
-		bottom: 66px;
+		bottom: 80px;
 		right: 24px;
 	}
 }
@@ -2646,4 +2646,22 @@ body.obs-pane-moving { user-select: none; cursor: grabbing; }
 }
 .changelog-bottom-btn {
 	width: 188px;
+}
+.changelog-close { display: none; }
+.changelog-bottom-btn {
+	position: fixed;
+	right: 78px;
+	bottom: 16px;
+	width: 188px;
+	height: 36px;
+	margin: 0;
+	z-index: 130;
+}
+@media (min-width: 861px) and (min-height: 621px) {
+	.changelog-dialog {
+		top: 8px;
+		right: 0;
+		bottom: 80px;
+		width: 344px;
+	}
 }
