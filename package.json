@@ -16,7 +16,8 @@
     "dev": "node server.js --dev",
     "build": "next build",
     "start": "node server.js --prod",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "telegram-bridge": "node --env-file=.env.local scripts/telegram-bridge.mjs"
   },
   "dependencies": {
     "@codemirror/lang-css": "^6.3.1",

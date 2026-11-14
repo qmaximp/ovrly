@@ -1152,9 +1152,11 @@ export default function AdminClient({
 										</p>
 										{changelogData?.bot?.webhook && (
 											<p className='admin-meta mt-1'>
-												С сервера api.telegram.org недоступен (блокировка
-												провайдера), поэтому опрос не используется — Telegram
-												присылает сообщения на наш адрес сам.
+												Сервер не может сам обратиться к Telegram, а
+												Telegram — к серверу (блокировка у
+												хостинга). Запустите на своём ПК{' '}
+												<code>npm run telegram-bridge</code> — мост
+												пересылает сообщения группы на сайт.
 											</p>
 										)}
 										{changelogData?.bot?.lastError && (
