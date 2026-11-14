@@ -31,7 +31,7 @@ export async function GET(req: Request) {
 				'user-agent':
 					'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36',
 			},
-			signal: AbortSignal.timeout(9000),
+			signal: AbortSignal.timeout(20000),
 			cache: 'no-store',
 		})
 			if (!res.ok) continue
