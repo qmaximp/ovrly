@@ -192,6 +192,21 @@ su - ovrly -c 'cd ~/ovrly && node --env-file=.env.local scripts/migrate-json-to-
 6. После проверки можно выставить `ROOMS_JSON_FALLBACK=0` и перезапустить:
    JSON больше не будет подстраховывать комнаты, источник — Postgres.
 
+### Обновление на сервере
+
+```bash
+cd ~/ovrly
+git pull origin main
+npm ci
+# схема идемпотентна: добавляет недостающие колонки (obs_access и т.п.)
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/schema.sql
+npm run build
+sudo systemctl restart ovrly
+```
+
+`db/schema.sql` не применяется автоматически — после каждого деплоя, где
+менялись таблицы, его нужно прогнать вручную.
+
 ### Telegram: обновления из группы
 
 «Список обновлений» в кабинете собирается **только** из группы
