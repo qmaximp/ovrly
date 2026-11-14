@@ -305,8 +305,8 @@ export default function TelegramCard({
 		if (feed) {
 			const hidden = feed.offsetHeight - (780 - 96)
 			const dist = hidden > 60 ? hidden : 0
-			// медленная бесконечная прокрутка: вниз → вверх → снова
-			scrollDur = dist ? Math.max(9000, (dist / 40) * 1000) : 0
+			// медленная бесконечная прокрутка: вниз → вверх → снова (65 px/сек)
+			scrollDur = dist ? Math.max(6000, (dist / 65) * 1000) : 0
 			if (dist)
 				feed.animate(
 					[{ transform: 'translateY(0)' }, { transform: `translateY(${dist}px)` }],
