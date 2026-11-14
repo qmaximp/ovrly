@@ -22,6 +22,40 @@ if (!SECRET) {
 
 const api = (m) => `https://api.telegram.org/bot${TOKEN}/${m}`
 
+// Защита от двух копий: второй процесс ломает getUpdates (Conflict) и мешает
+// первому. Держим pid-файл рядом со скриптом.
+const LOCK = new URL('./.telegram-bridge.lock', import.meta.url)
+
+async function acquireLock() {
+	const fs = await import('node:fs')
+	const fsp = await import('node:fs/promises')
+	try {
+		const pid = Number(await fsp.readFile(LOCK, 'utf8'))
+		if (pid && pid !== process.pid) {
+			try {
+				process.kill(pid, 0)
+				console.log(`[bridge] уже запущен (pid ${pid}), выходим`)
+				process.exit(0)
+			} catch {}
+		}
+	} catch {}
+	await fsp.writeFile(LOCK, String(process.pid), 'utf8')
+	const clean = () => {
+		try {
+			fs.unlinkSync(LOCK)
+		} catch {}
+	}
+	process.on('exit', clean)
+	process.on('SIGINT', () => {
+		clean()
+		process.exit(0)
+	})
+	process.on('SIGTERM', () => {
+		clean()
+		process.exit(0)
+	})
+}
+
 async function readOffset() {
 	try {
 		const { readFile } = await import('node:fs/promises')
@@ -51,6 +85,7 @@ async function forward(update) {
 }
 
 async function main() {
+	await acquireLock()
 	const pumpChannels = async () => {
 		try {
 			const base = new URL(TARGET)

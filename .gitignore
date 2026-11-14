@@ -8,3 +8,4 @@ uploads/
 data/
 scripts/.telegram-bridge.json
 logs-telegram-bridge.txt
+scripts/.telegram-bridge.lock
