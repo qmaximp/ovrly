@@ -1416,51 +1416,6 @@ html.light .cabinet-tab.is-active { color: #fff; }
 }
 .cabinet-mod-name:hover { color: rgb(var(--c-accent2)); }
 
-/* РїРµСЂРµРєР»СЋС‡Р°С‚РµР»СЊ РґРѕСЃС‚СѓРїР° Рє OBS-РїСѓР»СЊС‚Сѓ Сѓ РјРѕРґРµСЂР°С‚РѕСЂР° */
-.cabinet-obs-switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  padding: 0.2rem 0.45rem 0.2rem 0.55rem;
-  border-radius: 999px;
-  border: 1px solid rgb(var(--c-border) / 0.7);
-  background: rgb(var(--c-bg) / 0.35);
-}
-.cabinet-obs-switch__label {
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: rgb(var(--c-on-bg) / 0.45);
-}
-.cabinet-obs-switch__track {
-  position: relative;
-  width: 2.1rem;
-  height: 1.15rem;
-  border-radius: 999px;
-  background: rgb(var(--c-border) / 0.9);
-  transition: background 0.16s ease;
-  cursor: pointer;
-}
-.cabinet-obs-switch__track.is-on { background: rgb(var(--c-accent)); }
-.cabinet-obs-switch__track:disabled { opacity: 0.5; cursor: default; }
-.cabinet-obs-switch__track:focus-visible {
-  outline: 2px solid rgb(var(--c-accent2));
-  outline-offset: 2px;
-}
-.cabinet-obs-switch__knob {
-  position: absolute;
-  top: 0.15rem;
-  left: 0.15rem;
-  width: 0.85rem;
-  height: 0.85rem;
-  border-radius: 999px;
-  background: #fff;
-  transition: transform 0.16s ease;
-}
-.cabinet-obs-switch__track.is-on .cabinet-obs-switch__knob {
-  transform: translateX(0.95rem);
-}
 .cabinet-mod-status { margin: 0.2rem 0 0; font-size: 0.72rem; }
 .cabinet-footer { margin-top: 1.5rem; }
 

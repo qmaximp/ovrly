@@ -639,42 +639,6 @@ export default function CabinetClient({
 																</p>
 															</div>
 															<div className='cabinet-card-actions flex flex-wrap gap-1.5 justify-end'>
-																{m.status === 'accepted' && !m.suspended && (
-																	<span
-																		className='cabinet-obs-switch'
-																		title={
-																			m.obs === 'none'
-																				? 'OBS-пульт выключен — включить'
-																				: 'OBS-пульт включён — отключить'
-																		}
-																	>
-																		<span className='cabinet-obs-switch__label'>OBS</span>
-																		<button
-																			type='button'
-																			role='switch'
-																			aria-checked={m.obs !== 'none'}
-																			aria-label='Доступ к управлению OBS'
-																			disabled={busy}
-																			onClick={() =>
-																				act({
-																					action: 'obs',
-																					login: m.login,
-																					obs:
-																						m.obs === 'none'
-																							? 'control'
-																							: 'none',
-																				})
-																			}
-																			className={`cabinet-obs-switch__track ${
-																				m.obs === 'none'
-																					? ''
-																					: 'is-on'
-																			}`}
-																		>
-																			<span className='cabinet-obs-switch__knob' />
-																		</button>
-																	</span>
-																)}
 																{m.status === 'accepted' && (
 																	<button
 																		onClick={() =>
