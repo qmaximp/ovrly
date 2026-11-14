@@ -1185,9 +1185,10 @@ export default function AdminClient({
 										</div>
 									) : (
 										<p className='admin-empty mt-3'>
-											{changelogData
-												? 'В канале пока нет постов.'
-												: 'Вставьте ссылку и нажмите «Сохранить».'}
+											{changelogData?.error ||
+												(changelogData
+													? 'В канале пока нет постов.'
+													: 'Вставьте ссылку и нажмите «Сохранить».')}
 										</p>
 									)}
 								</section>
