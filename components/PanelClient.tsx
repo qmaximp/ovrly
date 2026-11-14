@@ -14,11 +14,17 @@ import TelegramCard from '@/components/TelegramCard'
 import { normalizeTelegramChannel } from '@/lib/telegram'
 import {
 	ACCENT_PRESETS,
+	SURFACE_PRESETS,
 	accentPaletteFromCss,
 	applyAccentPalette,
+	applySurfaceForTheme,
+	applySurfacePalette,
 	clearAccentPalette,
+	clearSurfacePalette,
 	loadAccentPalette,
+	loadSurfacePalette,
 	normalizeHex,
+	surfacePaletteFromCss,
 } from '@/lib/theme'
 import { NumberField } from '@/components/fields'
 import { noteServerClock, serverClockLag } from '@/lib/clock'
@@ -357,6 +363,8 @@ export default function PanelClient({
 	const [theme, setTheme] = useState<'dark' | 'light'>('dark')
 	const [accentA, setAccentA] = useState('#0f766e')
 	const [accentB, setAccentB] = useState('#5eead4')
+	const [surfaceBg, setSurfaceBg] = useState('#070b12')
+	const [surfacePanel, setSurfacePanel] = useState('#0c1522')
 	const [previewOn, setPreviewOn] = useState(false)
 	const [previewKey, setPreviewKey] = useState(0)
 	const [twitchLive, setTwitchLive] = useState<boolean | null>(null)
@@ -1148,6 +1156,13 @@ export default function PanelClient({
 		setAccentB(palette.accent2)
 	}, [])
 
+	useEffect(() => {
+		applySurfaceForTheme(theme)
+		const surface = loadSurfacePalette(theme) || surfacePaletteFromCss()
+		setSurfaceBg(surface.bg)
+		setSurfacePanel(surface.panel)
+	}, [theme])
+
 	const applyAccent = useCallback((accent: string, accent2: string) => {
 		const next = applyAccentPalette({ accent, accent2 })
 		setAccentA(next.accent)
@@ -1161,6 +1176,22 @@ export default function PanelClient({
 		setAccentB(palette.accent2)
 	}, [])
 
+	const applySurface = useCallback(
+		(bg: string, panel: string) => {
+			const next = applySurfacePalette(theme, { bg, panel })
+			setSurfaceBg(next.bg)
+			setSurfacePanel(next.panel)
+		},
+		[theme],
+	)
+
+	const resetSurface = useCallback(() => {
+		clearSurfacePalette(theme)
+		const surface = surfacePaletteFromCss()
+		setSurfaceBg(surface.bg)
+		setSurfacePanel(surface.panel)
+	}, [theme])
+
 	const applyTheme = useCallback((next: 'dark' | 'light') => {
 		const root = document.documentElement
 		const isLight = root.classList.contains('light')
@@ -1171,6 +1202,7 @@ export default function PanelClient({
 		try {
 			localStorage.setItem('theme', next)
 		} catch {}
+		applySurfaceForTheme(next)
 		window.setTimeout(() => root.classList.remove('theme-anim'), 450)
 	}, [])
 
@@ -6490,6 +6522,94 @@ export default function PanelClient({
 										Сбросить цвета
 									</button>
 								</div>
+							</div>
+
+							<div className='rounded-2xl border border-border bg-panel p-4 sm:p-5'>
+								<div className='flex items-start gap-3 sm:gap-4'>
+									<span className='w-10 h-10 shrink-0 rounded-xl bg-accent/15 text-accent2 flex items-center justify-center'>
+										<Palette size={19} />
+									</span>
+									<div className='min-w-0 flex-1'>
+										<h3 className='text-sm font-semibold text-[color:rgb(var(--c-on-bg))]'>
+											Фон и панели
+										</h3>
+										<p className='mt-1 text-sm leading-relaxed text-gray-500'>
+											Сейчас {theme === 'dark' ? 'тёмная' : 'светлая'} тема.
+											Цвета фона сохраняются отдельно для каждой темы.
+										</p>
+									</div>
+								</div>
+
+								<div className='mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5'>
+									{SURFACE_PRESETS[theme].map(preset => {
+										const active =
+											normalizeHex(surfaceBg) === normalizeHex(preset.bg) &&
+											normalizeHex(surfacePanel) === normalizeHex(preset.panel)
+										return (
+											<button
+												key={preset.id}
+												onClick={() => applySurface(preset.bg, preset.panel)}
+												className={`flex items-center gap-2 rounded-xl border px-2 py-2 text-left transition-colors ${
+													active
+														? 'border-accent2 bg-accent/10'
+														: 'border-border hover:bg-border/40'
+												}`}
+											>
+												<span
+													className='h-7 w-7 shrink-0 rounded-lg border border-black/20'
+													style={{
+														background: `linear-gradient(135deg, ${preset.bg} 50%, ${preset.panel} 50%)`,
+													}}
+												/>
+												<span className='min-w-0 text-[11px] text-gray-300 truncate'>
+													{preset.name}
+												</span>
+											</button>
+										)
+									})}
+								</div>
+
+								<div className='mt-4 grid gap-3 sm:grid-cols-2'>
+									<label className='flex items-center gap-3 rounded-xl border border-border bg-bg px-3 py-2'>
+										<input
+											type='color'
+											value={surfaceBg}
+											onChange={e => applySurface(e.target.value, surfacePanel)}
+											className='h-8 w-10 cursor-pointer rounded-md border-0 bg-transparent p-0'
+										/>
+										<span className='min-w-0 flex-1'>
+											<span className='block text-[10px] uppercase tracking-wide text-gray-500'>
+												Фон страницы
+											</span>
+											<span className='block text-xs tabular-nums text-gray-300'>
+												{surfaceBg.toUpperCase()}
+											</span>
+										</span>
+									</label>
+									<label className='flex items-center gap-3 rounded-xl border border-border bg-bg px-3 py-2'>
+										<input
+											type='color'
+											value={surfacePanel}
+											onChange={e => applySurface(surfaceBg, e.target.value)}
+											className='h-8 w-10 cursor-pointer rounded-md border-0 bg-transparent p-0'
+										/>
+										<span className='min-w-0 flex-1'>
+											<span className='block text-[10px] uppercase tracking-wide text-gray-500'>
+												Панели
+											</span>
+											<span className='block text-xs tabular-nums text-gray-300'>
+												{surfacePanel.toUpperCase()}
+											</span>
+										</span>
+									</label>
+								</div>
+
+								<button
+									onClick={resetSurface}
+									className='mt-3 rounded-lg border border-border px-3 py-1.5 text-xs text-gray-300 transition-colors hover:bg-border'
+								>
+									Сбросить фон
+								</button>
 							</div>
 						</div>
 					) : (

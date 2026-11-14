@@ -101,7 +101,7 @@ export const viewport: Viewport = {
 	themeColor: '#070b12',
 }
 
-const themeInit = `try{if(localStorage.getItem('theme')==='light'){document.documentElement.classList.add('light');document.querySelector('meta[name="theme-color"]')?.setAttribute('content','#f3f0e8')}}catch(e){}try{var a=localStorage.getItem('ovrly.c-accent'),h=localStorage.getItem('ovrly.c-accent-hover'),b=localStorage.getItem('ovrly.c-accent2');if(a)document.documentElement.style.setProperty('--c-accent',a);if(h)document.documentElement.style.setProperty('--c-accent-hover',h);if(b)document.documentElement.style.setProperty('--c-accent2',b)}catch(e){}`
+const themeInit = `try{if(localStorage.getItem('theme')==='light'){document.documentElement.classList.add('light');document.querySelector('meta[name="theme-color"]')?.setAttribute('content','#f3f0e8')}}catch(e){}try{var a=localStorage.getItem('ovrly.c-accent'),h=localStorage.getItem('ovrly.c-accent-hover'),b=localStorage.getItem('ovrly.c-accent2');if(a)document.documentElement.style.setProperty('--c-accent',a);if(h)document.documentElement.style.setProperty('--c-accent-hover',h);if(b)document.documentElement.style.setProperty('--c-accent2',b);var th=document.documentElement.classList.contains('light')?'light':'dark';var sv=[['bg','--c-bg'],['panel','--c-panel'],['border','--c-border'],['text','--c-text'],['on-bg','--c-on-bg'],['canvas','--c-canvas'],['dot','--c-dot'],['sb-track','--c-sb-track'],['sb-thumb','--c-sb-thumb'],['sb-thumb-hover','--c-sb-thumb-hover']];for(var i=0;i<sv.length;i++){var v=localStorage.getItem('ovrly.c.'+th+'.'+sv[i][0]);if(v)document.documentElement.style.setProperty(sv[i][1],v)}}catch(e){}`
 
 export default function RootLayout({
 	children,
