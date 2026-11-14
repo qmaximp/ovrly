@@ -4724,6 +4724,14 @@ export default function PanelClient({
 							</div>
 							<div className='grid grid-cols-3 gap-2'>
 								<button
+									onClick={addTextEl}
+									title='Текст'
+									aria-label='Текст'
+									className='h-10 flex items-center justify-center bg-accent hover:bg-accent-hover text-white rounded-lg transition-colors'
+								>
+									<Type size={18} />
+								</button>
+								<button
 									onClick={() => openEmotePicker()}
 									title='Добавить смайлик'
 									aria-label='Добавить смайлик'
@@ -4739,21 +4747,13 @@ export default function PanelClient({
 								>
 									<Timer size={18} />
 								</button>
-								<button
-									onClick={addTextEl}
-									title='Текст'
-									aria-label='Текст'
-									className='h-10 flex items-center justify-center bg-accent hover:bg-accent-hover text-white rounded-lg transition-colors'
-								>
-									<Type size={18} />
-								</button>
 							</div>
 							<div className='grid grid-cols-2 gap-2'>
 								<button
 									onClick={addIframeEl}
-									className='flex items-center justify-center gap-1 px-1.5 py-2 bg-accent hover:bg-accent-hover text-white text-[11px] whitespace-nowrap rounded-lg transition-colors'
+									className='flex items-center justify-center gap-1.5 px-2 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
 								>
-									<Globe size={14} />
+									<Globe size={16} />
 									Сайт
 								</button>
 								<button
@@ -4761,10 +4761,10 @@ export default function PanelClient({
 										setPlaylistOpen(true)
 										setPlaylistError('')
 									}}
-									className='flex items-center justify-center gap-1 px-1.5 py-2 bg-accent hover:bg-accent-hover text-white text-[11px] whitespace-nowrap rounded-lg transition-colors'
+									className='flex items-center justify-center gap-1.5 px-2 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
 								>
-									<ListVideo size={14} />
-									YouTube плейлист
+									<ListVideo size={16} />
+									Плейлисты
 								</button>
 							</div>
 							<button
