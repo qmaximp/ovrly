@@ -2560,3 +2560,57 @@ body.obs-pane-moving { user-select: none; cursor: grabbing; }
 	padding: 9px 14px;
 	border-radius: 10px;
 }
+.changelog-bottom-btn {
+	position: fixed;
+	right: 24px;
+	bottom: 16px;
+	z-index: 130;
+	padding: 9px 14px;
+	border-radius: 10px;
+	border: 1px solid rgb(var(--c-accent2) / .45);
+	color: rgb(var(--c-accent2));
+	background: rgb(var(--c-panel) / .94);
+	letter-spacing: .055em;
+	text-transform: uppercase;
+	font-size: 11px;
+	font-weight: 700;
+	backdrop-filter: blur(12px);
+	cursor: pointer;
+}
+
+@media (max-width: 860px), (max-height: 620px) {
+	.changelog-overlay {
+		align-items: center;
+		justify-content: center;
+		padding: 16px;
+		background: rgba(0, 0, 0, .55);
+		backdrop-filter: blur(8px);
+	}
+	.changelog-dialog {
+		position: relative;
+		top: auto;
+		right: auto;
+		bottom: auto;
+		width: min(440px, 100%);
+		height: auto;
+		max-height: calc(100vh - 32px);
+	}
+	.changelog-bottom-btn {
+		display: none;
+	}
+	.cabinet-changelog-btn {
+		position: static;
+	}
+}
+
+@media (min-width: 861px) and (min-height: 621px) {
+	.changelog-dialog {
+		top: 16px;
+		bottom: 66px;
+		right: 24px;
+	}
+}
+.changelog-bottom-btn {
+	right: calc(24px + (min(430px, 100vw - 48px) - 168px) / 2);
+	width: 168px;
+}

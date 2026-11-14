@@ -159,6 +159,12 @@ export default function ChangelogDialog({
 					</>
 				)}
 			</section>
+			<button
+				onClick={onClose}
+				className='changelog-bottom-btn'
+			>
+				Список обновлений
+			</button>
 		</div>
 	)
 }
