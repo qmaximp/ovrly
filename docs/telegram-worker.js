@@ -10,6 +10,30 @@ export default {
 		if (!env.OVRLY_SECRET || secret !== env.OVRLY_SECRET)
 			return new Response('forbidden', { status: 403 })
 		const url = new URL(req.url)
+		// /raw?u=<url> — прокси картинок Telegram (telesco.pe) для нашего домена
+		if (url.pathname === '/raw') {
+			const u = url.searchParams.get('u') || ''
+			let host = ''
+			try {
+				host = new URL(u).hostname
+			} catch {
+				return new Response('bad url', { status: 400 })
+			}
+			if (
+				!/(^|\.)(telesco\.pe|telegram\.org|telegram-cdn\.org|cdn-telegram\.org)$/i.test(
+					host,
+				)
+			)
+				return new Response('forbidden host', { status: 403 })
+			const r = await fetch(u)
+			return new Response(r.body, {
+				status: r.status,
+				headers: {
+					'content-type': r.headers.get('content-type') || 'image/jpeg',
+					'cache-control': 'public, max-age=86400',
+				},
+			})
+		}
 		const base = url.pathname.startsWith('/s/')
 			? 'https://t.me'
 			: 'https://api.telegram.org'

@@ -36,6 +36,21 @@ const CACHE_TTL = 5 * 60 * 1000
 const WEB_BASE = (process.env.TELEGRAM_WEB_BASE || 'https://t.me').replace(
 	/\/+$/,
 	'')
+
+// Картинки Telegram (telesco.pe) у части провайдеров режутся, поэтому
+// отдаём их через свой домен: браузер видит обычный /api/telegram/media.
+export const TG_MEDIA_HOST =
+	/(^|\.)(telesco\.pe|telegram\.org|telegram-cdn\.org|cdn-telegram\.org)$/i
+
+export function proxiedMedia(url: string): string {
+	if (!url) return ''
+	try {
+		if (!TG_MEDIA_HOST.test(new URL(url).hostname)) return url
+	} catch {
+		return url
+	}
+	return `/api/telegram/media?u=${encodeURIComponent(url)}`
+}
 const cache = new Map<string, { at: number; data: TelegramChannel }>()
 
 function decodeEntities(s: string): string {
@@ -100,6 +115,7 @@ export function parseTelegramHtml(
 		const add = (m: TelegramMedia) => {
 			if (!m.url || seen.has(m.url)) return
 			seen.add(m.url)
+			m.url = proxiedMedia(m.url)
 			out.push(m)
 		}
 		for (const m of chunk.matchAll(
@@ -134,9 +150,11 @@ export function parseTelegramHtml(
 				/<div class="tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)<\/div>/,
 			),
 		)
-		const photo = firstMatch(
-			chunk,
-			/tgme_widget_message_photo_wrap[^>]*background-image:url\('([^']+)'\)/,
+		const photo = proxiedMedia(
+			firstMatch(
+				chunk,
+				/tgme_widget_message_photo_wrap[^>]*background-image:url\('([^']+)'\)/,
+			),
 		)
 		const date = firstMatch(chunk, /<time[^>]*datetime="([^"]+)"/)
 		const timeText = plainText(
@@ -158,7 +176,7 @@ export function parseTelegramHtml(
 	}
 
 	const posts = chunks
-		.slice(-8)
+		.slice(-15)
 		.map(parseChunk)
 		.filter((p): p is TelegramPost => !!p)
 		.sort((a, b) => (Date.parse(a.date) || 0) - (Date.parse(b.date) || 0))
@@ -168,7 +186,7 @@ export function parseTelegramHtml(
 		title: decodeEntities(ogTitle || channel),
 		subscribers,
 		description,
-		avatar,
+		avatar: proxiedMedia(avatar),
 		isGroup,
 		url: `https://t.me/${channel}`,
 		posts,

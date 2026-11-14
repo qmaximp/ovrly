@@ -153,6 +153,8 @@ export default function TelegramCard({
 	const [data, setData] = useState<TelegramData | null>(null)
 	const [error, setError] = useState('')
 	const [visible, setVisible] = useState(false)
+	// Ждём данные (или таймаут), чтобы не проигрывать пустую карточку.
+	const [ready, setReady] = useState(false)
 	const [scale, setScale] = useState(1)
 	const wrapRef = useRef<HTMLDivElement | null>(null)
 	const cardRef = useRef<HTMLDivElement | null>(null)
@@ -174,6 +176,17 @@ export default function TelegramCard({
 		ro?.observe(el)
 		return () => ro?.disconnect()
 	}, [])
+
+	useEffect(() => {
+		if (data || error) {
+			setReady(true)
+			return
+		}
+		setReady(false)
+		// Если канал не ответил за 2 секунды — показываем карточку с заглушкой.
+		const t = setTimeout(() => setReady(true), 2000)
+		return () => clearTimeout(t)
+	}, [data, error, nick])
 
 	useEffect(() => {
 		if (!nick) {
@@ -268,8 +281,8 @@ export default function TelegramCard({
 	// Когда данные пришли (число постов изменилось) — вход повторяем, чтобы
 	// лента успела прокрутиться.
 	useEffect(() => {
-		if (!visible) return
-		const key = `${until || 0}:${data?.channel || nick || ''}:${posts.length}`
+		if (!visible || !ready) return
+		const key = `${until || 0}:${ready ? 'r' : 'w'}:${posts.length}`
 		if (enteredRef.current === key) return
 		enteredRef.current = key
 
@@ -291,12 +304,20 @@ export default function TelegramCard({
 		let scrollDur = 0
 		if (feed) {
 			const hidden = feed.offsetHeight - (780 - 96)
-			const dist = hidden > 80 ? Math.min(hidden, 560) : 0
-			scrollDur = dist ? 1500 + dist * 1.8 : 0
+			const dist = hidden > 60 ? hidden : 0
+			// медленная бесконечная прокрутка: вниз → вверх → снова
+			scrollDur = dist ? Math.max(9000, (dist / 40) * 1000) : 0
 			if (dist)
 				feed.animate(
-					[{ transform: `translateY(${dist}px)` }, { transform: 'translateY(0)' }],
-					{ duration: scrollDur, delay: 600, easing: 'cubic-bezier(.45, .05, .2, 1)', fill: 'both' },
+					[{ transform: 'translateY(0)' }, { transform: `translateY(${dist}px)` }],
+					{
+						duration: scrollDur,
+						delay: 900,
+						easing: 'linear',
+						direction: 'alternate',
+						iterations: Infinity,
+						fill: 'both',
+					},
 				)
 		}
 
@@ -319,11 +340,11 @@ export default function TelegramCard({
 		reacts.forEach((node, index) =>
 			node.animate(
 				[{ transform: 'scale(.5)', opacity: 0 }, { transform: 'scale(1)', opacity: 1 }],
-				{ duration: 650, delay: 600 + scrollDur * 0.7 + index * 70, easing: 'cubic-bezier(.34, 1.25, .64, 1)', fill: 'both' },
+				{ duration: 650, delay: 600 + index * 70, easing: 'cubic-bezier(.34, 1.25, .64, 1)', fill: 'both' },
 			),
 		)
 		if (wrap) wrap.style.visibility = 'visible'
-	}, [visible, data, until])
+	}, [visible, data, until, ready])
 
 	if (!visible) return null
 	const posts = data?.posts?.length ? data.posts : data?.last ? [data.last] : []
