@@ -74,7 +74,15 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 		})
 
 	useEffect(() => {
-		const socket = ioInit({ transports: ['websocket', 'polling'], query: { room: room || 'default' } })
+		const socket = ioInit({
+			transports: ['websocket', 'polling'],
+			query: { room: room || 'default' },
+			reconnection: true,
+			reconnectionAttempts: Infinity,
+			reconnectionDelay: 800,
+			reconnectionDelayMax: 5000,
+			timeout: 8000,
+		})
 		socketRef.current = socket
 		socket.on('state:init', (s: SyncState) => setState(s))
 		socket.on('element:added', (el: StreamElement) =>
@@ -292,6 +300,24 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 		return () => {
 			socketRef.current = null
 			socket.disconnect()
+		}
+	}, [])
+
+	// OBS иногда держит «мёртвый» сокет после перезапуска сервера: страница
+	// рисует старое состояние, пока её не обновят вручную. Раз в 5 секунд
+	// проверяем связь и переподключаемся сами.
+	useEffect(() => {
+		const wake = () => {
+			const s = socketRef.current
+			if (s && !s.connected) s.connect()
+		}
+		const timer = setInterval(wake, 5000)
+		document.addEventListener('visibilitychange', wake)
+		window.addEventListener('online', wake)
+		return () => {
+			clearInterval(timer)
+			document.removeEventListener('visibilitychange', wake)
+			window.removeEventListener('online', wake)
 		}
 	}, [])
 
