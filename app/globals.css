@@ -2665,3 +2665,26 @@ body.obs-pane-moving { user-select: none; cursor: grabbing; }
 		width: 344px;
 	}
 }
+.cabinet-changelog-btn {
+	top: 68px;
+	right: 4vw;
+	border-radius: 0 0 10px 10px;
+}
+.changelog-bottom-btn {
+	right: 93px;
+	bottom: 0;
+	height: 30px;
+	border-radius: 0 0 10px 10px;
+}
+@media (min-width: 861px) and (min-height: 621px) {
+	.changelog-dialog {
+		top: 13px;
+		right: 15px;
+		bottom: 32px;
+		width: 344px;
+	}
+}
+.cabinet-changelog-btn { top: 72px; }
+@media (min-width: 861px) and (min-height: 621px) {
+	.changelog-dialog { bottom: 38px; }
+}
