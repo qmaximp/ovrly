@@ -4751,9 +4751,9 @@ export default function PanelClient({
 							<div className='grid grid-cols-2 gap-2'>
 								<button
 									onClick={addIframeEl}
-									className='flex items-center justify-center gap-1.5 px-2 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
+									className='flex items-center justify-center gap-1 px-1.5 py-2 bg-accent hover:bg-accent-hover text-white text-[11px] whitespace-nowrap rounded-lg transition-colors'
 								>
-									<Globe size={16} />
+									<Globe size={14} />
 									Сайт
 								</button>
 								<button
@@ -4761,9 +4761,9 @@ export default function PanelClient({
 										setPlaylistOpen(true)
 										setPlaylistError('')
 									}}
-									className='flex items-center justify-center gap-1.5 px-2 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors'
+									className='flex items-center justify-center gap-1 px-1.5 py-2 bg-accent hover:bg-accent-hover text-white text-[11px] whitespace-nowrap rounded-lg transition-colors'
 								>
-									<ListVideo size={16} />
+									<ListVideo size={14} />
 									YouTube плейлист
 								</button>
 							</div>
