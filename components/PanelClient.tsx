@@ -390,12 +390,15 @@ export default function PanelClient({
 	}, [listeningShortcut, changeShortcut])
 	const [obsAllowedLive, setObsAllowedLive] = useState(obsAllowed)
 	useEffect(() => setObsAllowedLive(obsAllowed), [obsAllowed])
-	// «скрыть управление OBS» в настройках: вкладка исчезает из панели и
-	// к OBS никто не стучится. Флаг живёт в браузере.
-	const [obsHidden, setObsHidden] = useState(false)
+	// «Управление OBS» в настройках: вкладка исчезает из панели и к OBS никто
+	// не стучится. По умолчанию ВЫКЛЮЧЕНО — новому человеку пульт не мешает и
+	// не сыпет ошибками; включается осознанно. Флаг живёт в браузере.
+	const [obsHidden, setObsHidden] = useState(true)
 	useEffect(() => {
 		try {
-			setObsHidden(localStorage.getItem('panel.obsHidden.v1') === '1')
+			// ключа нет = первый запуск = выключено
+			const v = localStorage.getItem('panel.obsHidden.v1')
+			setObsHidden(v === null ? true : v === '1')
 		} catch {}
 	}, [])
 	const toggleObsHidden = () => {
@@ -6537,8 +6540,8 @@ export default function PanelClient({
 											</h3>
 											<p className='mt-1 text-sm leading-relaxed text-gray-500'>
 												{obsHidden
-													? 'Скрыто: вкладки нет, панель не подключается к OBS и ничего не спрашивает.'
-													: 'Показано: вкладка «Управление OBS» доступна. Подключение к OBS — только по кнопке.'}
+													? 'Выключено (по умолчанию): вкладки нет, панель не подключается к OBS и ничего не спрашивает.'
+													: 'Включено: вкладка «Управление OBS» доступна. Подключение к OBS — только по кнопке.'}
 											</p>
 										</div>
 										<button
