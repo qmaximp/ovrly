@@ -2614,3 +2614,36 @@ body.obs-pane-moving { user-select: none; cursor: grabbing; }
 	right: calc(24px + (min(430px, 100vw - 48px) - 168px) / 2);
 	width: 168px;
 }
+.cabinet-changelog-btn {
+	top: 66px;
+	right: 6vw;
+}
+.changelog-bottom-btn {
+	position: static;
+	right: auto;
+	bottom: auto;
+	z-index: auto;
+	width: 168px;
+	margin: 18px auto 0;
+	flex: 0 0 auto;
+}
+@media (min-width: 861px) and (min-height: 621px) {
+	.changelog-dialog {
+		top: 16px;
+		right: 0;
+		bottom: 16px;
+		width: 344px;
+		border-radius: 20px 0 0 20px;
+	}
+}
+.changelog-bottom-btn {
+	margin: auto auto 0;
+	height: 36px;
+	padding: 0 14px;
+}
+.cabinet-changelog-btn {
+	width: 198px;
+}
+.changelog-bottom-btn {
+	width: 188px;
+}

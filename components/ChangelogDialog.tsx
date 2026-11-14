@@ -78,7 +78,6 @@ export default function ChangelogDialog({
 			>
 				<header className='changelog-head'>
 					<div>
-						<span className='kicker'>Ovrly</span>
 						<h2 id='changelog-title'>Список обновлений</h2>
 					</div>
 					<button
@@ -96,10 +95,7 @@ export default function ChangelogDialog({
 				) : error ? (
 					<p className='changelog-state changelog-error'>{error}</p>
 				) : !data || (!data.channel && data.entries.length === 0) ? (
-					<p className='changelog-state'>
-						Список обновлений ещё не подключён. Администратор может указать
-						Telegram-канал в админ-панели.
-					</p>
+					<p className='changelog-state'>Обновления скоро появятся.</p>
 				) : data.entries.length === 0 ? (
 					<p className='changelog-state'>
 						Обновления скоро появятся.
@@ -158,13 +154,13 @@ export default function ChangelogDialog({
 						)}
 					</>
 				)}
+				<button
+					onClick={onClose}
+					className='changelog-bottom-btn'
+				>
+					Список обновлений
+				</button>
 			</section>
-			<button
-				onClick={onClose}
-				className='changelog-bottom-btn'
-			>
-				Список обновлений
-			</button>
 		</div>
 	)
 }
