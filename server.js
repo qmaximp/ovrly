@@ -1279,7 +1279,7 @@ app.prepare().then(() => {
 				if (!data || typeof data !== 'object') return
 				socket.broadcast.to(obsRoom).emit('obs:result', data)
 			})
-			socket.on('disconnect', () => {
+		socket.on('disconnect', () => {
 				const cur = obsRooms.get(room)
 				if (!cur || !cur.bridges.delete(socket.id)) return
 				if (cur.bridges.size) return
@@ -1497,23 +1497,20 @@ app.prepare().then(() => {
 			})
 		})
 
-		// блокировка объекта на время перетаскивания: пока один тащит, другой перехватить не может;
-		// лок живёт 5 секунд после последнего движения (после остановки — ещё 5 секунд и свободно).
-		// Исключение — стример: берёт элемент всегда, лок переходит к нему
+		// блокировка объекта: пока один тащит (или элемент у него выделен), другой
+		// не может его перехватить. Лок живёт 5 секунд после последнего движения и
+		// продлевается, пока элемент у владельца выделен.
 		socket.on('element:grab', ({ id } = {}) => {
 			if (!state.elements.some(e => e.id === id)) return
 			const now = Date.now()
 			const lock = roomRec.locks.get(id)
 			const takenByOther =
 				lock && lock.socketId !== socket.id && now < lock.until
-			if (takenByOther && !isStreamer && !isGhost) return // занято другим
+			// Лок неприкосновенен для всех, включая стримера и невидимку: иначе
+			// элемент «украдут» прямо во время перетаскивания.
 			if (takenByOther) {
-				console.log(
-					'[io] перехват:',
-					id.slice(0, 8),
-					'был у',
-					lock.login,
-				)
+				socket.emit('element:lock-denied', { id, by: lock.login })
+				return
 			}
 			roomRec.locks.set(id, {
 				socketId: socket.id,
@@ -1540,6 +1537,14 @@ app.prepare().then(() => {
 				}
 			}
 			if (liveSockets(room) === 0) stopTwitchChat(room)
+		})
+
+		// сняли выделение — сразу отдаём лок, не ждём таймаута
+		socket.on('element:release', ({ id } = {}) => {
+			const l = roomRec.locks.get(id)
+			if (!l || l.socketId !== socket.id) return
+			roomRec.locks.delete(id)
+			io.to(room).emit('element:unlock', { id })
 		})
 
 		socket.on('element:add', el => {
@@ -1737,20 +1742,9 @@ app.prepare().then(() => {
 			if (idx >= 0) {
 				const lock = roomRec.locks.get(id)
 				const now = Date.now()
-				if (lock && lock.socketId !== socket.id && now < lock.until) {
-					if (!isStreamer && !isGhost) return // объект тащит другой
-					// стример/невидимка двигает чужой элемент — лок переходит к нему
-					roomRec.locks.set(id, {
-						socketId: socket.id,
-						login: userLogin,
-						until: now + 5000,
-					})
-					io.to(room).emit('element:lock', {
-						id,
-						by: isGhost ? '' : userLogin,
-						until: now + 5000,
-					})
-				} else if (lock && lock.socketId === socket.id) {
+				if (lock && lock.socketId !== socket.id && now < lock.until)
+					return // элемент тащит другой: правки отклоняем
+				if (lock && lock.socketId === socket.id) {
 					lock.until = now + 5000 // продлеваем лок, пока тащат
 				}
 				state.elements[idx].x = x
@@ -1785,19 +1779,9 @@ app.prepare().then(() => {
 			if (idx >= 0) {
 				const lock = roomRec.locks.get(id)
 				const now = Date.now()
-				if (lock && lock.socketId !== socket.id && now < lock.until) {
-					if (!isStreamer && !isGhost) return // объект тащит другой
-					roomRec.locks.set(id, {
-						socketId: socket.id,
-						login: userLogin,
-						until: now + 5000,
-					})
-					io.to(room).emit('element:lock', {
-						id,
-						by: isGhost ? '' : userLogin,
-						until: now + 5000,
-					})
-				} else if (lock && lock.socketId === socket.id) {
+				if (lock && lock.socketId !== socket.id && now < lock.until)
+					return // элемент тащит другой: правки отклоняем
+				if (lock && lock.socketId === socket.id) {
 					lock.until = now + 5000
 				}
 				const el = state.elements[idx]
@@ -1840,6 +1824,12 @@ app.prepare().then(() => {
 		})
 
 		socket.on('element:delete', id => {
+			// Защита от удаления, пока элемент двигает кто-то другой
+			const delLock = roomRec.locks.get(id)
+			if (delLock && delLock.socketId !== socket.id && delLock.until > Date.now()) {
+				socket.emit('element:delete-blocked', { id, by: delLock.login })
+				return
+			}
 			state.elements = state.elements.filter(e => e.id !== id)
 			roomRec.locks.delete(id)
 			roomRec.dirty = true

@@ -251,6 +251,17 @@ function writeEmoteCache(channel: string, emotes: Emote[], notes: string[]) {
 	} catch {}
 }
 
+// Предпрослушивание звука в панели: один <audio> на элемент, живёт вне
+// React, поэтому не прерывается при смене выделения.
+const audioPool = new Map<string, HTMLAudioElement>()
+if (typeof window !== 'undefined') {
+	window.addEventListener('pagehide', () => {
+		for (const a of audioPool.values()) {
+			a.pause()
+		}
+	})
+}
+
 function clearEmoteCache() {
 	emoteMemCache = null
 	try {
@@ -642,8 +653,9 @@ export default function PanelClient({
 		!!channel &&
 		!!userLogin &&
 		userLogin.toLowerCase() === channel.toLowerCase()
-	// стример и админ-невидимка забирают объект у любого модератора
-	const canOverrideLocks = isStreamer || !!ghost
+	// Лок не перехватывает никто: пока элемент двигает или выделил другой
+	// участник, сервер отклоняет наши правки. Иначе элемент «украдут».
+	const canOverrideLocks = false
 	const isLockedByOther = useCallback(
 		(id: string) => {
 			if (canOverrideLocks) return false
@@ -952,6 +964,20 @@ export default function PanelClient({
 				}
 			},
 		)
+		socket.on('element:delete-blocked', ({ by }: { by?: string }) => {
+			setNotice(
+				by
+					? `Элемент сейчас двигает ${by} — удаление отменено`
+					: 'Элемент сейчас двигает другой участник — удаление отменено',
+			)
+		})
+		socket.on('element:lock-denied', ({ by }: { by?: string }) => {
+			setNotice(
+				by
+					? `${by} сейчас двигает этот элемент`
+					: 'Элемент занят другим участником',
+			)
+		})
 		socket.on('element:unlock', ({ id }: { id: string }) => {
 			setElementLocks(prev => {
 				if (!(id in prev)) return prev
@@ -1076,6 +1102,13 @@ export default function PanelClient({
 				})),
 		)
 		socket.on('element:deleted', (id: string) => {
+			// элемент удалили — гасим его предпрослушивание
+			const pa = audioPool.get(id)
+			if (pa) {
+				pa.pause()
+				pa.remove()
+				audioPool.delete(id)
+			}
 			forgetElement(id)
 			setState(p => ({ ...p, elements: p.elements.filter(e => e.id !== id) }))
 		})
@@ -1213,6 +1246,21 @@ export default function PanelClient({
 	const emit = useCallback((event: string, data?: any) => {
 		socketRef.current?.emit(event, data)
 	}, [])
+
+	// Пока элемент у нас выделен, держим его лок: другие не смогут ни
+	// перетащить, ни удалить. Лок продлевается каждые 2.5 секунды.
+	useEffect(() => {
+		const ids = [...selectedIds].filter(id => !isLockedByOther(id))
+		if (!ids.length) return
+		for (const id of ids) emit('element:grab', { id })
+		const t = setInterval(() => {
+			for (const id of ids) emit('element:grab', { id })
+		}, 2500)
+		return () => {
+			clearInterval(t)
+			for (const id of ids) emit('element:release', { id })
+		}
+	}, [selectedIds, emit, isLockedByOther])
 
 	// Во время перетаскивания/ресайза двигаем DOM напрямую: полный ре-рендер
 	// панели на каждый pointermove (а в dev-сборке это десятки мс) заставлял
@@ -3013,8 +3061,13 @@ export default function PanelClient({
 			return
 		}
 		if (e.button !== 0) return
-		// лок другого модератора — не повод «залипать»: выделяем и пробуем
-		// двигать, окончательно решает сервер (он отдаст объект стримеру/админу)
+		// Чужой лок (элемент двигают или он выделен у другого) — только
+		// выделяем, тащить нельзя: сервер всё равно отклонит движение.
+		if (isLockedByOther(el.id)) {
+			if (selectedIdsRef.current.size) setSelectedIds(new Set())
+			setSelectedId(el.id)
+			return
+		}
 		// ctrl/shift+клик — добавить/убрать элемент из выделения (без драга)
 		if (e.shiftKey || e.ctrlKey || e.metaKey) {
 			toggleCanvasSelection(el.id)
@@ -3028,7 +3081,7 @@ export default function PanelClient({
 			const items: { id: string; x: number; y: number }[] = []
 			for (const id of selectedIdsRef.current) {
 				const it = stateRef.current.elements.find(x => x.id === id)
-				if (it && !it.locked) {
+				if (it && !it.locked && !isLockedByOther(it.id)) {
 					items.push({ id: it.id, x: it.x, y: it.y })
 					emit('element:grab', { id: it.id })
 				}
@@ -3700,7 +3753,9 @@ export default function PanelClient({
 			) {
 				e.preventDefault()
 				remember()
-				ids.forEach(id => emit('element:delete', id))
+				;[...ids]
+					.filter((id: string) => !isLockedByOther(id))
+					.forEach((id: string) => emit('element:delete', id))
 				setSelectedId(null)
 				setSelectedIds(new Set())
 				return
@@ -6354,6 +6409,8 @@ export default function PanelClient({
 									{selected.locked ? <Lock size={14} /> : <LockOpen size={14} />}
 								</button>
 								<button
+								disabled={isLockedByOther(selected.id)}
+								title={isLockedByOther(selected.id) ? 'Элемент сейчас двигает другой участник' : 'Удалить элемент'}
 								onClick={() => {
 									remember()
 									emit('element:delete', selected.id)
@@ -6364,8 +6421,7 @@ export default function PanelClient({
 										return n
 									})
 								}}
-								title='Удалить элемент'
-								className='px-1.5 py-0.5 text-xs text-red-400 border border-red-900/50 rounded-md hover:bg-red-950/40 transition-colors'
+								className='px-1.5 py-0.5 text-xs text-red-400 border border-red-900/50 rounded-md hover:bg-red-950/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed'
 							>
 								✕
 							</button>
@@ -7499,6 +7555,8 @@ export default function PanelClient({
 						</span>
 						<div className='flex items-center gap-2'>
 							<button
+								disabled={isLockedByOther(selected.id)}
+								title={isLockedByOther(selected.id) ? 'Элемент сейчас двигает другой участник' : 'Удалить элемент'}
 								onClick={() => {
 									remember()
 									emit('element:delete', selected.id)
@@ -9355,18 +9413,29 @@ function PropertyEditor({
 	}, [el.id, el.type, el.telegramUntil])
 	useEffect(() => {
 		if (el.type !== 'audio' || !el.src) return
-		const a = new Audio()
-		a.style.display = 'none'
-		a.preload = 'metadata'
-		a.src = el.src
+		// Плеер живёт в общем пуле и НЕ останавливается при смене выделения:
+		// иначе звук обрывался, стоило кликнуть по другому элементу.
+		let a = audioPool.get(el.id)
+		if (!a || a.dataset.src !== el.src) {
+			if (a) {
+				a.pause()
+				a.remove()
+			}
+			a = new Audio()
+			a.style.display = 'none'
+			a.preload = 'metadata'
+			a.src = el.src
+			a.dataset.src = el.src
+			document.body.appendChild(a)
+			audioPool.set(el.id, a)
+		}
 		a.volume = Math.max(0, Math.min(1, el.volume ?? 1))
 		a.loop = !!el.loop
-		document.body.appendChild(a)
 		localAudioRef.current = a
 		setAudioError('')
-		setAudioPlaying(false)
-		setAudioPos(0)
-		setAudioDuration(0)
+		setAudioPlaying(!a.paused)
+		setAudioPos(a.currentTime || 0)
+		setAudioDuration(Number.isFinite(a.duration) ? a.duration : 0)
 		const onMeta = () => {
 			setAudioDuration(Number.isFinite(a.duration) ? a.duration : 0)
 			setAudioPos(a.currentTime || 0)
@@ -9389,15 +9458,13 @@ function PropertyEditor({
 		a.addEventListener('ended', onEnded)
 		a.addEventListener('error', onError)
 		return () => {
-			a.pause()
+			// только снимаем подписки: сам плеер продолжает играть
 			a.removeEventListener('loadedmetadata', onMeta)
 			a.removeEventListener('timeupdate', onTime)
 			a.removeEventListener('play', onPlay)
 			a.removeEventListener('pause', onPause)
 			a.removeEventListener('ended', onEnded)
 			a.removeEventListener('error', onError)
-			a.remove()
-			a.src = ''
 			if (localAudioRef.current === a) localAudioRef.current = null
 		}
 	}, [el.id, el.type, el.src])
