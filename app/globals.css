@@ -1,8 +1,8 @@
-@import 'tailwindcss';
+﻿@import 'tailwindcss';
 
-/* Цвета темы: утилиты Tailwind (bg-panel, text-accent2, border-border…) берут их
-   отсюда, а сами переменные переключаются классом html.light. Прозрачность
-   (bg-panel/80) Tailwind 4 подмешивает сам через color-mix */
+/* Р¦РІРµС‚Р° С‚РµРјС‹: СѓС‚РёР»РёС‚С‹ Tailwind (bg-panel, text-accent2, border-borderвЂ¦) Р±РµСЂСѓС‚ РёС…
+   РѕС‚СЃСЋРґР°, Р° СЃР°РјРё РїРµСЂРµРјРµРЅРЅС‹Рµ РїРµСЂРµРєР»СЋС‡Р°СЋС‚СЃСЏ РєР»Р°СЃСЃРѕРј html.light. РџСЂРѕР·СЂР°С‡РЅРѕСЃС‚СЊ
+   (bg-panel/80) Tailwind 4 РїРѕРґРјРµС€РёРІР°РµС‚ СЃР°Рј С‡РµСЂРµР· color-mix */
 @theme inline {
   --color-bg: rgb(var(--c-bg));
   --color-panel: rgb(var(--c-panel));
@@ -12,7 +12,7 @@
   --color-border: rgb(var(--c-border));
 }
 
-/* Тёмная тема — глубокий синий, мятный акцент, тёплые искры */
+/* РўС‘РјРЅР°СЏ С‚РµРјР° вЂ” РіР»СѓР±РѕРєРёР№ СЃРёРЅРёР№, РјСЏС‚РЅС‹Р№ Р°РєС†РµРЅС‚, С‚С‘РїР»С‹Рµ РёСЃРєСЂС‹ */
 :root {
   color-scheme: dark;
   --c-bg: 7 11 18;            /* #070b12 */
@@ -21,23 +21,23 @@
   --c-accent-hover: 17 94 89; /* #115e59 */
   --c-accent2: 94 234 212;    /* #5eead4 */
   --c-border: 28 43 59;       /* #1c2b3b */
-  --c-on-bg: 238 250 248;     /* заголовки на фоне */
-  /* триплеты: эти цвета используются и как rgb(var(--x) / α) */
+  --c-on-bg: 238 250 248;     /* Р·Р°РіРѕР»РѕРІРєРё РЅР° С„РѕРЅРµ */
+  /* С‚СЂРёРїР»РµС‚С‹: СЌС‚Рё С†РІРµС‚Р° РёСЃРїРѕР»СЊР·СѓСЋС‚СЃСЏ Рё РєР°Рє rgb(var(--x) / О±) */
   --c-text: 217 232 230;
-  --c-canvas: 4 8 15;         /* рабочая зона вокруг экрана */
-  --c-dot: 22 37 54;          /* точки рабочей зоны */
+  --c-canvas: 4 8 15;         /* СЂР°Р±РѕС‡Р°СЏ Р·РѕРЅР° РІРѕРєСЂСѓРі СЌРєСЂР°РЅР° */
+  --c-dot: 22 37 54;          /* С‚РѕС‡РєРё СЂР°Р±РѕС‡РµР№ Р·РѕРЅС‹ */
   --c-sb-track: #0a111b;
   --c-sb-thumb: #1b2a3a;
   --c-sb-thumb-hover: #2a3d50;
-  --c-warm: 251 146 60;       /* тёплый акцент для лендинга */
-  --c-cta-text: 4 17 15;      /* текст на мятной CTA */
+  --c-warm: 251 146 60;       /* С‚С‘РїР»С‹Р№ Р°РєС†РµРЅС‚ РґР»СЏ Р»РµРЅРґРёРЅРіР° */
+  --c-cta-text: 4 17 15;      /* С‚РµРєСЃС‚ РЅР° РјСЏС‚РЅРѕР№ CTA */
   --font-sans: 'Segoe UI', 'Inter', system-ui, -apple-system, BlinkMacSystemFont,
     Roboto, sans-serif;
   --font-display: 'Segoe UI', 'Inter', system-ui, -apple-system,
     BlinkMacSystemFont, Roboto, sans-serif;
 }
 
-/* Светлая тема — тёплый фарфор и тёмная мята */
+/* РЎРІРµС‚Р»Р°СЏ С‚РµРјР° вЂ” С‚С‘РїР»С‹Р№ С„Р°СЂС„РѕСЂ Рё С‚С‘РјРЅР°СЏ РјСЏС‚Р° */
 html.light {
   color-scheme: light;
   --c-bg: 243 240 232;        /* #f3f0e8 */
@@ -79,7 +79,7 @@ button, a, input, textarea, select {
   outline-offset: 2px;
 }
 
-/* Плавное переключение темы: класс вешается на <html> только на время анимации */
+/* РџР»Р°РІРЅРѕРµ РїРµСЂРµРєР»СЋС‡РµРЅРёРµ С‚РµРјС‹: РєР»Р°СЃСЃ РІРµС€Р°РµС‚СЃСЏ РЅР° <html> С‚РѕР»СЊРєРѕ РЅР° РІСЂРµРјСЏ Р°РЅРёРјР°С†РёРё */
 html.theme-anim, html.theme-anim *, html.theme-anim *::before, html.theme-anim *::after {
   transition: background-color .35s ease, color .35s ease, border-color .35s ease,
     fill .35s ease, stroke .35s ease, box-shadow .35s ease, opacity .35s ease !important;
@@ -98,7 +98,7 @@ input[type="range"] {
   border-radius: 999px;
   outline: none;
   cursor: pointer;
-  /* при appearance:none браузер не рисует дорожку — задаём её сами */
+  /* РїСЂРё appearance:none Р±СЂР°СѓР·РµСЂ РЅРµ СЂРёСЃСѓРµС‚ РґРѕСЂРѕР¶РєСѓ вЂ” Р·Р°РґР°С‘Рј РµС‘ СЃР°РјРё */
   background: rgb(var(--c-border));
 }
 input[type="range"]::-webkit-slider-thumb {
@@ -122,8 +122,8 @@ input[type="range"]::-moz-range-thumb {
   cursor: grab;
 }
 
-/* Светлая тема: приглушаем серые оттенки, оставляя тёмную тему без изменений.
-   text-white на цветных кнопках (accent/red/green) остаётся белым — его не трогаем */
+/* РЎРІРµС‚Р»Р°СЏ С‚РµРјР°: РїСЂРёРіР»СѓС€Р°РµРј СЃРµСЂС‹Рµ РѕС‚С‚РµРЅРєРё, РѕСЃС‚Р°РІР»СЏСЏ С‚С‘РјРЅСѓСЋ С‚РµРјСѓ Р±РµР· РёР·РјРµРЅРµРЅРёР№.
+   text-white РЅР° С†РІРµС‚РЅС‹С… РєРЅРѕРїРєР°С… (accent/red/green) РѕСЃС‚Р°С‘С‚СЃСЏ Р±РµР»С‹Рј вЂ” РµРіРѕ РЅРµ С‚СЂРѕРіР°РµРј */
 html.light .text-gray-100 { color: #1f2e2e; }
 html.light .text-gray-200 { color: #263838; }
 html.light .text-gray-300 { color: #3a4d4c; }
@@ -143,13 +143,13 @@ html.light .bg-red-400 { background: #ef4444; }
 html.light .hover\:bg-red-950\/40:hover { background: rgba(248, 113, 113, 0.15); }
 html.light .border-red-900\/50 { border-color: rgba(220, 38, 38, 0.3); }
 
-/* Появление всплывающих меню/шитов (мобильный бургер, шит добавления) */
+/* РџРѕСЏРІР»РµРЅРёРµ РІСЃРїР»С‹РІР°СЋС‰РёС… РјРµРЅСЋ/С€РёС‚РѕРІ (РјРѕР±РёР»СЊРЅС‹Р№ Р±СѓСЂРіРµСЂ, С€РёС‚ РґРѕР±Р°РІР»РµРЅРёСЏ) */
 @keyframes pop-in {
   from { opacity: 0; transform: translateY(8px) scale(.96); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 .pop-in { animation: pop-in .18s cubic-bezier(.2, .8, .3, 1) both; }
-/* привычная панель: окно выезжает справа от левого меню, а не снизу */
+/* РїСЂРёРІС‹С‡РЅР°СЏ РїР°РЅРµР»СЊ: РѕРєРЅРѕ РІС‹РµР·Р¶Р°РµС‚ СЃРїСЂР°РІР° РѕС‚ Р»РµРІРѕРіРѕ РјРµРЅСЋ, Р° РЅРµ СЃРЅРёР·Сѓ */
 @keyframes sheet-slide-in {
   from { opacity: 0; transform: translateX(-12px); }
   to { opacity: 1; transform: translateX(0); }
@@ -172,10 +172,10 @@ html.light .border-red-900\/50 { border-color: rgba(220, 38, 38, 0.3); }
 .fade-out { animation: fade-out .15s ease-out both; }
 
 /* =====================================================================
-   Новая визуальная система
+   РќРѕРІР°СЏ РІРёР·СѓР°Р»СЊРЅР°СЏ СЃРёСЃС‚РµРјР°
    ===================================================================== */
 
-/* Общий фон приложения (панель, кабинет, админка): мягкое свечение сверху */
+/* РћР±С‰РёР№ С„РѕРЅ РїСЂРёР»РѕР¶РµРЅРёСЏ (РїР°РЅРµР»СЊ, РєР°Р±РёРЅРµС‚, Р°РґРјРёРЅРєР°): РјСЏРіРєРѕРµ СЃРІРµС‡РµРЅРёРµ СЃРІРµСЂС…Сѓ */
 .app-shell {
   background-image:
     radial-gradient(900px 420px at 82% -12%, rgb(var(--c-accent2) / 0.08), transparent 65%),
@@ -184,8 +184,8 @@ html.light .border-red-900\/50 { border-color: rgba(220, 38, 38, 0.3); }
 .panel-header {
   background-image: linear-gradient(180deg, rgb(var(--c-accent2) / 0.05), transparent);
 }
-/* Баннер срочного оповещения в панели: красный заметен сразу, но приглушённый,
-   чтобы не слепить при долгой работе */
+/* Р‘Р°РЅРЅРµСЂ СЃСЂРѕС‡РЅРѕРіРѕ РѕРїРѕРІРµС‰РµРЅРёСЏ РІ РїР°РЅРµР»Рё: РєСЂР°СЃРЅС‹Р№ Р·Р°РјРµС‚РµРЅ СЃСЂР°Р·Сѓ, РЅРѕ РїСЂРёРіР»СѓС€С‘РЅРЅС‹Р№,
+   С‡С‚РѕР±С‹ РЅРµ СЃР»РµРїРёС‚СЊ РїСЂРё РґРѕР»РіРѕР№ СЂР°Р±РѕС‚Рµ */
 .panel-notice {
   display: flex;
   align-items: center;
@@ -221,7 +221,7 @@ html.light .panel-notice-close:hover { background: rgb(248 113 113 / 0.2); color
 .logo-mid { fill: rgb(var(--c-accent2)); fill-opacity: 0.28; }
 .logo-base { fill: rgb(var(--c-accent)); }
 
-/* Заглушка Twitch-превью, когда канал оффлайн или статус ещё неизвестен */
+/* Р—Р°РіР»СѓС€РєР° Twitch-РїСЂРµРІСЊСЋ, РєРѕРіРґР° РєР°РЅР°Р» РѕС„С„Р»Р°Р№РЅ РёР»Рё СЃС‚Р°С‚СѓСЃ РµС‰С‘ РЅРµРёР·РІРµСЃС‚РµРЅ */
 .preview-offline {
   position: absolute;
   inset: 0;
@@ -272,7 +272,7 @@ html.light .preview-offline-card {
   color: rgb(var(--c-text) / 0.55);
 }
 
-/* Кнопка темы в шапках страниц */
+/* РљРЅРѕРїРєР° С‚РµРјС‹ РІ С€Р°РїРєР°С… СЃС‚СЂР°РЅРёС† */
 .theme-toggle {
   display: inline-grid;
   place-items: center;
@@ -294,13 +294,13 @@ html.light .preview-offline-card {
   box-shadow: 0 6px 18px rgb(var(--c-accent) / 0.2);
 }
 
-/* ---------------- Лендинг ---------------- */
+/* ---------------- Р›РµРЅРґРёРЅРі ---------------- */
 
 .landing {
   position: relative;
   min-height: 100svh;
-  /* clip, а не hidden: hidden делает .landing scroll-контейнером и ломает
-     position: sticky у шапки */
+  /* clip, Р° РЅРµ hidden: hidden РґРµР»Р°РµС‚ .landing scroll-РєРѕРЅС‚РµР№РЅРµСЂРѕРј Рё Р»РѕРјР°РµС‚
+     position: sticky Сѓ С€Р°РїРєРё */
   overflow-x: clip;
   overflow-y: visible;
   background:
@@ -615,7 +615,7 @@ html.light .btn-primary {
   line-height: 1.5;
 }
 
-/* Мокап панели в hero */
+/* РњРѕРєР°Рї РїР°РЅРµР»Рё РІ hero */
 .hero-visual {
   position: relative;
   min-height: 390px;
@@ -792,7 +792,7 @@ html.light .mock { box-shadow: 0 40px 90px rgb(24 39 39 / 0.16), 0 0 0 1px rgb(2
 html.light .mock-card { border-color: rgb(255 255 255 / 0.35); }
 html.light .mock-chip { background: rgb(255 253 247 / 0.85); }
 
-/* Секции */
+/* РЎРµРєС†РёРё */
 .section { padding: 4.6rem 0; }
 .section-head { max-width: 66ch; margin-bottom: 2.4rem; }
 .kicker {
@@ -1057,7 +1057,7 @@ html.light .step-num { color: #fff; }
 .site-footer a:hover { color: rgb(var(--c-accent2)); }
 .footer-links { display: flex; align-items: center; flex-wrap: wrap; gap: 0.9rem; }
 
-/* Появление секций */
+/* РџРѕСЏРІР»РµРЅРёРµ СЃРµРєС†РёР№ */
 .reveal { animation: rise-in 0.75s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
 .d1 { animation-delay: 0.06s; }
 .d2 { animation-delay: 0.12s; }
@@ -1069,7 +1069,7 @@ html.light .step-num { color: #fff; }
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* Адаптив */
+/* РђРґР°РїС‚РёРІ */
 @media (max-width: 980px) {
   .hero {
     grid-template-columns: 1fr;
@@ -1099,7 +1099,7 @@ html.light .step-num { color: #fff; }
   .faq-answer { padding-right: 0; }
   .hero-actions .btn { flex: 1 1 auto; }
   .hero-actions .btn-primary { flex-basis: 100%; }
-  /* на телефоне backdrop-blur дорогой: делаем шапку почти непрозрачной */
+  /* РЅР° С‚РµР»РµС„РѕРЅРµ backdrop-blur РґРѕСЂРѕРіРѕР№: РґРµР»Р°РµРј С€Р°РїРєСѓ РїРѕС‡С‚Рё РЅРµРїСЂРѕР·СЂР°С‡РЅРѕР№ */
   .site-header {
     background: rgb(var(--c-bg) / 0.96);
     backdrop-filter: none;
@@ -1119,7 +1119,7 @@ html.light .step-num { color: #fff; }
 }
 
 /* =====================================================================
-   Личный кабинет и админка
+   Р›РёС‡РЅС‹Р№ РєР°Р±РёРЅРµС‚ Рё Р°РґРјРёРЅРєР°
    ===================================================================== */
 
 .glass-card {
@@ -1141,7 +1141,7 @@ html.light .glass-card { box-shadow: 0 20px 50px rgb(24 39 39 / 0.06); }
   transform: translateY(-1px);
 }
 
-/* ---------------- Кабинет ---------------- */
+/* ---------------- РљР°Р±РёРЅРµС‚ ---------------- */
 .cabinet-header-user {
   display: inline-flex;
   align-items: center;
@@ -1416,7 +1416,7 @@ html.light .cabinet-tab.is-active { color: #fff; }
 }
 .cabinet-mod-name:hover { color: rgb(var(--c-accent2)); }
 
-/* переключатель доступа к OBS-пульту у модератора */
+/* РїРµСЂРµРєР»СЋС‡Р°С‚РµР»СЊ РґРѕСЃС‚СѓРїР° Рє OBS-РїСѓР»СЊС‚Сѓ Сѓ РјРѕРґРµСЂР°С‚РѕСЂР° */
 .cabinet-obs-switch {
   display: inline-flex;
   align-items: center;
@@ -1464,7 +1464,7 @@ html.light .cabinet-tab.is-active { color: #fff; }
 .cabinet-mod-status { margin: 0.2rem 0 0; font-size: 0.72rem; }
 .cabinet-footer { margin-top: 1.5rem; }
 
-/* Инструкция «Как настроить»: шаги с картинками */
+/* РРЅСЃС‚СЂСѓРєС†РёСЏ В«РљР°Рє РЅР°СЃС‚СЂРѕРёС‚СЊВ»: С€Р°РіРё СЃ РєР°СЂС‚РёРЅРєР°РјРё */
 .cabinet-guide-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1532,7 +1532,7 @@ html.light .cabinet-guide-num { color: #fff; }
 .cabinet-tips-list strong { color: rgb(var(--c-on-bg)); font-weight: 650; }
 .cabinet-guide-back { justify-self: start; }
 
-/* ---------------- Админка ---------------- */
+/* ---------------- РђРґРјРёРЅРєР° ---------------- */
 .admin-container {
   width: min(1440px, calc(100% - 2rem));
   margin-inline: auto;
@@ -1737,7 +1737,7 @@ html.light .admin-room-badge.ok { color: #15803d; }
 html.light .admin-room-badge.dirty { color: #b45309; }
 .admin-room-edit { font-size: 0.65rem; color: rgb(var(--c-text) / 0.4); white-space: nowrap; }
 
-/* Публичные виджеты в админке */
+/* РџСѓР±Р»РёС‡РЅС‹Рµ РІРёРґР¶РµС‚С‹ РІ Р°РґРјРёРЅРєРµ */
 .admin-widget-table {
   margin-top: 0.75rem;
   display: flex;
@@ -1857,8 +1857,8 @@ html.light .admin-room-badge.dirty { color: #b45309; }
   .cabinet-guide-card { padding: 1rem; }
   .cabinet-tips-list { grid-template-columns: 1fr; }
 
-  /* Доступы на телефоне: ник и статус занимают свободное место слева,
-     кнопки стоят отдельной колонкой справа и больше не наезжают на текст */
+  /* Р”РѕСЃС‚СѓРїС‹ РЅР° С‚РµР»РµС„РѕРЅРµ: РЅРёРє Рё СЃС‚Р°С‚СѓСЃ Р·Р°РЅРёРјР°СЋС‚ СЃРІРѕР±РѕРґРЅРѕРµ РјРµСЃС‚Рѕ СЃР»РµРІР°,
+     РєРЅРѕРїРєРё СЃС‚РѕСЏС‚ РѕС‚РґРµР»СЊРЅРѕР№ РєРѕР»РѕРЅРєРѕР№ СЃРїСЂР°РІР° Рё Р±РѕР»СЊС€Рµ РЅРµ РЅР°РµР·Р¶Р°СЋС‚ РЅР° С‚РµРєСЃС‚ */
   .cabinet-invite-card,
   .cabinet-mod-row {
     flex-wrap: nowrap;
@@ -1887,7 +1887,7 @@ html.light .admin-room-badge.dirty { color: #b45309; }
   }
 }
 
-/* ── Карусель стримеров на главной ───────────────── */
+/* в”Ђв”Ђ РљР°СЂСѓСЃРµР»СЊ СЃС‚СЂРёРјРµСЂРѕРІ РЅР° РіР»Р°РІРЅРѕР№ в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ */
 .streamers-section { overflow: hidden; }
 .streamers-marquee {
   position: relative;
@@ -1931,7 +1931,7 @@ html.light .admin-room-badge.dirty { color: #b45309; }
   color: inherit;
   transition: border-color .18s, transform .18s;
 }
-/* Без translateY: карточка не должна вылезать за обрезающий контейнер */
+/* Р‘РµР· translateY: РєР°СЂС‚РѕС‡РєР° РЅРµ РґРѕР»Р¶РЅР° РІС‹Р»РµР·Р°С‚СЊ Р·Р° РѕР±СЂРµР·Р°СЋС‰РёР№ РєРѕРЅС‚РµР№РЅРµСЂ */
 .streamer-card:hover {
   border-color: rgb(var(--c-accent2) / 0.75);
   background: rgb(var(--c-panel) / 0.92);
@@ -1968,7 +1968,7 @@ html.light .admin-room-badge.dirty { color: #b45309; }
   .streamers-marquee { mask-image: none; -webkit-mask-image: none; }
 }
 
-/* ── Сочетания клавиш: живые клавиши-подсказки ───── */
+/* в”Ђв”Ђ РЎРѕС‡РµС‚Р°РЅРёСЏ РєР»Р°РІРёС€: Р¶РёРІС‹Рµ РєР»Р°РІРёС€Рё-РїРѕРґСЃРєР°Р·РєРё в”Ђв”Ђв”Ђв”Ђв”Ђ */
 .sc-key {
   display: inline-flex;
   align-items: center;
@@ -2008,7 +2008,7 @@ html.light .admin-room-badge.dirty { color: #b45309; }
   .sc-key { animation: none; }
 }
 
-/* ── Cookie-баннер и согласие перед входом ───────────────────────────── */
+/* в”Ђв”Ђ Cookie-Р±Р°РЅРЅРµСЂ Рё СЃРѕРіР»Р°СЃРёРµ РїРµСЂРµРґ РІС…РѕРґРѕРј в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ */
 
 .cookie-banner {
   position: fixed;
@@ -2179,7 +2179,7 @@ html.light .admin-room-badge.dirty { color: #b45309; }
   .consent-btn { width: 100%; }
 }
 
-/* Рабочая область пульта: панели свободно переносятся и меняют размер */
+/* Р Р°Р±РѕС‡Р°СЏ РѕР±Р»Р°СЃС‚СЊ РїСѓР»СЊС‚Р°: РїР°РЅРµР»Рё СЃРІРѕР±РѕРґРЅРѕ РїРµСЂРµРЅРѕСЃСЏС‚СЃСЏ Рё РјРµРЅСЏСЋС‚ СЂР°Р·РјРµСЂ */
 .obs-desk {
   display: flex;
   flex-wrap: wrap;
@@ -2190,8 +2190,8 @@ html.light .admin-room-badge.dirty { color: #b45309; }
   min-height: 0;
   overflow: hidden;
 }
-/* как в макете: по умолчанию пульт занимает половину экрана, а не всю высоту.
-   после ручной раскладки (obs-desk-free) размеры берутся из сохранённой геометрии */
+/* РєР°Рє РІ РјР°РєРµС‚Рµ: РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ РїСѓР»СЊС‚ Р·Р°РЅРёРјР°РµС‚ РїРѕР»РѕРІРёРЅСѓ СЌРєСЂР°РЅР°, Р° РЅРµ РІСЃСЋ РІС‹СЃРѕС‚Сѓ.
+   РїРѕСЃР»Рµ СЂСѓС‡РЅРѕР№ СЂР°СЃРєР»Р°РґРєРё (obs-desk-free) СЂР°Р·РјРµСЂС‹ Р±РµСЂСѓС‚СЃСЏ РёР· СЃРѕС…СЂР°РЅС‘РЅРЅРѕР№ РіРµРѕРјРµС‚СЂРёРё */
 .obs-desk:not(.obs-desk-free) { max-height: 530px; }
 .obs-desk-free { display: block; position: relative; }
 .obs-desk-free > .obs-pane { position: absolute; }
@@ -2218,7 +2218,7 @@ body.obs-pane-moving { cursor: grabbing; user-select: none; }
   height: 6px;
   cursor: row-resize;
 }
-/* те же ручки с противоположных сторон: слева и сверху */
+/* С‚Рµ Р¶Рµ СЂСѓС‡РєРё СЃ РїСЂРѕС‚РёРІРѕРїРѕР»РѕР¶РЅС‹С… СЃС‚РѕСЂРѕРЅ: СЃР»РµРІР° Рё СЃРІРµСЂС…Сѓ */
 .obs-pane-wl { left: 0; right: auto; }
 .obs-pane-ht { top: 0; bottom: auto; }
 .obs-pane-w::after,
@@ -2256,7 +2256,7 @@ body.obs-pane-dragging.obs-pane-col { cursor: col-resize; }
 body.obs-pane-dragging.obs-pane-row { cursor: row-resize; }
 body.obs-pane-moving { user-select: none; cursor: grabbing; }
 
-/* Новый элемент в сайдбаре и кольцо «сброса» в демо-макете */
+/* РќРѕРІС‹Р№ СЌР»РµРјРµРЅС‚ РІ СЃР°Р№РґР±Р°СЂРµ Рё РєРѕР»СЊС†Рѕ В«СЃР±СЂРѕСЃР°В» РІ РґРµРјРѕ-РјР°РєРµС‚Рµ */
 .mock-pill-new {
   display: flex;
   align-items: center;
@@ -2282,7 +2282,7 @@ body.obs-pane-moving { user-select: none; cursor: grabbing; }
   will-change: transform, opacity;
 }
 
-/* ---------------- Страницы ошибок (404/500) ---------------- */
+/* ---------------- РЎС‚СЂР°РЅРёС†С‹ РѕС€РёР±РѕРє (404/500) ---------------- */
 .err-shell {
   position: relative;
   min-height: 100svh;
@@ -2496,17 +2496,21 @@ body.obs-pane-moving { user-select: none; cursor: grabbing; }
 	.changelog-overlay {
 		align-items: flex-start;
 		justify-content: flex-end;
-		padding: 78px 24px 24px;
+		padding: 0;
 		background: transparent;
 		backdrop-filter: none;
 	}
 	.changelog-dialog {
-		height: 100%;
+		position: absolute;
+		top: 128px;
+		right: 24px;
+		bottom: 24px;
+		height: auto;
 		max-height: none;
 		overflow: hidden;
 		display: flex;
 		flex-direction: column;
-		width: min(430px, 100%);
+		width: min(430px, calc(100vw - 48px));
 		background: rgb(var(--c-panel) / .97);
 	}
 	.changelog-list {
@@ -2518,4 +2522,41 @@ body.obs-pane-moving { user-select: none; cursor: grabbing; }
 }
 .changelog-list {
 	flex: 1 1 auto;
+}
+.cabinet-changelog-btn {
+	position: fixed;
+	top: 74px;
+	right: 24px;
+	z-index: 80;
+	border: 1px solid rgb(var(--c-accent2) / .45);
+	color: rgb(var(--c-accent2));
+	background: rgb(var(--c-panel) / .72);
+	letter-spacing: .055em;
+	text-transform: uppercase;
+	font-size: 11px;
+	font-weight: 700;
+	backdrop-filter: blur(12px);
+}
+
+@media (max-width: 860px) {
+	.cabinet-changelog-btn {
+		position: static;
+	}
+}
+
+@keyframes changelog-drop {
+	from { opacity: 0; transform: translateY(-10px) scaleY(.96); }
+	to { opacity: 1; transform: translateY(0) scaleY(1); }
+}
+
+@media (min-width: 861px) {
+	.changelog-dialog {
+		animation: changelog-drop .26s cubic-bezier(.2, .8, .2, 1) both;
+		transform-origin: top right;
+		top: 122px;
+	}
+}
+.cabinet-changelog-btn {
+	padding: 9px 14px;
+	border-radius: 10px;
 }

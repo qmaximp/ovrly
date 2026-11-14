@@ -102,7 +102,7 @@ export default function ChangelogDialog({
 					</p>
 				) : data.entries.length === 0 ? (
 					<p className='changelog-state'>
-						{data.error || 'В канале пока нет постов.'}
+						Обновления скоро появятся.
 					</p>
 				) : (
 					<>
