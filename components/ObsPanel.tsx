@@ -50,7 +50,7 @@ type Snapshot = {
 	at: number
 }
 
-type Phase = 'idle' | 'connecting' | 'on' | 'needpass' | 'error' | 'off'
+type Phase = 'idle' | 'connecting' | 'on' | 'needpass' | 'error' | 'off' | 'blocked'
 
 const LS_KEY = 'obs.conn.v1'
 const LS_ACTIVE = 'obs.onlyActive.v1'
@@ -68,13 +68,45 @@ const OBS_URL = 'ws://127.0.0.1:4455'
 // зависший коннект не должен навсегда блокировать повторные попытки
 const CONNECT_TIMEOUT_MS = 6000
 
+// Проверяем, даст ли браузер вообще открыть ws://127.0.0.1 с текущей страницы:
+// на https-странице Chrome/Edge (Local Network Access) и Firefox (mixed content)
+// могут бросить SecurityError ещё до попытки подключения.
+function localWsBlocked(): boolean {
+	// Проверяем только на https: на http-странице ws:// разрешён всегда, а
+	// лишний «пробный» сокет шумит в консоли, когда OBS выключен.
+	if (typeof location !== 'undefined' && location.protocol !== 'https:') return false
+	try {
+		const probe = new WebSocket(OBS_URL)
+		try {
+			probe.close()
+		} catch {}
+		return false
+	} catch {
+		return true
+	}
+}
+
+// Что именно нажать в браузере, чтобы разрешить ws:// на localhost.
+function browserHint(): string {
+	const ua = typeof navigator === 'undefined' ? '' : navigator.userAgent
+	if (/Firefox/i.test(ua))
+		return 'Firefox: about:config → network.websocket.allowInsecureFromHTTPS = true.'
+	if (/Edg\//i.test(ua))
+		return 'Edge: значок замка → Разрешения для сайта → «Небезопасное содержимое» → Разрешить; затем перезагрузить страницу.'
+	if (/Chrome|YaBrowser|Opera/i.test(ua))
+		return 'Chrome: значок настроек слева от адреса → «Небезопасное содержимое» → Разрешить, перезагрузить. Если появился запрос «Доступ к локальной сети» — Разрешить. Или chrome://settings/content/insecureContent → добавить ovrly.ru.'
+	if (/Safari/i.test(ua))
+		return 'Safari не разрешает ws:// с https-страницы. Откройте панель в Chrome или Edge.'
+	return 'Разрешите небезопасное содержимое для этого сайта в настройках браузера и перезагрузите страницу.'
+}
+
 // Человеческое объяснение вместо молчания: раньше ошибка кроме «пароль не
 // подошёл» нигде не показывалась.
 function obsErrorHint(msg: string): string {
 	if (/timeout/i.test(msg))
 		return 'OBS не ответил за 6 с. Проверьте, что в OBS включён WebSocket-сервер (Инструменты → WebSocket Server Settings) и порт 4455 свободен.'
 	if (/security|mixed|insecure|blocked/i.test(msg))
-		return 'Браузер блокирует ws://127.0.0.1:4455 со страницы https. Откройте панель по http или разрешите localhost в браузере.'
+		return 'Браузер блокирует ws://127.0.0.1:4455 со страницы https.'
 	if (/refused|failed|network|closed|connect/i.test(msg))
 		return 'OBS недоступен на 127.0.0.1:4455 — он не запущен или WebSocket-сервер выключен.'
 	const short = msg.length > 140 ? `${msg.slice(0, 140)}…` : msg
@@ -696,13 +728,22 @@ export default function ObsPanel({
 			saved = JSON.parse(localStorage.getItem(LS_KEY) || '{}').password || ''
 		} catch {}
 		pwRef.current = saved
-		connectObs(saved)
-		const iv = setInterval(() => {
-			if (obsRef.current || connecting.current || phaseRef.current === 'needpass') return
-			connectObs(pwRef.current)
-		}, 8000)
+		// Браузер может запретить сам ws://127.0.0.1 с https-страницы — тогда
+		// любые попытки бессмысленны: показываем инструкцию, а не молчим.
+		let iv: ReturnType<typeof setInterval> | undefined
+		if (localWsBlocked()) {
+			setPhase('blocked')
+		} else {
+			connectObs(saved)
+			iv = setInterval(() => {
+				if (obsRef.current || connecting.current) return
+				const ph = phaseRef.current
+				if (ph === 'needpass' || ph === 'blocked') return
+				connectObs(pwRef.current)
+			}, 8000)
+		}
 		return () => {
-			clearInterval(iv)
+			if (iv) clearInterval(iv)
 			mounted.current = false
 			if (pushTimer.current) clearTimeout(pushTimer.current)
 			obsRef.current?.disconnect?.()
@@ -1304,6 +1345,31 @@ export default function ObsPanel({
 					{passError ||
 						'Запусти OBS и включи Инструменты → WebSocket Server Settings. Повторяю попытку каждые 8 секунд.'}
 				</p>
+			)}
+
+			{phase === 'blocked' && isStreamer && (
+				<div className='rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[12px] text-amber-200'>
+					<p className='font-medium'>Браузер не даёт подключиться к OBS</p>
+					<p className='mt-1 opacity-80'>
+						Панель открыта по https, а OBS слушает незащищённый
+						ws://127.0.0.1:4455. Браузер считает такое соединение опасным.
+					</p>
+					<p className='mt-1 opacity-80'>{browserHint()}</p>
+					<button
+						onClick={() => {
+							if (localWsBlocked()) {
+								setPassError('пока браузер блокирует — инструкция выше')
+								return
+							}
+							setPhase('idle')
+							void connectObs(password, true)
+						}}
+						className='mt-2 rounded border border-amber-400/50 px-2 py-1 hover:bg-amber-500/10'
+					>
+						Проверить снова
+					</button>
+					{passError && <p className='mt-1 opacity-80'>{passError}</p>}
+				</div>
 			)}
 
 			{toast && (
