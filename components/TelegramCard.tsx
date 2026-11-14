@@ -253,7 +253,8 @@ export default function TelegramCard({
 		const card = cardRef.current
 		const qrEl = qrRef.current
 		const wrap = wrapRef.current
-		if (wrap) wrap.style.visibility = 'hidden'
+		const starting = !!until && until > Date.now()
+		if (wrap && (!preview || starting)) wrap.style.visibility = 'hidden'
 		card?.animate(
 			[{ transform: 'translateY(1250px) rotate(-8deg)' }, { transform: 'translateY(0) rotate(0deg)' }],
 			{ duration: 1600, easing: EASE_OUT, fill: 'both' },
@@ -313,7 +314,10 @@ export default function TelegramCard({
 		<div
 			ref={wrapRef}
 			className={s.wrap}
-			style={{ visibility: preview ? 'visible' : 'hidden' }}
+			style={{
+				visibility:
+					preview && (!until || until <= Date.now()) ? 'visible' : 'hidden',
+			}}
 		>
 			<div className={s.stage} style={{ transform: `scale(${scale})` }}>
 				<div ref={cardRef} className={`${s.fly} ${s.cardFly}`}>
