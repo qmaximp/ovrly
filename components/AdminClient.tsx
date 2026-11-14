@@ -163,6 +163,7 @@ export default function AdminClient({
 	const [manualText, setManualText] = useState('')
 	const [manualUrl, setManualUrl] = useState('')
 	const [streamers, setStreamers] = useState<StreamerEntry[]>([])
+	const [streamerBlocked, setStreamerBlocked] = useState<string[]>([])
 	const [streamerThreshold, setStreamerThreshold] = useState(50)
 	const [streamerLogin, setStreamerLogin] = useState('')
 	const [streamerQuery, setStreamerQuery] = useState('')
@@ -231,6 +232,7 @@ export default function AdminClient({
 			if (!res.ok) throw new Error(data?.error || 'Не удалось загрузить стримеров')
 			const list = data?.users ? Object.values(data.users) : []
 			setStreamers(list as StreamerEntry[])
+			setStreamerBlocked(Array.isArray(data?.blocked) ? data.blocked : [])
 			if (typeof data?.threshold === 'number') {
 				setStreamerThreshold(data.threshold)
 			}
@@ -332,6 +334,7 @@ export default function AdminClient({
 				if (!res.ok) throw new Error(data?.error || 'Не удалось сохранить')
 				const list = data?.users ? Object.values(data.users) : []
 				setStreamers(list as StreamerEntry[])
+				setStreamerBlocked(Array.isArray(data?.blocked) ? data.blocked : [])
 				if (typeof data?.threshold === 'number') {
 					setStreamerThreshold(data.threshold)
 				}
@@ -776,6 +779,18 @@ export default function AdminClient({
 										>
 											Загрузить всех из БД
 										</button>
+										{streamerBlocked.length > 0 && (
+											<button
+												className='btn btn-ghost btn-sm'
+												disabled={streamerBusy}
+												title='Снять блок-лист и подтянуть всех из БД'
+												onClick={() =>
+													void saveStreamer({ action: 'unblock' })
+												}
+											>
+												Разблокировать всех ({streamerBlocked.length})
+											</button>
+										)}
 										<div className='flex items-center gap-2'>
 											<input
 												value={streamerLogin}
@@ -809,6 +824,14 @@ export default function AdminClient({
 									</div>
 									{streamerError && (
 										<p className='alert mt-3'>{streamerError}</p>
+									)}
+									{streamerBlocked.length > 0 && (
+										<p className='cabinet-muted mt-3'>
+											В блок-листе {streamerBlocked.length}{' '}
+											{streamerBlocked.length === 1 ? 'аккаунт' : 'аккаунтов'} —
+											синхронизация их пропускает. Нажмите «Разблокировать
+											всех», чтобы вернуть их в карусель.
+										</p>
 									)}
 									{streamers.length === 0 ? (
 										<p className='admin-empty'>

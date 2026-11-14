@@ -6,6 +6,7 @@ import {
 	removeStreamer,
 	setThreshold,
 	syncAllStreamers,
+	unblockAllStreamers,
 	updateStreamer,
 } from '@/lib/streamers'
 
@@ -46,6 +47,9 @@ export async function POST(req: Request) {
 		if (body?.action === 'sync') {
 			await syncAllStreamers()
 			return json(await listAdminStreamers())
+		}
+		if (body?.action === 'unblock') {
+			return json(await unblockAllStreamers())
 		}
 		if (body?.action === 'remove-all') {
 			return json(await removeAllStreamers())

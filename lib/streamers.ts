@@ -142,6 +142,19 @@ export async function removeAllStreamers(): Promise<StreamersState> {
 	return state
 }
 
+// Снять блок-лист и сразу подтянуть всех, кто есть в links. Нужно после
+// «Удалить всех»: иначе синхронизация честно пропускает заблокированные ники
+// и кнопка «Загрузить всех из БД» выглядит нерабочей.
+export async function unblockAllStreamers(): Promise<StreamersState> {
+	const state = await getStreamersState()
+	if (state.blocked?.length) {
+		state.blocked = []
+		await saveStreamersState(state)
+		await syncAllStreamers()
+	}
+	return getStreamersState()
+}
+
 export async function addStreamer(login: string): Promise<StreamerEntry | null> {
 	const key = login.trim().toLowerCase().replace(/^@/, '')
 	if (!key) return null
