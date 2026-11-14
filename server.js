@@ -1506,9 +1506,9 @@ app.prepare().then(() => {
 			const lock = roomRec.locks.get(id)
 			const takenByOther =
 				lock && lock.socketId !== socket.id && now < lock.until
-			// Лок неприкосновенен для всех, включая стримера и невидимку: иначе
-			// элемент «украдут» прямо во время перетаскивания.
-			if (takenByOther) {
+			// Модератор чужой лок не перехватывает, а стример и админ-невидимка —
+			// забирают: стример всегда главный в своей комнате.
+			if (takenByOther && !isStreamer && !isGhost) {
 				socket.emit('element:lock-denied', { id, by: lock.login })
 				return
 			}
@@ -1642,6 +1642,20 @@ app.prepare().then(() => {
 			if (!partial || typeof partial.id !== 'string') return
 			const idx = state.elements.findIndex(e => e.id === partial.id)
 			if (idx < 0) return
+			const updLock = roomRec.locks.get(partial.id)
+			if (
+				updLock &&
+				updLock.socketId !== socket.id &&
+				updLock.until > Date.now() &&
+				!isStreamer &&
+				!isGhost
+			) {
+				socket.emit('element:update-blocked', {
+					id: partial.id,
+					by: updLock.login,
+				})
+				return
+			}
 			const nextType = partial.type || state.elements[idx].type
 			const soundBlob = nextType === 'audio' ? partial.src : partial.soundSrc
 			if (soundBlob && String(soundBlob).length > MAX_SOUND_DATA) {
@@ -1742,11 +1756,23 @@ app.prepare().then(() => {
 			if (idx >= 0) {
 				const lock = roomRec.locks.get(id)
 				const now = Date.now()
-				if (lock && lock.socketId !== socket.id && now < lock.until)
-					return // элемент тащит другой: правки отклоняем
-				if (lock && lock.socketId === socket.id) {
-					lock.until = now + 5000 // продлеваем лок, пока тащат
+				if (lock && lock.socketId !== socket.id && now < lock.until) {
+					if (!isStreamer && !isGhost)
+						return // элемент тащит другой: правки отклоняем
+					roomRec.locks.set(id, {
+						socketId: socket.id,
+						login: userLogin,
+						until: now + 5000,
+					})
+					io.to(room).emit('element:lock', {
+						id,
+						by: isGhost ? '' : userLogin,
+						until: now + 5000,
+					})
 				}
+				const current = roomRec.locks.get(id)
+				if (current && current.socketId === socket.id)
+					current.until = now + 5000 // продлеваем лок, пока тащат
 				state.elements[idx].x = x
 				state.elements[idx].y = y
 				socket.broadcast.to(room).emit('element:moved', { id, x, y })
@@ -1779,10 +1805,23 @@ app.prepare().then(() => {
 			if (idx >= 0) {
 				const lock = roomRec.locks.get(id)
 				const now = Date.now()
-				if (lock && lock.socketId !== socket.id && now < lock.until)
-					return // элемент тащит другой: правки отклоняем
-				if (lock && lock.socketId === socket.id) {
-					lock.until = now + 5000
+				if (lock && lock.socketId !== socket.id && now < lock.until) {
+					if (!isStreamer && !isGhost)
+						return // элемент тащит другой: правки отклоняем
+					roomRec.locks.set(id, {
+						socketId: socket.id,
+						login: userLogin,
+						until: now + 5000,
+					})
+					io.to(room).emit('element:lock', {
+						id,
+						by: isGhost ? '' : userLogin,
+						until: now + 5000,
+					})
+				}
+				const curResize = roomRec.locks.get(id)
+				if (curResize && curResize.socketId === socket.id) {
+					curResize.until = now + 5000
 				}
 				const el = state.elements[idx]
 				if (pointsProvided && el.type === 'draw' && !points) return

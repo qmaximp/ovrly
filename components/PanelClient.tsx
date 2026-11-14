@@ -653,9 +653,9 @@ export default function PanelClient({
 		!!channel &&
 		!!userLogin &&
 		userLogin.toLowerCase() === channel.toLowerCase()
-	// Лок не перехватывает никто: пока элемент двигает или выделил другой
-	// участник, сервер отклоняет наши правки. Иначе элемент «украдут».
-	const canOverrideLocks = false
+	// Модератор чужой лок не перехватывает, а стример и админ-невидимка —
+	// забирают: стример всегда главный в своей комнате.
+	const canOverrideLocks = isStreamer || !!ghost
 	const isLockedByOther = useCallback(
 		(id: string) => {
 			if (canOverrideLocks) return false
@@ -970,6 +970,9 @@ export default function PanelClient({
 					? `Элемент сейчас двигает ${by} — удаление отменено`
 					: 'Элемент сейчас двигает другой участник — удаление отменено',
 			)
+		})
+		socket.on('element:update-blocked', () => {
+			setNotice('Элемент сейчас у другого участника — свойства заблокированы')
 		})
 		socket.on('element:lock-denied', ({ by }: { by?: string }) => {
 			setNotice(
@@ -1418,6 +1421,8 @@ export default function PanelClient({
 
 	const updateElement = useCallback(
 		(id: string, partial: Partial<StreamElement>) => {
+			// элемент держит другой участник: свойства недоступны, как и на сервере
+			if (isLockedByOther(id)) return
 			remember()
 			// новый источник — старая обрезка к нему не относится
 			let patch =
@@ -6427,13 +6432,20 @@ export default function PanelClient({
 							</button>
 							</div>
 						</div>
-						<PropertyEditor
+						<div
+							className={
+								isLockedByOther(selected.id)
+									? 'pointer-events-none opacity-50'
+									: undefined
+							}
+						>
+							<PropertyEditor
 							key={selected.id}
 							el={selected}
 							update={partial => updateElement(selected.id, partial)}
 							emit={emit}
 							onEditWidget={editWidgetFromElement}
-						/>
+						/></div>
 					</aside>
 				)}
 			</div>
@@ -7575,13 +7587,20 @@ export default function PanelClient({
 							</button>
 						</div>
 					</div>
-					<PropertyEditor
+					<div
+							className={
+								isLockedByOther(selected.id)
+									? 'pointer-events-none opacity-50'
+									: undefined
+							}
+						>
+							<PropertyEditor
 						key={selected.id}
 						el={selected}
 						update={partial => updateElement(selected.id, partial)}
 						emit={emit}
 						onEditWidget={editWidgetFromElement}
-					/>
+					/></div>
 				</div>
 			)}
 
