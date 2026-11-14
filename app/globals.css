@@ -2688,3 +2688,19 @@ body.obs-pane-moving { user-select: none; cursor: grabbing; }
 @media (min-width: 861px) and (min-height: 621px) {
 	.changelog-dialog { bottom: 38px; }
 }
+.cabinet-changelog-btn { top: 76px; }
+.cabinet-changelog-btn:hover { transform: none; }
+.changelog-bottom-btn {
+	right: 93px;
+	bottom: 37px;
+	width: 194px;
+	height: 30px;
+}
+@media (min-width: 861px) and (min-height: 621px) {
+	.changelog-dialog {
+		top: 68px;
+		right: 18px;
+		bottom: 68px;
+		width: 344px;
+	}
+}
