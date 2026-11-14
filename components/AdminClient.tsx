@@ -58,14 +58,30 @@ type AdminWidget = {
 	updatedAt: string
 }
 
+type AdminChangelog = {
+	channel?: string
+	title?: string
+	entries?: { text: string; date: string; url: string; photo?: string }[]
+	error?: string
+}
+
 const ROLE_LABELS: Record<StatsUser['role'], string> = {
 	streamer: 'автор',
 	moderator: 'модератор',
 	guest: 'оверлей',
 }
 
-function fmtSec(sec: number | null | undefined): string {
-	if (sec === null || sec === undefined) return '—'
+function formatAdminDate(value: string): string {
+	const t = Date.parse(value)
+	if (!Number.isFinite(t)) return ''
+	return new Date(t).toLocaleDateString('ru-RU', {
+		day: 'numeric',
+		month: 'long',
+		year: 'numeric',
+	})
+}
+
+function fmtSec(sec: number | null | undefined): string {	if (sec === null || sec === undefined) return '—'
 	if (sec < 60) return `${sec} с`
 	if (sec < 3600) return `${Math.floor(sec / 60)} мин`
 	if (sec < 86400)
@@ -116,8 +132,12 @@ export default function AdminClient({
 	const [widgetQuery, setWidgetQuery] = useState('')
 	const [openWidget, setOpenWidget] = useState<string | null>(null)
 	const [adminTab, setAdminTab] = useState<
-		'overview' | 'streamers' | 'widgets' | 'tools'
+		'overview' | 'streamers' | 'widgets' | 'changelog' | 'tools'
 	>('overview')
+	const [changelogChannel, setChangelogChannel] = useState('')
+	const [changelogData, setChangelogData] = useState<AdminChangelog | null>(null)
+	const [changelogBusy, setChangelogBusy] = useState(false)
+	const [changelogError, setChangelogError] = useState('')
 	const [streamers, setStreamers] = useState<StreamerEntry[]>([])
 	const [streamerThreshold, setStreamerThreshold] = useState(50)
 	const [streamerLogin, setStreamerLogin] = useState('')
@@ -194,6 +214,45 @@ export default function AdminClient({
 			setStreamerError(e?.message || 'Не удалось загрузить стримеров')
 		}
 	}, [])
+
+	const loadChangelog = useCallback(async () => {
+		setChangelogError('')
+		try {
+			const res = await fetch('/api/admin/changelog')
+			const data = await res.json()
+			if (!res.ok) throw new Error(data?.error || 'Не удалось загрузить обновления')
+			setChangelogData(data)
+			setChangelogChannel(String(data?.channel || ''))
+		} catch (e: any) {
+			setChangelogError(e?.message || 'Не удалось загрузить обновления')
+		}
+	}, [])
+
+	const saveChangelogChannel = useCallback(async (raw?: string) => {
+		setChangelogBusy(true)
+		setChangelogError('')
+		try {
+			const res = await fetch('/api/admin/changelog', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					channel: String(raw ?? changelogChannel).trim(),
+				}),
+			})
+			const data = await res.json()
+			if (!res.ok) throw new Error(data?.error || 'Не удалось сохранить канал')
+			setChangelogData(data)
+			setChangelogChannel(String(data?.channel || ''))
+		} catch (e: any) {
+			setChangelogError(e?.message || 'Не удалось сохранить канал')
+		} finally {
+			setChangelogBusy(false)
+		}
+	}, [changelogChannel])
+
+	useEffect(() => {
+		if (adminTab === 'changelog') void loadChangelog()
+	}, [adminTab, loadChangelog])
 
 	const saveStreamer = useCallback(
 		async (body: Record<string, unknown>) => {
@@ -442,6 +501,7 @@ export default function AdminClient({
 									{ id: 'overview', label: 'Обзор' },
 									{ id: 'streamers', label: `Стримеры · ${streamers.length}` },
 									{ id: 'widgets', label: `Виджеты · ${adminWidgets.length}` },
+									{ id: 'changelog', label: 'Обновления' },
 									{ id: 'tools', label: 'Инструменты' },
 								].map(t => (
 									<button
@@ -938,6 +998,107 @@ export default function AdminClient({
 												</div>
 											))}
 										</div>
+									)}
+								</section>
+								)}
+
+								{adminTab === 'changelog' && (
+								<section className='glass-card admin-card'>
+									<div className='admin-card-head'>
+										<div>
+											<span className='kicker'>Список обновлений</span>
+											<h2 className='admin-card-title'>
+												Telegram-канал для витрины обновлений
+											</h2>
+										</div>
+										<div className='admin-card-actions'>
+											<button
+												onClick={() => void loadChangelog()}
+												className='btn btn-ghost btn-sm'
+											>
+												↻ Обновить
+											</button>
+										</div>
+									</div>
+									<p className='cabinet-muted'>
+										Вставьте ссылку на публичный Telegram-канал. Последние посты
+										будут показаны в кабинете в разделе «Список обновлений».
+									</p>
+									<div className='admin-notice-row'>
+										<input
+											value={changelogChannel}
+											onChange={e => setChangelogChannel(e.target.value)}
+											placeholder='https://t.me/your_channel или @your_channel'
+											className='admin-input flex-1'
+											aria-label='Ссылка на Telegram-канал'
+										/>
+										<button
+											className='btn btn-primary btn-sm'
+											disabled={changelogBusy}
+											onClick={() => void saveChangelogChannel()}
+										>
+											{changelogBusy ? 'Сохраняю…' : 'Сохранить'}
+										</button>
+										{changelogChannel && (
+											<button
+												className='btn btn-ghost btn-sm text-red-400'
+												disabled={changelogBusy}
+												onClick={() => {
+													setChangelogChannel('')
+													void saveChangelogChannel('')
+												}}
+											>
+												Отключить
+											</button>
+										)}
+									</div>
+									{changelogError && (
+										<p className='alert mt-3'>{changelogError}</p>
+									)}
+									{changelogData?.error && (
+										<p className='alert mt-3'>{changelogData.error}</p>
+									)}
+									{changelogData?.title && (
+										<p className='admin-meta mt-3'>
+											Канал: {changelogData.title}
+											{changelogData.channel
+												? ` · @${changelogData.channel}`
+												: ''}
+										</p>
+									)}
+									{changelogData?.entries?.length ? (
+										<div className='mt-4 flex flex-col gap-2'>
+											{changelogData.entries.slice(0, 6).map((post, i) => (
+												<div
+													key={`${post.url}-${i}`}
+													className='rounded-xl border border-white/10 px-3 py-2'
+												>
+													<p className='text-[11px] text-gray-500'>
+														{formatAdminDate(post.date)}
+													</p>
+													<p className='mt-1 text-sm text-gray-200 whitespace-pre-line'>
+														{post.text.slice(0, 400) ||
+															'Пост без текста'}
+													</p>
+													{post.url && (
+														<a
+															href={post.url}
+															target='_blank'
+															rel='noopener noreferrer'
+															className='mt-2 inline-block text-xs text-[rgb(var(--c-accent2))]'
+														>
+															Открыть в Telegram ↗
+														</a>
+													)}
+												</div>
+											))}
+										</div>
+									) : (
+										<p className='admin-empty mt-3'>
+											{changelogData
+												? 'В канале пока нет постов.'
+												: 'Вставьте ссылку и нажмите «Сохранить».'}
+										</p>
 									)}
 								</section>
 								)}

@@ -2385,3 +2385,99 @@ body.obs-pane-moving { user-select: none; cursor: grabbing; }
 
 @property --rev { syntax: '<percentage>'; inherits: false; initial-value: 0%; }
 
+
+.changelog-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: 120;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 24px;
+	background: rgba(2, 6, 12, 0.72);
+	backdrop-filter: blur(6px);
+}
+.changelog-dialog {
+	width: min(720px, 100%);
+	max-height: min(84vh, 880px);
+	overflow: auto;
+	border: 1px solid rgb(var(--c-border));
+	border-radius: 22px;
+	background: rgb(var(--c-panel));
+	box-shadow: 0 28px 90px rgba(0, 0, 0, .55);
+	padding: 22px;
+}
+.changelog-head {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 16px;
+	padding-bottom: 14px;
+	border-bottom: 1px solid rgb(var(--c-border));
+}
+.changelog-head h2 {
+	font-size: 20px;
+	font-weight: 700;
+	margin-top: 4px;
+	color: rgb(var(--c-on-bg));
+}
+.changelog-close {
+	width: 34px;
+	height: 34px;
+	border-radius: 10px;
+	border: 1px solid rgb(var(--c-border));
+	color: rgb(var(--c-text));
+	background: transparent;
+	cursor: pointer;
+}
+.changelog-close:hover { background: rgb(var(--c-border)); }
+.changelog-state {
+	padding: 26px 4px;
+	color: rgb(var(--c-text) / .68);
+	line-height: 1.65;
+}
+.changelog-error { color: #f87171; }
+.changelog-source {
+	margin: 16px 0 8px;
+	font-size: 13px;
+	color: rgb(var(--c-text) / .65);
+}
+.changelog-source a { color: rgb(var(--c-accent2)); }
+.changelog-list { display: grid; gap: 12px; }
+.changelog-entry {
+	border: 1px solid rgb(var(--c-border));
+	border-radius: 16px;
+	padding: 14px;
+	background: rgb(var(--c-bg) / .45);
+}
+.changelog-entry-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	font-size: 11px;
+	color: rgb(var(--c-text) / .55);
+}
+.changelog-entry-head a { color: rgb(var(--c-accent2)); text-decoration: none; }
+.changelog-photo {
+	display: block;
+	width: 100%;
+	max-height: 220px;
+	object-fit: cover;
+	border-radius: 12px;
+	margin-top: 10px;
+}
+.changelog-text {
+	margin-top: 9px;
+	white-space: pre-line;
+	line-height: 1.65;
+	font-size: 14px;
+	color: rgb(var(--c-on-bg) / .88);
+}
+.changelog-all { margin-top: 16px; }
+@media (max-width: 640px) {
+	.changelog-overlay { padding: 10px; }
+	.changelog-dialog { border-radius: 18px; padding: 16px; }
+	.changelog-entry-head { flex-direction: column; align-items: flex-start; gap: 4px; }
+}
+

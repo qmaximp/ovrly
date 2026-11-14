@@ -3,6 +3,7 @@
 import LogoMark from '@/components/LogoMark'
 import ThemeToggle from '@/components/ThemeToggle'
 import CookieBanner from '@/components/CookieBanner'
+import ChangelogDialog from '@/components/ChangelogDialog'
 import { GUIDE_STEPS } from '@/lib/guide'
 import { useCallback, useEffect, useState } from 'react'
 
@@ -132,6 +133,7 @@ export default function CabinetClient({
 	const [loaded, setLoaded] = useState(false)
 	const [copied, setCopied] = useState<string | null>(null)
 	const [busy, setBusy] = useState(false)
+	const [changelogOpen, setChangelogOpen] = useState(false)
 
 	// вкладки кабинета: ссылки / доступ к панели (инвайты) / инструкция
 	const [tab, setTab] = useState<'links' | 'access' | 'guide'>(defaultTab)
@@ -352,6 +354,12 @@ export default function CabinetClient({
 								)}
 								<span className='hidden sm:inline'>{displayName}</span>
 							</span>
+							<button
+								onClick={() => setChangelogOpen(true)}
+								className='btn btn-ghost btn-sm cabinet-changelog-btn'
+							>
+								Список обновлений
+							</button>
 							<ThemeToggle />
 							<a href='/api/auth/logout' className='btn btn-sm cabinet-logout'>
 								Выйти
@@ -796,6 +804,11 @@ export default function CabinetClient({
 						</section>
 					)}
 				</div>
+
+				<ChangelogDialog
+					open={changelogOpen}
+					onClose={() => setChangelogOpen(false)}
+				/>
 
 				<footer className='container site-footer cabinet-footer'>
 					<div className='flex items-center gap-2 flex-wrap'>
