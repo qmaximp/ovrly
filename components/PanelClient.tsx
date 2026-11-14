@@ -8102,8 +8102,11 @@ function ElementThumb({ el }: { el: StreamElement }) {
 		)
 	if (el.type === 'timer')
 		return (
-			<span className='text-[10px] text-gray-400'>
-				⏱ {el.timerLabel || formatTime(el.duration || 0)}
+			<span className='absolute inset-0 flex flex-col items-center justify-center gap-1 bg-[#14141c] text-accent2'>
+				<Timer size={18} />
+				<span className='text-[10px] tabular-nums text-gray-300'>
+					{el.timerLabel || formatTime(el.duration || 0)}
+				</span>
 			</span>
 		)
 	const info = parseMediaUrl(el.src || '')
