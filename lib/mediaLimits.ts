@@ -3,10 +3,10 @@
 // иначе пользователь ждёт загрузку и получает 413 в конце.
 export const MB = 1024 * 1024
 
-export const IMAGE_MAX_MB = 10
-export const VIDEO_MAX_MB = 40
-export const SOUND_MAX_MB = 5
-export const ABSOLUTE_MAX_MB = 48
+export const IMAGE_MAX_MB = 5
+export const VIDEO_MAX_MB = 20
+export const SOUND_MAX_MB = 3
+export const ABSOLUTE_MAX_MB = 24
 
 export class MediaFileError extends Error {}
 
