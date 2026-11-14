@@ -12,6 +12,14 @@ import WidgetVariableControl from '@/components/WidgetControls'
 import WidgetFrame from '@/components/WidgetFrame'
 import TelegramCard from '@/components/TelegramCard'
 import { normalizeTelegramChannel } from '@/lib/telegram'
+import {
+	ACCENT_PRESETS,
+	accentPaletteFromCss,
+	applyAccentPalette,
+	clearAccentPalette,
+	loadAccentPalette,
+	normalizeHex,
+} from '@/lib/theme'
 import { NumberField } from '@/components/fields'
 import { noteServerClock, serverClockLag } from '@/lib/clock'
 import { colorWithOpacity } from '@/lib/color'
@@ -67,6 +75,7 @@ import {
 	LockOpen,
 	MessageCircle,
 	MousePointer2,
+	Palette,
 	Pause,
 	Pencil,
 	Play,
@@ -219,7 +228,9 @@ export default function PanelClient({
 	const [tab, setTab] = useState<
 		'elements' | 'widgets' | 'obs' | 'chat' | 'settings'
 	>('elements')
-	const [settingsTab, setSettingsTab] = useState<'general' | 'keys'>('general')
+	const [settingsTab, setSettingsTab] = useState<
+		'general' | 'keys' | 'theme'
+	>('general')
 	const [shortcuts, setShortcuts] = useState<Record<ShortcutId, string>>({
 		...DEFAULT_SHORTCUTS,
 	})
@@ -344,6 +355,8 @@ export default function PanelClient({
 		})
 	}, [])
 	const [theme, setTheme] = useState<'dark' | 'light'>('dark')
+	const [accentA, setAccentA] = useState('#0f766e')
+	const [accentB, setAccentB] = useState('#5eead4')
 	const [previewOn, setPreviewOn] = useState(false)
 	const [previewKey, setPreviewKey] = useState(0)
 	const [twitchLive, setTwitchLive] = useState<boolean | null>(null)
@@ -1127,6 +1140,25 @@ export default function PanelClient({
 		setTheme(
 			document.documentElement.classList.contains('light') ? 'light' : 'dark',
 		)
+	}, [])
+
+	useEffect(() => {
+		const palette = loadAccentPalette() || accentPaletteFromCss()
+		setAccentA(palette.accent)
+		setAccentB(palette.accent2)
+	}, [])
+
+	const applyAccent = useCallback((accent: string, accent2: string) => {
+		const next = applyAccentPalette({ accent, accent2 })
+		setAccentA(next.accent)
+		setAccentB(next.accent2)
+	}, [])
+
+	const resetAccent = useCallback(() => {
+		clearAccentPalette()
+		const palette = accentPaletteFromCss()
+		setAccentA(palette.accent)
+		setAccentB(palette.accent2)
 	}, [])
 
 	const applyTheme = useCallback((next: 'dark' | 'light') => {
@@ -6201,7 +6233,7 @@ export default function PanelClient({
 					<div
 						role='tablist'
 						aria-label='Разделы настроек'
-						className='mt-5 inline-flex rounded-xl border border-border bg-panel p-1'
+						className='mt-5 inline-flex flex-wrap rounded-xl border border-border bg-panel p-1'
 					>
 						<button
 							role='tab'
@@ -6226,6 +6258,18 @@ export default function PanelClient({
 							}`}
 						>
 							Сочетания клавиш
+						</button>
+						<button
+							role='tab'
+							aria-selected={settingsTab === 'theme'}
+							onClick={() => setSettingsTab('theme')}
+							className={`rounded-lg px-4 py-2 text-sm transition-colors ${
+								settingsTab === 'theme'
+									? 'bg-accent text-white'
+									: 'text-gray-400 hover:text-white'
+							}`}
+						>
+							Настройка темы
 						</button>
 					</div>
 
@@ -6301,8 +6345,10 @@ export default function PanelClient({
 									</button>
 								</div>
 							</div>
-
-							<div className='mt-4 rounded-2xl border border-border bg-panel p-4 sm:p-5'>
+						</>
+					) : settingsTab === 'theme' ? (
+						<div className='mt-5 space-y-4'>
+							<div className='rounded-2xl border border-border bg-panel p-4 sm:p-5'>
 								<div className='flex items-start gap-3 sm:gap-4'>
 									<span className='w-10 h-10 shrink-0 rounded-xl bg-accent/15 text-accent2 flex items-center justify-center'>
 										{theme === 'dark' ? <MoonIcon /> : <SunIcon />}
@@ -6312,14 +6358,17 @@ export default function PanelClient({
 											Тема оформления
 										</h3>
 										<p className='mt-1 text-sm leading-relaxed text-gray-500'>
-											Сейчас включена {theme === 'dark' ? 'тёмная' : 'светлая'} тема.
+											Сейчас включена{' '}
+											{theme === 'dark' ? 'тёмная' : 'светлая'} тема.
 										</p>
 									</div>
 									<button
 										role='switch'
 										aria-checked={theme === 'light'}
 										aria-label='Светлая тема'
-										onClick={() => applyTheme(theme === 'dark' ? 'light' : 'dark')}
+										onClick={() =>
+											applyTheme(theme === 'dark' ? 'light' : 'dark')
+										}
 										className={`relative w-11 h-6 shrink-0 rounded-full transition-colors ${
 											theme === 'light' ? 'bg-accent' : 'bg-gray-600'
 										}`}
@@ -6333,7 +6382,116 @@ export default function PanelClient({
 								</div>
 							</div>
 
-						</>
+							<div className='rounded-2xl border border-border bg-panel p-4 sm:p-5'>
+								<div className='flex items-start gap-3 sm:gap-4'>
+									<span className='w-10 h-10 shrink-0 rounded-xl bg-accent/15 text-accent2 flex items-center justify-center'>
+										<Palette size={19} />
+									</span>
+									<div className='min-w-0 flex-1'>
+										<h3 className='text-sm font-semibold text-[color:rgb(var(--c-on-bg))]'>
+											Цвета интерфейса
+										</h3>
+										<p className='mt-1 text-sm leading-relaxed text-gray-500'>
+											Выберите готовую палитру или задайте свои цвета. Они
+											сохранятся только в этом браузере.
+										</p>
+									</div>
+								</div>
+
+								<div className='mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4'>
+									{ACCENT_PRESETS.map(preset => {
+										const active =
+											normalizeHex(accentA) === normalizeHex(preset.accent) &&
+											normalizeHex(accentB) === normalizeHex(preset.accent2)
+										return (
+											<button
+												key={preset.id}
+												onClick={() =>
+													applyAccent(preset.accent, preset.accent2)
+												}
+												className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-left transition-colors ${
+													active
+														? 'border-accent2 bg-accent/10'
+														: 'border-border hover:bg-border/40'
+												}`}
+											>
+												<span className='flex shrink-0 -space-x-1'>
+													<span
+														className='w-5 h-5 rounded-full ring-1 ring-white/20'
+														style={{ background: preset.accent }}
+													/>
+													<span
+														className='w-5 h-5 rounded-full ring-1 ring-white/20'
+														style={{ background: preset.accent2 }}
+													/>
+												</span>
+												<span className='min-w-0 text-xs text-gray-300 truncate'>
+													{preset.name}
+												</span>
+											</button>
+										)
+									})}
+								</div>
+
+								<div className='mt-4 grid gap-3 sm:grid-cols-2'>
+									<label className='flex items-center gap-3 rounded-xl border border-border bg-bg px-3 py-2'>
+										<input
+											type='color'
+											value={accentA}
+											onChange={e => applyAccent(e.target.value, accentB)}
+											className='h-8 w-10 cursor-pointer rounded-md border-0 bg-transparent p-0'
+										/>
+										<span className='min-w-0 flex-1'>
+											<span className='block text-[10px] uppercase tracking-wide text-gray-500'>
+												Основной цвет
+											</span>
+											<span className='block text-xs tabular-nums text-gray-300'>
+												{accentA.toUpperCase()}
+											</span>
+										</span>
+									</label>
+									<label className='flex items-center gap-3 rounded-xl border border-border bg-bg px-3 py-2'>
+										<input
+											type='color'
+											value={accentB}
+											onChange={e => applyAccent(accentA, e.target.value)}
+											className='h-8 w-10 cursor-pointer rounded-md border-0 bg-transparent p-0'
+										/>
+										<span className='min-w-0 flex-1'>
+											<span className='block text-[10px] uppercase tracking-wide text-gray-500'>
+												Акцентный цвет
+											</span>
+											<span className='block text-xs tabular-nums text-gray-300'>
+												{accentB.toUpperCase()}
+											</span>
+										</span>
+									</label>
+								</div>
+
+								<div className='mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-bg p-3'>
+									<span className='text-[10px] uppercase tracking-wide text-gray-600'>
+										Предпросмотр
+									</span>
+									<span className='h-8 w-8 rounded-lg bg-accent' />
+									<span className='h-8 w-8 rounded-lg bg-accent2' />
+									<button
+										type='button'
+										className='rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white'
+									>
+										Кнопка
+									</button>
+									<span className='rounded-full bg-accent/15 px-2 py-1 text-xs text-accent2'>
+										Активный пункт
+									</span>
+									<button
+										onClick={resetAccent}
+										className='ml-auto rounded-lg border border-border px-3 py-1.5 text-xs text-gray-300 transition-colors hover:bg-border'
+									>
+										Сбросить цвета
+									</button>
+								</div>
+							</div>
+						</div>
 					) : (
 						<div className='mt-5'>
 							<div className='flex flex-wrap items-center justify-between gap-2'>
@@ -7629,7 +7787,7 @@ function MultiProperties({
 						}
 						className='px-2 py-1.5 text-xs rounded-lg border border-border text-gray-300 hover:bg-border transition-colors'
 					>
-						{allLocked ? '🔓 Разблокировать' : '🔒 Заблокировать'}
+						{allLocked ? '🔓 Разблок.' : '🔒 Заблокировать'}
 					</button>
 					<button
 						onClick={() =>

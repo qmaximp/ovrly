@@ -825,7 +825,7 @@ export default function CabinetClient({
 						>
 							GitHub
 						</a>
-						<span>© 2026 jettle_, nezory_1 · Версия 2.2</span>
+						<span>© 2026 jettle_, nezory_1 · Версия 2.3</span>
 					</div>
 				</footer>
 

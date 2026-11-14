@@ -101,7 +101,7 @@ export const viewport: Viewport = {
 	themeColor: '#070b12',
 }
 
-const themeInit = `try{if(localStorage.getItem('theme')==='light'){document.documentElement.classList.add('light');document.querySelector('meta[name="theme-color"]')?.setAttribute('content','#f3f0e8')}}catch(e){}`
+const themeInit = `try{if(localStorage.getItem('theme')==='light'){document.documentElement.classList.add('light');document.querySelector('meta[name="theme-color"]')?.setAttribute('content','#f3f0e8')}}catch(e){}try{var a=localStorage.getItem('ovrly.c-accent'),h=localStorage.getItem('ovrly.c-accent-hover'),b=localStorage.getItem('ovrly.c-accent2');if(a)document.documentElement.style.setProperty('--c-accent',a);if(h)document.documentElement.style.setProperty('--c-accent-hover',h);if(b)document.documentElement.style.setProperty('--c-accent2',b)}catch(e){}`
 
 export default function RootLayout({
 	children,

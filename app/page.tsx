@@ -490,7 +490,7 @@ export default async function Home({
 				</section>
 
 				<footer className='container site-footer'>
-					<span>© 2026 jettle_, nezory_1 · Версия 2.2.0</span>
+					<span>© 2026 jettle_, nezory_1 · Версия 2.3.0</span>
 					<div className='footer-links'>
 						<a href='/legal'>Документы</a>
 						<a
