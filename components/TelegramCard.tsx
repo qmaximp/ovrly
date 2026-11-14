@@ -191,6 +191,16 @@ export default function TelegramCard({
 				)
 				const json = await res.json()
 				if (!alive) return
+				// 202 — кэша ещё нет, мост сейчас скачает канал: ждём и пробуем снова.
+				if (res.status === 202) {
+					if (tries < 8) {
+						tries += 1
+						setTimeout(() => {
+							if (alive) void load()
+						}, 4000)
+					}
+					return
+				}
 				if (!res.ok) {
 					setError(json.error || 'Канал не найден')
 					// Новый канал появляется в кэше только после прогона моста на ПК:
@@ -255,9 +265,11 @@ export default function TelegramCard({
 
 	// Вход запускаем сразу, не дожидаясь данных канала: иначе при недоступном
 	// Telegram (сервер в РФ) карточка навсегда оставалась невидимой.
+	// Когда данные пришли (число постов изменилось) — вход повторяем, чтобы
+	// лента успела прокрутиться.
 	useEffect(() => {
 		if (!visible) return
-		const key = `${until || 0}:${data?.channel || nick || ""}`
+		const key = `${until || 0}:${data?.channel || nick || ''}:${posts.length}`
 		if (enteredRef.current === key) return
 		enteredRef.current = key
 

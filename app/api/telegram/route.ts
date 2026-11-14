@@ -25,6 +25,18 @@ export async function GET(req: Request) {
 			})
 		// Кэша нет или он старый: просим мост на ПК обновить канал (он видит t.me).
 		await storage.setSetting(`tgneed:${channel}`, Date.now())
+		// Прод за блокировкой: сами в t.me не ходим, иначе каждый запрос висит
+		// до таймаута. Отвечаем сразу, а канал подтянет мост с ПК.
+		if (process.env.TELEGRAM_VIA_BRIDGE === '1') {
+			if (hit)
+				return NextResponse.json(hit.data, {
+					headers: { 'Cache-Control': 'no-store' },
+				})
+			return NextResponse.json(
+				{ pending: true },
+				{ status: 202, headers: { 'Cache-Control': 'no-store' } },
+			)
+		}
 		const data = await loadTelegramChannel(channel)
 		await storage.setSetting(cacheKey(channel), { at: Date.now(), data })
 		await storage.setSetting(`tgneed:${channel}`, 0)
