@@ -707,7 +707,7 @@ export default function CabinetClient({
 									</h2>
 								</div>
 								<p className='cabinet-muted'>
-									Четыре шага — от ссылки в кабинете до оверлея на сцене.
+									Шесть шагов — от ссылки в кабинете до оверлея на сцене.
 								</p>
 							</div>
 

@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 420" width="720" height="420" font-family="Segoe UI, Inter, Arial, sans-serif" role="img" aria-label="Микшер OBS: меню шестерёнки и пункт Расширенные свойства звука">
+  <rect width="720" height="420" fill="#0f1218"/>
+  <text x="24" y="30" font-size="12" fill="#8fa3b8">OBS Studio — Микшер</text>
+  <rect x="24" y="44" width="672" height="300" rx="10" fill="#151a22" stroke="#2b3442"/>
+  <text x="44" y="70" font-size="15" font-weight="600" fill="#e8eef6">Микшер</text>
+  <g font-size="10" fill="#9fb0c4">
+    <text x="46" y="100">Звук раб. стола</text>
+    <text x="190" y="100">Микр/дон</text>
+    <text x="334" y="100">dis</text>
+    <text x="478" y="100">ovrly</text>
+    <text x="622" y="100">муз</text>
+  </g>
+  <g fill="#26384a">
+    <rect x="44" y="112" width="100" height="186" rx="6"/>
+    <rect x="188" y="112" width="100" height="186" rx="6"/>
+    <rect x="332" y="112" width="100" height="186" rx="6"/>
+    <rect x="476" y="112" width="100" height="186" rx="6"/>
+    <rect x="620" y="112" width="100" height="186" rx="6"/>
+  </g>
+  <g fill="#4cd964">
+    <rect x="86" y="132" width="12" height="132" rx="6"/>
+    <rect x="230" y="132" width="12" height="132" rx="6"/>
+    <rect x="374" y="132" width="12" height="132" rx="6"/>
+    <rect x="518" y="176" width="12" height="88" rx="6"/>
+    <rect x="662" y="132" width="12" height="132" rx="6"/>
+  </g>
+  <g fill="#eef6ff" font-size="10">
+    <text x="76" y="126">0.0 dB</text>
+    <text x="220" y="126">0.0 dB</text>
+    <text x="364" y="126">0.0 dB</text>
+    <text x="508" y="126">0.0 dB</text>
+    <text x="652" y="126">0.0 dB</text>
+  </g>
+  <rect x="24" y="356" width="672" height="44" rx="8" fill="#151a22" stroke="#2b3442"/>
+  <text x="42" y="383" font-size="11" fill="#8fa3b8">0 hidden</text>
+  <text x="500" y="383" font-size="11" fill="#eef6ff">⚙ Options ▾</text>
+  <rect x="392" y="76" width="280" height="232" rx="10" fill="#1d2633" stroke="#37465a"/>
+  <g font-size="12" fill="#c9d6e5">
+    <text x="408" y="100">Показать все</text>
+    <text x="408" y="126">□ Hidden sources</text>
+    <text x="408" y="152">□ Show inactive sources</text>
+    <text x="408" y="178">□ Keep hidden sources to the right</text>
+    <text x="408" y="204">□ Keep inactive sources to the right</text>
+    <text x="408" y="234">Horizontal Layout</text>
+  </g>
+  <rect x="400" y="248" width="264" height="34" rx="6" fill="#2a6df4"/>
+  <text x="414" y="270" font-size="12" fill="#fff">Расширенные свойства звука →</text>
+</svg>
