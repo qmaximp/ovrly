@@ -100,7 +100,7 @@ import {
 } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import type { ReactNode } from 'react'
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { io as ioInit, Socket } from 'socket.io-client'
 
@@ -366,6 +366,9 @@ export default function PanelClient({
 	const [surfaceBg, setSurfaceBg] = useState('#070b12')
 	const [surfacePanel, setSurfacePanel] = useState('#0c1522')
 	const [previewOn, setPreviewOn] = useState(false)
+	const [dockLift, setDockLift] = useState(false)
+	const dockRef = useRef<HTMLDivElement | null>(null)
+	const previewRef = useRef<HTMLDivElement | null>(null)
 	const [previewKey, setPreviewKey] = useState(0)
 	const [twitchLive, setTwitchLive] = useState<boolean | null>(null)
 	const [mounted, setMounted] = useState(false)
@@ -4415,6 +4418,43 @@ export default function PanelClient({
 	}
 
 	// вертикальная ориентация телефона — просим повернуть (как на референсе)
+	// Док стоит внизу. Поднимаем его только если он реально пересекается
+	// с «Превью» (узкий экран), а не по одной ширине окна.
+	useLayoutEffect(() => {
+		const update = () => {
+			const dock = dockRef.current
+			const preview = previewRef.current
+			if (!dock || !preview) {
+				setDockLift(v => (v ? false : v))
+				return
+			}
+			const d = dock.getBoundingClientRect()
+			const p = preview.getBoundingClientRect()
+			const overlap = d.left < p.right - 2 && d.right > p.left + 2
+			setDockLift(v => (v === overlap ? v : overlap))
+		}
+		update()
+		const ro =
+			typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null
+		if (ro) {
+			if (dockRef.current) ro.observe(dockRef.current)
+			if (previewRef.current) ro.observe(previewRef.current)
+		}
+		window.addEventListener('resize', update)
+		return () => {
+			ro?.disconnect()
+			window.removeEventListener('resize', update)
+		}
+	}, [
+		betaUI,
+		isMobile,
+		tab,
+		previewOn,
+		chatOn,
+		state.elements.length,
+		selectedId,
+	])
+
 	if (isPortrait) {
 		return (
 			<div className='min-h-[100dvh] bg-bg flex items-center justify-center p-6'>
@@ -4437,6 +4477,7 @@ export default function PanelClient({
 	// размер — Twitch-плеер не перерисовывается при зуме и не глючит
 	const previewPill = (
 		<div
+			ref={previewRef}
 			className='absolute right-4 bottom-3 z-10 flex items-center gap-2 bg-panel border border-border rounded-full pl-3 pr-3 py-1.5 pointer-events-auto'
 			// ниже окна чата (z-30): Twitch блокирует чат владельцу/модератору,
 			// если на странице есть элементы с z-index выше iframe, даже без перекрытия
@@ -5958,7 +5999,10 @@ export default function PanelClient({
 						{/* минималистичное меню: нижнее меню добавления элементов */}
 						{betaUI && !isMobile && (
 							<div
-								className='desk-dock absolute bottom-4 left-1/2 -translate-x-1/2 z-20'
+								ref={dockRef}
+								data-dock='1'
+								className='absolute left-1/2 -translate-x-1/2 z-20'
+								style={{ bottom: dockLift ? 64 : 16 }}
 								data-nopan='1'
 								onPointerDown={e => e.stopPropagation()}
 							>
