@@ -21,7 +21,8 @@ export async function GET(req: Request) {
 }
 
 // Новая ссылка = новая комната, поэтому переносим в неё элементы старой:
-// иначе у человека «пропадает» весь оверлей после нажатия кнопки.
+// иначе у человека «пропадает» весь оверлей после нажатия кнопки. Старую
+// комнату после переноса удаляем.
 async function copyRoom(from: string, to: string) {
   const sql = db();
   if (!sql || !from || !to || from === to) return;
@@ -36,6 +37,8 @@ async function copyRoom(from: string, to: string) {
       select ${to}, key_hash, key_enc, created_at from obs_access where room = ${from}
       on conflict (room) do nothing
     `;
+    await sql`delete from rooms where key = ${from}`;
+    await sql`delete from obs_access where room = ${from}`;
   } catch (e: any) {
     console.error("[links] не удалось перенести комнату:", e?.message || e);
   }
