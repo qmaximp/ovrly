@@ -23,8 +23,11 @@ export async function GET(req: Request) {
 			return NextResponse.json(hit.data, {
 				headers: { 'Cache-Control': 'public, max-age=60' },
 			})
+		// Кэша нет или он старый: просим мост на ПК обновить канал (он видит t.me).
+		await storage.setSetting(`tgneed:${channel}`, Date.now())
 		const data = await loadTelegramChannel(channel)
 		await storage.setSetting(cacheKey(channel), { at: Date.now(), data })
+		await storage.setSetting(`tgneed:${channel}`, 0)
 		return NextResponse.json(data, {
 			headers: {
 				'Cache-Control': 'public, max-age=300',

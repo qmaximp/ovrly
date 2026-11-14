@@ -182,6 +182,7 @@ export default function TelegramCard({
 			return
 		}
 		let alive = true
+		let tries = 0
 		const load = async () => {
 			try {
 				const res = await fetch(
@@ -192,8 +193,17 @@ export default function TelegramCard({
 				if (!alive) return
 				if (!res.ok) {
 					setError(json.error || 'Канал не найден')
+					// Новый канал появляется в кэше только после прогона моста на ПК:
+					// первые полминуты пробуем чаще, дальше — обычный интервал.
+					if (tries < 4) {
+						tries += 1
+						setTimeout(() => {
+							if (alive) void load()
+						}, 8000)
+					}
 					return
 				}
+				tries = 0
 				setData(json)
 				setError('')
 			} catch {

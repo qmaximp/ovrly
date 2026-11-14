@@ -23,6 +23,16 @@ export async function GET(req: Request) {
 				if (ch) set.add(ch)
 			}
 		}
+		// Каналы, которые сейчас открывают в карточке (запрос «обнови поскорее»).
+		const wanted = await sql<{ key: string; value: unknown }[]>`
+			select key, value from settings where key like 'tgneed:%'
+		`
+		for (const row of wanted) {
+			const at = Number(row.value) || 0
+			if (!at || Date.now() - at > 60 * 60 * 1000) continue
+			const ch = normalizeTelegramChannel(row.key.slice('tgneed:'.length))
+			if (ch) set.add(ch)
+		}
 		return NextResponse.json({ channels: [...set] })
 	} catch {
 		return NextResponse.json({ channels: [] })
