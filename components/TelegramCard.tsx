@@ -252,6 +252,8 @@ export default function TelegramCard({
 
 		const card = cardRef.current
 		const qrEl = qrRef.current
+		const wrap = wrapRef.current
+		if (wrap) wrap.style.visibility = 'hidden'
 		card?.animate(
 			[{ transform: 'translateY(1250px) rotate(-8deg)' }, { transform: 'translateY(0) rotate(0deg)' }],
 			{ duration: 1600, easing: EASE_OUT, fill: 'both' },
@@ -296,6 +298,7 @@ export default function TelegramCard({
 				{ duration: 650, delay: 600 + scrollDur * 0.7 + index * 70, easing: 'cubic-bezier(.34, 1.25, .64, 1)', fill: 'both' },
 			),
 		)
+		if (wrap) wrap.style.visibility = 'visible'
 	}, [visible, data, until])
 
 	if (!visible) return null
@@ -307,7 +310,11 @@ export default function TelegramCard({
 			: error || 'подключение…'
 
 	return (
-		<div ref={wrapRef} className={s.wrap}>
+		<div
+			ref={wrapRef}
+			className={s.wrap}
+			style={{ visibility: preview ? 'visible' : 'hidden' }}
+		>
 			<div className={s.stage} style={{ transform: `scale(${scale})` }}>
 				<div ref={cardRef} className={`${s.fly} ${s.cardFly}`}>
 					<div className={s.rockA}>

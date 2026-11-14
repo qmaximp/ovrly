@@ -2384,3 +2384,7 @@ body.obs-pane-moving { user-select: none; cursor: grabbing; }
 }
 
 @property --rev { syntax: '<percentage>'; inherits: false; initial-value: 0%; }
+
+@media (max-width: 860px) {
+	.preview-pill { bottom: 64px; }
+}

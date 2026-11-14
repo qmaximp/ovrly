@@ -3123,6 +3123,9 @@ export default function PanelClient({
 							height,
 							flipH: mirrorX ? !it.flipH : it.flipH,
 							flipV: mirrorY ? !it.flipV : it.flipV,
+							...(el.type === 'draw' && el.drawW === undefined
+								? { drawW: it.w, drawH: it.h }
+								: {}),
 						}
 					}),
 				}))
@@ -3140,6 +3143,12 @@ export default function PanelClient({
 								height: el.height,
 								flipH: el.flipH,
 								flipV: el.flipV,
+								...(el.type === 'draw'
+									? {
+											drawW: el.drawW ?? it.w,
+											drawH: el.drawH ?? it.h,
+										}
+									: {}),
 							})
 					})
 				}
@@ -4428,7 +4437,7 @@ export default function PanelClient({
 	// размер — Twitch-плеер не перерисовывается при зуме и не глючит
 	const previewPill = (
 		<div
-			className='absolute right-4 bottom-3 z-10 flex items-center gap-2 bg-panel border border-border rounded-full pl-3 pr-3 py-1.5 pointer-events-auto'
+			className={`absolute right-4 bottom-3 z-10 flex items-center gap-2 bg-panel border border-border rounded-full pl-3 pr-3 py-1.5 pointer-events-auto ${betaUI && !isMobile ? 'preview-pill' : ''}`}
 			// ниже окна чата (z-30): Twitch блокирует чат владельцу/модератору,
 			// если на странице есть элементы с z-index выше iframe, даже без перекрытия
 			style={{ boxShadow: '0 2px 10px rgba(0,0,0,.25)', zIndex: 20 }}
