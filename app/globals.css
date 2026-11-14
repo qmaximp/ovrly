@@ -2704,3 +2704,19 @@ body.obs-pane-moving { user-select: none; cursor: grabbing; }
 		width: 344px;
 	}
 }
+.cabinet-changelog-btn { top: 69px; z-index: 130; }
+.changelog-bottom-btn { bottom: 38px; }
+@keyframes changelog-drop {
+	from { opacity: 0; transform: translateY(-40px); }
+	to { opacity: 1; transform: translateY(0); }
+}
+@media (min-width: 861px) and (min-height: 621px) {
+	.changelog-dialog {
+		top: 110px;
+		right: 18px;
+		bottom: 72px;
+		width: 344px;
+		border-radius: 20px;
+		animation: changelog-drop .38s cubic-bezier(.2,.8,.2,1) both;
+	}
+}

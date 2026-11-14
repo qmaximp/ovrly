@@ -355,7 +355,7 @@ export default function CabinetClient({
 								<span className='hidden sm:inline'>{displayName}</span>
 							</span>
 							<button
-								onClick={() => setChangelogOpen(true)}
+								onClick={() => setChangelogOpen(v => !v)}
 								className='btn btn-ghost btn-sm cabinet-changelog-btn'
 							>
 								Список обновлений
