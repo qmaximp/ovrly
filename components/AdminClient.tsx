@@ -69,6 +69,13 @@ type AdminChangelog = {
 		photo?: string
 	}[]
 	error?: string
+	bot?: {
+		configured: boolean
+		chat: string
+		offset: number
+		lastSyncAt: number
+		lastError: string
+	}
 }
 
 const ROLE_LABELS: Record<StatsUser['role'], string> = {
@@ -84,6 +91,16 @@ function formatAdminDate(value: string): string {
 		day: 'numeric',
 		month: 'long',
 		year: 'numeric',
+	})
+}
+
+function formatAdminDateTime(ts: number): string {
+	if (!ts) return ''
+	return new Date(ts).toLocaleString('ru-RU', {
+		day: 'numeric',
+		month: 'short',
+		hour: '2-digit',
+		minute: '2-digit',
 	})
 }
 
@@ -140,7 +157,6 @@ export default function AdminClient({
 	const [adminTab, setAdminTab] = useState<
 		'overview' | 'streamers' | 'widgets' | 'changelog' | 'tools'
 	>('overview')
-	const [changelogChannel, setChangelogChannel] = useState('')
 	const [changelogData, setChangelogData] = useState<AdminChangelog | null>(null)
 	const [changelogBusy, setChangelogBusy] = useState(false)
 	const [changelogError, setChangelogError] = useState('')
@@ -230,33 +246,10 @@ export default function AdminClient({
 			const data = await res.json()
 			if (!res.ok) throw new Error(data?.error || 'Не удалось загрузить обновления')
 			setChangelogData(data)
-			setChangelogChannel(String(data?.channel || ''))
 		} catch (e: any) {
 			setChangelogError(e?.message || 'Не удалось загрузить обновления')
 		}
 	}, [])
-
-	const saveChangelogChannel = useCallback(async (raw?: string) => {
-		setChangelogBusy(true)
-		setChangelogError('')
-		try {
-			const res = await fetch('/api/admin/changelog', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					channel: String(raw ?? changelogChannel).trim(),
-				}),
-			})
-			const data = await res.json()
-			if (!res.ok) throw new Error(data?.error || 'Не удалось сохранить канал')
-			setChangelogData(data)
-			setChangelogChannel(String(data?.channel || ''))
-		} catch (e: any) {
-			setChangelogError(e?.message || 'Не удалось сохранить канал')
-		} finally {
-			setChangelogBusy(false)
-		}
-	}, [changelogChannel])
 
 	const addChangelogEntry = useCallback(async () => {
 		if (!manualText.trim() && !manualUrl.trim()) return
@@ -281,6 +274,26 @@ export default function AdminClient({
 			setChangelogBusy(false)
 		}
 	}, [manualText, manualUrl])
+
+	const syncTgNow = useCallback(async () => {
+		setChangelogBusy(true)
+		setChangelogError('')
+		try {
+			const res = await fetch('/api/admin/changelog', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ tgSync: true }),
+			})
+			const data = await res.json()
+			if (!res.ok)
+				throw new Error(data?.error || 'Не удалось импортировать сообщения')
+			setChangelogData(data)
+		} catch (e: any) {
+			setChangelogError(e?.message || 'Не удалось импортировать сообщения')
+		} finally {
+			setChangelogBusy(false)
+		}
+	}, [])
 
 	const removeChangelogEntry = useCallback(async (id: string) => {
 		setChangelogBusy(true)
@@ -1059,7 +1072,7 @@ export default function AdminClient({
 										<div>
 											<span className='kicker'>Список обновлений</span>
 											<h2 className='admin-card-title'>
-												Telegram-канал для витрины обновлений
+												Обновления из Telegram
 											</h2>
 										</div>
 										<div className='admin-card-actions'>
@@ -1071,42 +1084,48 @@ export default function AdminClient({
 											</button>
 										</div>
 									</div>
-									<p className='cabinet-muted'>
-										Вставьте ссылку на публичный Telegram-канал. Последние посты
-										будут показаны в кабинете в разделе «Список обновлений».
-									</p>
-									<div className='admin-notice-row'>
-										<input
-											value={changelogChannel}
-											onChange={e => setChangelogChannel(e.target.value)}
-											placeholder='https://t.me/your_channel или @your_channel'
-											className='admin-input flex-1'
-											aria-label='Ссылка на Telegram-канал'
-										/>
-										<button
-											className='btn btn-primary btn-sm'
-											disabled={changelogBusy}
-											onClick={() => void saveChangelogChannel()}
-										>
-											{changelogBusy ? 'Сохраняю…' : 'Сохранить'}
-										</button>
-										{changelogChannel && (
-											<button
-												className='btn btn-ghost btn-sm text-red-400'
-												disabled={changelogBusy}
-												onClick={() => {
-													setChangelogChannel('')
-													void saveChangelogChannel('')
-												}}
+									<div className='mt-4 rounded-xl border border-white/10 p-3'>
+										<p className='text-xs text-gray-400'>
+											Обновления пишутся только из группы{' '}
+											<a
+												href='https://t.me/ovrly_control/1'
+												target='_blank'
+												rel='noopener noreferrer'
+												className='underline'
 											>
-												Отключить
+												@ovrly_control
+											</a>
+											. Сообщения из других групп, каналов и личных
+											чатов не импортируются. Бот должен быть
+											администратором группы.
+										</p>
+										<div className='admin-notice-row mt-2'>
+											<button
+												className='btn btn-ghost btn-sm'
+												disabled={changelogBusy || !changelogData?.bot?.configured}
+												onClick={() => void syncTgNow()}
+											>
+												Импортировать сейчас
 											</button>
+										</div>
+										<p className='admin-meta mt-2'>
+											{!changelogData?.bot?.configured
+												? 'Бот не настроен: добавьте TELEGRAM_BOT_TOKEN в .env.local и перезапустите сервер.'
+												: `Бот подключён · @${changelogData.bot.chat} · источник зафиксирован` +
+													(changelogData.bot.lastSyncAt
+														? ` · синхронизация ${formatAdminDateTime(changelogData.bot.lastSyncAt)}`
+														: '')}
+										</p>
+										{changelogData?.bot?.lastError && (
+											<p className='alert mt-2'>
+												{changelogData.bot.lastError}
+											</p>
 										)}
 									</div>
 									<div className='mt-4 rounded-xl border border-white/10 p-3'>
 										<p className='text-xs text-gray-400'>
-											Добавить запись вручную — для закрытых групп, куда
-											Telegram не отдаёт посты.
+											Добавить запись вручную — для старых постов или
+											если бот не подключён.
 										</p>
 										<textarea
 											value={manualText}
@@ -1158,9 +1177,8 @@ export default function AdminClient({
 													<p className='text-[11px] text-gray-500'>
 														{formatAdminDate(post.date)}
 													</p>
-													<p className='mt-1 text-sm text-gray-200 whitespace-pre-line'>
-														{post.text.slice(0, 400) ||
-															'Пост без текста'}
+													<p className='mt-1 text-sm text-gray-200 break-words whitespace-pre-line'>
+														{post.text || 'Пост без текста'}
 													</p>
 													{post.url && (
 														<a

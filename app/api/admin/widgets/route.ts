@@ -1,32 +1,8 @@
 import postgres from 'postgres'
-import { isAdminLogin } from '@/lib/admin'
-import { verifySession } from '@/lib/session'
+import { adminFrom, json } from '@/lib/api'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-
-const json = (data: unknown, status = 200) =>
-	new Response(JSON.stringify(data), {
-		status,
-		headers: { 'Content-Type': 'application/json' },
-	})
-
-function sessionFrom(req: Request) {
-	const raw = req.headers
-		.get('cookie')
-		?.match(/(?:^|;\s*)sc_session=([^;]+)/)?.[1]
-	if (!raw) return null
-	let value = raw
-	try {
-		value = decodeURIComponent(raw)
-	} catch {}
-	return verifySession(value)
-}
-
-function adminFrom(req: Request) {
-	const session = sessionFrom(req)
-	return session && isAdminLogin(session.login) ? session : null
-}
 
 function db() {
 	const url = process.env.DATABASE_URL

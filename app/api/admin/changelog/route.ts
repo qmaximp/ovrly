@@ -1,47 +1,40 @@
-import { isAdminLogin } from '@/lib/admin'
-import { verifySession } from '@/lib/session'
+import { adminFrom, json } from '@/lib/api'
 import {
 	addManualEntry,
+	importBotEntries,
 	loadChangelog,
 	removeManualEntry,
-	setChangelogChannel,
 } from '@/lib/changelog'
-import { normalizeTelegramChannel } from '@/lib/telegram'
+import {
+	getBotStatus,
+	isBotConfigured,
+	syncTelegramChangelog,
+} from '@/lib/telegramBot'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const json = (data: unknown, status = 200) =>
-	new Response(JSON.stringify(data), {
-		status,
-		headers: { 'Content-Type': 'application/json' },
-	})
+// Список + состояние бота: клиенту нужны оба, чтобы показать блок группы.
+async function payload() {
+	const data = await loadChangelog({ sync: false })
+	return { ...data, bot: await getBotStatus() }
+}
 
 function adminLogin(req: Request) {
-	const raw = req.headers
-		.get('cookie')
-		?.match(/(?:^|;\s*)sc_session=([^;]+)/)?.[1]
-	if (!raw) return null
-	let value = raw
-	try {
-		value = decodeURIComponent(raw)
-	} catch {}
-	const session = verifySession(value)
-	return session && isAdminLogin(session.login) ? session.login : null
+	return adminFrom(req)?.login ?? null
 }
 
 export async function GET(req: Request) {
 	if (!adminLogin(req)) return json({ error: 'forbidden' }, 403)
-	const data = await loadChangelog()
-	return json(data)
+	return json(await payload())
 }
 
 export async function POST(req: Request) {
 	if (!adminLogin(req)) return json({ error: 'forbidden' }, 403)
 	let body: {
-		channel?: string
 		add?: { text?: string; url?: string; date?: string }
 		remove?: string
+		tgSync?: boolean
 	} = {}
 	try {
 		body = await req.json()
@@ -50,7 +43,7 @@ export async function POST(req: Request) {
 	}
 	if (body.remove) {
 		await removeManualEntry(String(body.remove))
-		return json(await loadChangelog())
+		return json(await payload())
 	}
 	if (body.add) {
 		try {
@@ -61,17 +54,19 @@ export async function POST(req: Request) {
 				400,
 			)
 		}
-		return json(await loadChangelog())
+		return json(await payload())
 	}
-	const raw = String(body.channel || '').trim()
-	if (!raw) {
-		await setChangelogChannel('')
-		return json(await loadChangelog())
+	if (body.tgSync) {
+		if (!isBotConfigured())
+			return json(
+				{ error: 'Не задан TELEGRAM_BOT_TOKEN в переменных окружения' },
+				400,
+			)
+		const result = await syncTelegramChangelog({ force: true })
+		if (result.entries.length) await importBotEntries(result.entries)
+		return json(await payload())
 	}
-	const channel = normalizeTelegramChannel(raw)
-	if (!channel) return json({ error: 'Укажите ссылку на Telegram-канал' }, 400)
-	await setChangelogChannel(channel)
-	// Сохраняем сразу: если t.me временно недоступен, ссылка не потеряется,
-	// а админ увидит ошибку в списке.
-	return json(await loadChangelog())
+	// Источник обновлений зафиксирован — группа @ovrly_control. Других
+	// источников у «Списка обновлений» нет.
+	return json(await payload())
 }

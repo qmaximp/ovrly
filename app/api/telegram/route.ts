@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server'
+import { clientIp, rateLimit } from '@/lib/api'
 import { normalizeTelegramChannel } from '@/lib/telegram'
 import { loadTelegramChannel } from '@/lib/telegramFeed'
 
 // Публичная карточка Telegram-канала для оверлея: последние посты, подписчики,
 // аватар и ссылка. Разбор и кэш — в lib/telegramFeed.
 export async function GET(req: Request) {
+	// Публичный прокси к t.me: ограничиваем, чтобы им не качали чужие каналы пачками.
+	if (!rateLimit(`tg:${clientIp(req)}`, 30, 60_000))
+		return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 })
 	const raw = new URL(req.url).searchParams.get('channel') || ''
 	const channel = normalizeTelegramChannel(raw)
 	if (!channel) {

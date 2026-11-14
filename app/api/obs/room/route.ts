@@ -10,7 +10,7 @@ import { tokenForLogin, verifySession } from '@/lib/session'
 //
 // Без rotate=true ключ не перевыпускается: повторный заход просто возвращает
 // ту же ссылку. rotate=true — явная кнопка «перевыпустить» (старый ключ умрёт).
-const hits = new Map<string, number[]>()
+	const hits = new Map<string, number[]>()
 
 function rateLimited(login: string) {
 	const now = Date.now()
@@ -36,6 +36,7 @@ export async function POST(req: Request) {
 		const res = await mint(room, body?.rotate === true)
 		return NextResponse.json(res)
 	} catch (e: any) {
-		return NextResponse.json({ error: String(e?.message || e) }, { status: 500 })
+		console.error('[obs/room] mint failed:', String(e?.message || e))
+		return NextResponse.json({ error: 'не удалось создать ссылку' }, { status: 500 })
 	}
 }

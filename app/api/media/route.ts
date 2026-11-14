@@ -1,20 +1,8 @@
 import { mediaConfig, putBuffer } from '@/lib/mediaStore'
-import { verifySession } from '@/lib/session'
+import { json, sessionFrom } from '@/lib/api'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-
-const json = (data: unknown, status = 200) =>
-	new Response(JSON.stringify(data), {
-		status,
-		headers: { 'Content-Type': 'application/json' },
-	})
-
-function sessionFrom(req: Request) {
-	return verifySession(
-		req.headers.get('cookie')?.match(/(?:^|;\s*)sc_session=([^;]+)/)?.[1],
-	)
-}
 
 // Клиенту нужно знать, включено ли R2: без него панель читает файл как
 // data-URL, как раньше. Конфиг не секретный — только флаги и лимиты.

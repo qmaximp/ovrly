@@ -10,16 +10,9 @@ import {
   setModeratorObs,
 } from "@/lib/invites";
 import { getTwitchAvatars, safe, twitchUserId } from "@/lib/twitch";
-import { verifySession } from "@/lib/session";
+import { json, sessionFrom } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
-
-const json = (data: unknown, status = 200) =>
-  new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
-
-function sessionFrom(req: Request) {
-  return verifySession(req.headers.get("cookie")?.match(/(?:^|;\s*)sc_session=([^;]+)/)?.[1]);
-}
 
 // все доступы текущего аккаунта и список модераторов его собственной панели
 export async function GET(req: Request) {

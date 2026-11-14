@@ -1,13 +1,6 @@
 import crypto from "crypto";
 import { readLinks, writeLinks } from "@/lib/links";
-import { verifySession } from "@/lib/session";
-
-function sessionFrom(req: Request) {
-  return verifySession(req.headers.get("cookie")?.match(/(?:^|;\s*)sc_session=([^;]+)/)?.[1]);
-}
-
-const json = (data: unknown, status = 200) =>
-  new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
+import { json, sessionFrom } from "@/lib/api";
 
 // сохранённые ссылки аккаунта (переживают F5 и рестарт, пока жив файл)
 export async function GET(req: Request) {

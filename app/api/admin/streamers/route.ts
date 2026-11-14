@@ -1,5 +1,4 @@
-import { isAdminLogin } from '@/lib/admin'
-import { verifySession } from '@/lib/session'
+import { adminFrom, json } from '@/lib/api'
 import {
 	addStreamer,
 	listAdminStreamers,
@@ -12,25 +11,6 @@ import {
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-
-const json = (data: unknown, status = 200) =>
-	new Response(JSON.stringify(data), {
-		status,
-		headers: { 'Content-Type': 'application/json' },
-	})
-
-function adminFrom(req: Request) {
-	const raw = req.headers
-		.get('cookie')
-		?.match(/(?:^|;\s*)sc_session=([^;]+)/)?.[1]
-	if (!raw) return null
-	let value = raw
-	try {
-		value = decodeURIComponent(raw)
-	} catch {}
-	const session = verifySession(value)
-	return session && isAdminLogin(session.login) ? session : null
-}
 
 export async function GET(req: Request) {
 	if (!adminFrom(req)) return json({ error: 'forbidden' }, 403)

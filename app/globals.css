@@ -2386,337 +2386,73 @@ body.obs-pane-moving { user-select: none; cursor: grabbing; }
 @property --rev { syntax: '<percentage>'; inherits: false; initial-value: 0%; }
 
 
-.changelog-overlay {
-	position: fixed;
-	inset: 0;
-	z-index: 120;
+/* ── Кабинет: список обновлений ─────────────────────────────────────────── */
+
+/* Обновления и «Админ-панель» прижаты к правому краю панели вкладок */
+.cabinet-nav-right {
+	margin-left: auto;
 	display: flex;
 	align-items: center;
-	justify-content: center;
-	padding: 24px;
-	background: rgba(2, 6, 12, 0.72);
-	backdrop-filter: blur(6px);
+	gap: 0.45rem;
+	flex-wrap: wrap;
 }
-.changelog-dialog {
-	width: min(720px, 100%);
-	max-height: min(84vh, 880px);
-	overflow: auto;
-	border: 1px solid rgb(var(--c-border));
-	border-radius: 22px;
-	background: rgb(var(--c-panel));
-	box-shadow: 0 28px 90px rgba(0, 0, 0, .55);
-	padding: 22px;
+.cabinet-nav-right .cabinet-admin-link {
+	margin-left: 0;
 }
-.changelog-head {
-	display: flex;
-	align-items: flex-start;
-	justify-content: space-between;
-	gap: 16px;
-	padding-bottom: 14px;
-	border-bottom: 1px solid rgb(var(--c-border));
+
+.cabinet-updates {
+	display: grid;
+	gap: 0.9rem;
 }
-.changelog-head h2 {
-	font-size: 20px;
-	font-weight: 700;
-	margin-top: 4px;
-	color: rgb(var(--c-on-bg));
+.cabinet-update {
+	padding: 1.15rem 1.3rem;
+	display: grid;
+	gap: 0.7rem;
 }
-.changelog-close {
-	width: 34px;
-	height: 34px;
-	border-radius: 10px;
-	border: 1px solid rgb(var(--c-border));
-	color: rgb(var(--c-text));
-	background: transparent;
-	cursor: pointer;
-}
-.changelog-close:hover { background: rgb(var(--c-border)); }
-.changelog-state {
-	padding: 26px 4px;
-	color: rgb(var(--c-text) / .68);
-	line-height: 1.65;
-}
-.changelog-error { color: #f87171; }
-.changelog-source {
-	margin: 16px 0 8px;
-	font-size: 13px;
-	color: rgb(var(--c-text) / .65);
-}
-.changelog-source a { color: rgb(var(--c-accent2)); }
-.changelog-list { display: grid; gap: 12px; }
-.changelog-entry {
-	border: 1px solid rgb(var(--c-border));
-	border-radius: 16px;
-	padding: 14px;
-	background: rgb(var(--c-bg) / .45);
-}
-.changelog-entry-head {
+.cabinet-update-head {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	gap: 12px;
-	font-size: 11px;
-	color: rgb(var(--c-text) / .55);
+	gap: 0.75rem;
+	font-size: 0.78rem;
+	color: rgb(var(--c-text) / 0.55);
 }
-.changelog-entry-head a { color: rgb(var(--c-accent2)); text-decoration: none; }
-.changelog-photo {
+.cabinet-update-head time {
+	text-transform: capitalize;
+}
+.cabinet-update-link {
+	color: rgb(var(--c-accent2));
+	font-weight: 600;
+	text-decoration: none;
+}
+.cabinet-update-link:hover {
+	text-decoration: underline;
+}
+.cabinet-update-photo {
 	display: block;
 	width: 100%;
-	max-height: 220px;
+	max-height: 320px;
 	object-fit: cover;
-	border-radius: 12px;
-	margin-top: 10px;
+	border-radius: 14px;
+	border: 1px solid rgb(var(--c-border) / 0.6);
 }
-.changelog-text {
-	margin-top: 9px;
+.cabinet-update-text {
+	margin: 0;
 	white-space: pre-line;
 	line-height: 1.65;
-	font-size: 14px;
-	color: rgb(var(--c-on-bg) / .88);
+	font-size: 0.92rem;
+	color: rgb(var(--c-on-bg) / 0.9);
 }
-.changelog-all { margin-top: 16px; }
-@media (max-width: 640px) {
-	.changelog-overlay { padding: 10px; }
-	.changelog-dialog { border-radius: 18px; padding: 16px; }
-	.changelog-entry-head { flex-direction: column; align-items: flex-start; gap: 4px; }
-}
-
-
-.cabinet-changelog-btn {
-	border: 1px solid rgb(var(--c-accent2) / .45);
-	color: rgb(var(--c-accent2));
-	background: rgb(var(--c-panel) / .72);
-	letter-spacing: .055em;
-	text-transform: uppercase;
-	font-size: 11px;
-	font-weight: 700;
-}
-
-@media (min-width: 861px) {
-	.changelog-overlay {
-		align-items: flex-start;
-		justify-content: flex-end;
-		padding: 0;
-		background: transparent;
-		backdrop-filter: none;
-	}
-	.changelog-dialog {
-		position: absolute;
-		top: 128px;
-		right: 24px;
-		bottom: 24px;
-		height: auto;
-		max-height: none;
-		overflow: hidden;
-		display: flex;
-		flex-direction: column;
-		width: min(430px, calc(100vw - 48px));
-		background: rgb(var(--c-panel) / .97);
-	}
-	.changelog-list {
-		overflow: auto;
-		min-height: 0;
-		padding-right: 4px;
-	}
-	.changelog-all { flex: 0 0 auto; }
-}
-.changelog-list {
-	flex: 1 1 auto;
-}
-.cabinet-changelog-btn {
-	position: fixed;
-	top: 74px;
-	right: 24px;
-	z-index: 80;
-	border: 1px solid rgb(var(--c-accent2) / .45);
-	color: rgb(var(--c-accent2));
-	background: rgb(var(--c-panel) / .72);
-	letter-spacing: .055em;
-	text-transform: uppercase;
-	font-size: 11px;
-	font-weight: 700;
-	backdrop-filter: blur(12px);
+.cabinet-updates-all {
+	justify-self: start;
 }
 
 @media (max-width: 860px) {
-	.cabinet-changelog-btn {
-		position: static;
+	.cabinet-nav-right {
+		width: 100%;
+		margin-left: 0;
 	}
-}
-
-@keyframes changelog-drop {
-	from { opacity: 0; transform: translateY(-10px) scaleY(.96); }
-	to { opacity: 1; transform: translateY(0) scaleY(1); }
-}
-
-@media (min-width: 861px) {
-	.changelog-dialog {
-		animation: changelog-drop .26s cubic-bezier(.2, .8, .2, 1) both;
-		transform-origin: top right;
-		top: 122px;
-	}
-}
-.cabinet-changelog-btn {
-	padding: 9px 14px;
-	border-radius: 10px;
-}
-.changelog-bottom-btn {
-	position: fixed;
-	right: 24px;
-	bottom: 16px;
-	z-index: 130;
-	padding: 9px 14px;
-	border-radius: 10px;
-	border: 1px solid rgb(var(--c-accent2) / .45);
-	color: rgb(var(--c-accent2));
-	background: rgb(var(--c-panel) / .94);
-	letter-spacing: .055em;
-	text-transform: uppercase;
-	font-size: 11px;
-	font-weight: 700;
-	backdrop-filter: blur(12px);
-	cursor: pointer;
-}
-
-@media (max-width: 860px), (max-height: 620px) {
-	.changelog-overlay {
-		align-items: center;
-		justify-content: center;
-		padding: 16px;
-		background: rgba(0, 0, 0, .55);
-		backdrop-filter: blur(8px);
-	}
-	.changelog-dialog {
-		position: relative;
-		top: auto;
-		right: auto;
-		bottom: auto;
-		width: min(440px, 100%);
-		height: auto;
-		max-height: calc(100vh - 32px);
-	}
-	.changelog-bottom-btn {
-		display: none;
-	}
-	.cabinet-changelog-btn {
-		position: static;
-	}
-}
-
-@media (min-width: 861px) and (min-height: 621px) {
-	.changelog-dialog {
-		top: 16px;
-		bottom: 80px;
-		right: 24px;
-	}
-}
-.changelog-bottom-btn {
-	right: calc(24px + (min(430px, 100vw - 48px) - 168px) / 2);
-	width: 168px;
-}
-.cabinet-changelog-btn {
-	top: 66px;
-	right: 6vw;
-}
-.changelog-bottom-btn {
-	position: static;
-	right: auto;
-	bottom: auto;
-	z-index: auto;
-	width: 168px;
-	margin: 18px auto 0;
-	flex: 0 0 auto;
-}
-@media (min-width: 861px) and (min-height: 621px) {
-	.changelog-dialog {
-		top: 16px;
-		right: 0;
-		bottom: 16px;
-		width: 344px;
-		border-radius: 20px 0 0 20px;
-	}
-}
-.changelog-bottom-btn {
-	margin: auto auto 0;
-	height: 36px;
-	padding: 0 14px;
-}
-.cabinet-changelog-btn {
-	width: 198px;
-}
-.changelog-bottom-btn {
-	width: 188px;
-}
-.changelog-close { display: none; }
-.changelog-bottom-btn {
-	position: fixed;
-	right: 78px;
-	bottom: 16px;
-	width: 188px;
-	height: 36px;
-	margin: 0;
-	z-index: 130;
-}
-@media (min-width: 861px) and (min-height: 621px) {
-	.changelog-dialog {
-		top: 8px;
-		right: 0;
-		bottom: 80px;
-		width: 344px;
-	}
-}
-.cabinet-changelog-btn {
-	top: 68px;
-	right: 4vw;
-	border-radius: 0 0 10px 10px;
-}
-.changelog-bottom-btn {
-	right: 93px;
-	bottom: 0;
-	height: 30px;
-	border-radius: 0 0 10px 10px;
-}
-@media (min-width: 861px) and (min-height: 621px) {
-	.changelog-dialog {
-		top: 13px;
-		right: 15px;
-		bottom: 32px;
-		width: 344px;
-	}
-}
-.cabinet-changelog-btn { top: 72px; }
-@media (min-width: 861px) and (min-height: 621px) {
-	.changelog-dialog { bottom: 38px; }
-}
-.cabinet-changelog-btn { top: 76px; }
-.cabinet-changelog-btn:hover { transform: none; }
-.changelog-bottom-btn {
-	right: 93px;
-	bottom: 37px;
-	width: 194px;
-	height: 30px;
-}
-@media (min-width: 861px) and (min-height: 621px) {
-	.changelog-dialog {
-		top: 68px;
-		right: 18px;
-		bottom: 68px;
-		width: 344px;
-	}
-}
-.cabinet-changelog-btn { top: 69px; z-index: 130; }
-.changelog-bottom-btn { bottom: 38px; }
-@keyframes changelog-drop {
-	from { opacity: 0; transform: translateY(-40px); }
-	to { opacity: 1; transform: translateY(0); }
-}
-@media (min-width: 861px) and (min-height: 621px) {
-	.changelog-dialog {
-		top: 110px;
-		right: 18px;
-		bottom: 72px;
-		width: 344px;
-		border-radius: 20px;
-		animation: changelog-drop .38s cubic-bezier(.2,.8,.2,1) both;
+	.cabinet-update {
+		padding: 1rem 1.1rem;
 	}
 }

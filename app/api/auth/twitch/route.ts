@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getOrigin, randomState, seeOther } from "@/lib/session";
+import { getOrigin, randomState, safeNextPath, seeOther } from "@/lib/session";
 import { LEGAL_VERSION } from "@/lib/legal";
 
 export async function GET(req: Request) {
@@ -10,7 +10,7 @@ export async function GET(req: Request) {
 
   // куда вернуть пользователя после входа (только относительные пути внутри сайта)
   const next = new URL(req.url).searchParams.get("next");
-  const nextSafe = next && next.startsWith("/") && !next.startsWith("//") ? next : "/cabinet";
+  const nextSafe = safeNextPath(next, "/cabinet");
 
   // Без явного согласия не начинаем OAuth: до этого момента никакие данные
   // пользователя (включая Twitch-профиль) не собираются. Согласие ставится

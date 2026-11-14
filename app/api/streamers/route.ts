@@ -1,3 +1,4 @@
+import { json } from '@/lib/api'
 import { listPublicStreamers } from '@/lib/streamers'
 
 export const runtime = 'nodejs'
@@ -5,8 +6,8 @@ export const dynamic = 'force-dynamic'
 
 export async function GET() {
 	const { threshold, users } = await listPublicStreamers()
-	return new Response(
-		JSON.stringify({
+	return json(
+		{
 			threshold,
 			streamers: Object.values(users).map(u => ({
 				login: u.login,
@@ -15,7 +16,9 @@ export async function GET() {
 				followers: u.followers,
 				featured: u.featured,
 			})),
-		}),
-		{ headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } },
+		},
+		200,
+		// список меняется раз в несколько минут — отдаём кэш CDN/браузера
+		{ 'Cache-Control': 'public, max-age=60, stale-while-revalidate=300' },
 	)
 }

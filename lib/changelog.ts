@@ -1,6 +1,10 @@
 import * as storage from './storage'
-import { normalizeTelegramChannel } from './telegram'
-import { loadTelegramChannel, type TelegramPost } from './telegramFeed'
+import {
+	isBotConfigured,
+	syncTelegramChangelog,
+	SOURCE_CHAT,
+	type BotEntry,
+} from './telegramBot'
 
 export type ChangelogEntry = {
 	id?: string
@@ -19,8 +23,10 @@ export type ChangelogData = {
 	error?: string
 }
 
-const SETTING = 'changelog_channel'
 const ENTRIES = 'changelog_entries'
+
+// Старые записи не копим бесконечно: в кабинете всё равно нужны последние.
+const MAX_ENTRIES = 300
 
 type ManualEntry = ChangelogEntry & { id: string }
 
@@ -41,7 +47,7 @@ async function getManualEntries(): Promise<ManualEntry[]> {
 			date: String(e.date || new Date().toISOString()),
 			photo: e.photo ? String(e.photo).slice(0, 500) : undefined,
 		}))
-		.slice(-100)
+		.slice(-MAX_ENTRIES)
 }
 
 export async function addManualEntry(input: {
@@ -72,78 +78,47 @@ export async function removeManualEntry(id: string): Promise<void> {
 	)
 }
 
-export async function getChangelogChannel(): Promise<string> {
-	const raw = await storage.getSetting<string | null>(SETTING)
-	return normalizeTelegramChannel(raw || '')
-}
-
-export async function setChangelogChannel(channel: string): Promise<string> {
-	const normalized = normalizeTelegramChannel(channel)
-	await storage.setSetting(SETTING, normalized)
-	return normalized
-}
-
-function toEntry(post: TelegramPost): ChangelogEntry {
-	return {
-		text: post.text.trim(),
-		date: post.date,
-		url: post.url,
-		// В списке — только изображения: кружок/видео в <img> не покажешь.
-		photo: post.photo || post.media?.find(m => m.kind === 'photo')?.url || '',
+// Записи из Bot API: id вида tg<chat_id>_<message_id> — повторный импорт
+// не создаёт дублей, а правки в группе не перезаписывают уже сохранённое.
+export async function importBotEntries(entries: BotEntry[]): Promise<number> {
+	if (!entries.length) return 0
+	const all = await getManualEntries()
+	const seen = new Set(all.map(e => e.id))
+	let added = 0
+	for (const entry of entries) {
+		if (!entry?.id || seen.has(entry.id)) continue
+		seen.add(entry.id)
+		all.push({
+			id: entry.id,
+			text: String(entry.text || '').slice(0, 4000),
+			url: String(entry.url || '').slice(0, 500),
+			date: String(entry.date || new Date().toISOString()),
+			photo: entry.photo ? String(entry.photo).slice(0, 500) : undefined,
+		})
+		added++
 	}
+	if (!added) return 0
+	all.sort((a, b) => (Date.parse(a.date) || 0) - (Date.parse(b.date) || 0))
+	await storage.setSetting(ENTRIES, all.slice(-MAX_ENTRIES))
+	return added
 }
 
-// Кабинет показывает последние посты выбранного канала как список обновлений.
-// Публичные группы Telegram не отдают посты через t.me/s, поэтому админ может
-// добавить записи вручную — они показываются вместе с постами канала.
-export async function loadChangelog(): Promise<ChangelogData> {
-	const channel = await getChangelogChannel()
+// Список обновлений собирается только из группы @ovrly_control:
+// новые сообщения приносит бот (lib/telegramBot.ts), старую историю и правки
+// админ добавляет вручную. Никакие другие каналы и чаты не подмешиваются.
+export async function loadChangelog(
+	opts: { sync?: boolean } = {},
+): Promise<ChangelogData> {
+	if (opts.sync !== false && isBotConfigured()) {
+		const result = await syncTelegramChangelog()
+		if (result.entries.length) await importBotEntries(result.entries)
+	}
 	const manual = await getManualEntries()
-	const manualEntries = manual
-		.slice()
-		.reverse()
-		.map(e => ({ ...e }))
-	if (!channel) {
-		return {
-			channel: '',
-			title: manualEntries.length ? 'Ovrly' : '',
-			url: '',
-			updatedAt: Date.now(),
-			entries: manualEntries,
-		}
-	}
-	try {
-		const feed = await loadTelegramChannel(channel)
-		const entries = [
-			...feed.posts
-				.slice()
-				.reverse()
-				.map(toEntry)
-				.filter(e => e.text || e.photo),
-			...manualEntries,
-		].sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0))
-		return {
-			channel,
-			title: feed.title,
-			url: feed.url,
-			updatedAt: Date.now(),
-			entries,
-			...(feed.isGroup && !feed.posts.length && !manualEntries.length
-				? {
-						error: 'Telegram не отдаёт посты групп. Добавьте запись вручную ниже.',
-					}
-				: {}),
-		}
-	} catch (e) {
-		return {
-			channel,
-			title: `@${channel}`,
-			url: `https://t.me/${channel}`,
-			updatedAt: Date.now(),
-			entries: manualEntries,
-			error: manualEntries.length
-				? undefined
-				: (e as Error)?.message || 'Не удалось получить обновления',
-		}
+	return {
+		channel: SOURCE_CHAT,
+		title: 'Ovrly',
+		url: `https://t.me/${SOURCE_CHAT}`,
+		updatedAt: Date.now(),
+		entries: manual.slice().reverse().map(e => ({ ...e })),
 	}
 }

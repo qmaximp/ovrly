@@ -74,6 +74,8 @@ async function ownerUserToken(channel: string): Promise<string | null> {
 				refresh_token: entry.refreshToken!,
 			}),
 			cache: 'no-store',
+			// без таймаута зависший запрос держал бы весь пикер смайликов
+			signal: AbortSignal.timeout(8000),
 		}).then(r => r.json()),
 	)
 	if (!refreshed?.access_token) return null

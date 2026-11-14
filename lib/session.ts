@@ -18,11 +18,19 @@ export interface TwitchSession {
   // user-токен Helix — нужен для канальных смайликов (chat/emotes/channel)
   access_token?: string;
   token_expires?: number; // ms epoch
+  // когда выдана cookie (ms epoch). Старые cookie без iat не ломаем,
+  // но новые живут не дольше SESSION_MAX_AGE_MS.
+  iat?: number;
 }
 
 // подписанная cookie-сессия (payload.sig), без серверного хранилища
+export const SESSION_MAX_AGE_S = 60 * 60 * 24 * 30;
+const SESSION_MAX_AGE_MS = SESSION_MAX_AGE_S * 1000;
+
 export function signSession(data: TwitchSession): string {
-  const payload = Buffer.from(JSON.stringify(data)).toString("base64url");
+  const payload = Buffer.from(
+    JSON.stringify({ ...data, iat: Date.now() }),
+  ).toString("base64url");
   const sig = crypto.createHmac("sha256", SECRET).update(payload).digest("base64url");
   return `${payload}.${sig}`;
 }
@@ -38,6 +46,11 @@ export function verifySession(cookie: string | undefined): TwitchSession | null 
   try {
     const data = JSON.parse(Buffer.from(payload, "base64url").toString());
     if (typeof data.login !== "string") return null;
+    // Cookie с истёкшим iat не принимаем: иначе украденная cookie живёт вечно,
+    // ведь Max-Age действует только в браузере.
+    if (typeof data.iat === "number" && Date.now() - data.iat > SESSION_MAX_AGE_MS) {
+      return null;
+    }
     return data as TwitchSession;
   } catch {
     return null;
@@ -53,11 +66,27 @@ export function randomState(): string {
   return crypto.randomBytes(8).toString("hex");
 }
 
-// origin из заголовков запроса (учитывает прокси Render)
+// origin из заголовков запроса (учитывает прокси Render).
+// APP_ORIGIN/NEXTAUTH_URL-like переменная приоритетнее: Host приходит от клиента,
+// а он попадает в redirect_uri OAuth, поэтому доверять ему без проверки нельзя.
 export function getOrigin(req: Request): string {
-  const host = req.headers.get("host") || "localhost:3000";
+  const explicit = (process.env.APP_ORIGIN || process.env.PUBLIC_ORIGIN || "").trim();
+  if (explicit) return explicit.replace(/\/+$/, "");
+  const rawHost = (req.headers.get("host") || "localhost:3000").trim();
+  // отсекаем всё, что не похоже на host[:port] (защита от подстановки путей)
+  const host = /^[a-z0-9.-]+(:\d{1,5})?$/i.test(rawHost) ? rawHost : "localhost:3000";
   const proto = req.headers.get("x-forwarded-proto") || (host.startsWith("localhost") || host.startsWith("127.") ? "http" : "https");
   return `${proto}://${host}`;
+}
+
+// Куда вернуть пользователя после входа: только относительный путь внутри сайта.
+// «//evil.com» и «/\evil.com» браузер трактует как чужой хост, поэтому режем оба.
+export function safeNextPath(raw: string | null | undefined, fallback = "/cabinet"): string {
+  const value = String(raw || "").trim();
+  if (!value.startsWith("/")) return fallback;
+  if (value.startsWith("//") || value.startsWith("/\\")) return fallback;
+  if (/[\r\n]/.test(value)) return fallback;
+  return value;
 }
 
 // относительный редирект — порт берётся из запроса, а не из дефолта Next

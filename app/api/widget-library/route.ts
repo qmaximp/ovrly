@@ -1,27 +1,9 @@
 import postgres from 'postgres'
-import { verifySession } from '@/lib/session'
+import { json, rateLimit, sessionFrom } from '@/lib/api'
 import { fromPortableWidget } from '@/lib/widgets'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-
-const json = (data: unknown, status = 200) =>
-	new Response(JSON.stringify(data), {
-		status,
-		headers: { 'Content-Type': 'application/json' },
-	})
-
-function sessionFrom(req: Request) {
-	const raw = req.headers
-		.get('cookie')
-		?.match(/(?:^|;\s*)sc_session=([^;]+)/)?.[1]
-	if (!raw) return null
-	let value = raw
-	try {
-		value = decodeURIComponent(raw)
-	} catch {}
-	return verifySession(value)
-}
 
 // Один клиент на процесс: Next dev/HMR не должен плодить пулы соединений
 function db() {
@@ -57,17 +39,22 @@ export async function GET(req: Request) {
 			SELECT id, owner, name, definition, updated_at
 			FROM widget_library
 			ORDER BY updated_at DESC
-			LIMIT 100
+			LIMIT 40
 		`
-		return json({
-			widgets: rows.map(r => ({
-				id: r.id,
-				owner: r.owner,
-				name: r.name,
-				definition: r.definition,
-				updatedAt: r.updated_at,
-			})),
-		})
+		return json(
+			{
+				widgets: rows.map(r => ({
+					id: r.id,
+					owner: r.owner,
+					name: r.name,
+					definition: r.definition,
+					updatedAt: r.updated_at,
+				})),
+			},
+			200,
+			// библиотека меняется редко и только при публикации
+			{ 'Cache-Control': 'private, max-age=30' },
+		)
 	} catch (e) {
 		console.error('[widget-library] list failed:', (e as Error).message)
 		return json({ error: 'cannot load library' }, 500)
@@ -77,6 +64,9 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
 	const session = sessionFrom(req)
 	if (!session) return json({ error: 'unauthorized' }, 401)
+	// Публикация в общую библиотеку — не чаще 20 раз в час на аккаунт.
+	if (!rateLimit(`wl:${session.login}`, 20, 60 * 60 * 1000))
+		return json({ error: 'too many requests' }, 429)
 	const sql = db()
 	if (!sql) return json({ error: 'database is not configured' }, 501)
 	let body: {

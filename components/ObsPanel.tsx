@@ -60,9 +60,6 @@ const LS_MIXER = 'obs.mixer.v1'
 // общая высота панелей (сцены / источники / звук)
 // локальный порядок сцен: OBS не умеет их переставлять через API
 const LS_SCENE_ORDER = 'obs.sceneOrder.v1'
-// раскладка пульта: порядок панелей, их ширина и высота
-const LS_PANE_ORDER = 'obs.panes.order.v1'
-const LS_PANE_SIZE = 'obs.panes.size.v1'
 // свободное расположение панелей пульта: x, y, ширина, высота
 const LS_PANE_GEO = 'obs.panes.geo.v1'
 // выключатель моста: '0' — не подключаться к OBS вообще (переживает перезагрузку)
@@ -730,7 +727,6 @@ export default function ObsPanel({
 	type PaneKey = 'scenes' | 'sources' | 'audio'
 	const PANE_KEYS: PaneKey[] = ['scenes', 'sources', 'audio']
 	const PANE_MIN_W: Record<PaneKey, number> = { scenes: 150, sources: 230, audio: 250 }
-	const PANE_DEF_W: Record<PaneKey, number> = { scenes: 190, sources: 0, audio: 330 }
 
 	type Geo = { x: number; y: number; w: number; h: number }
 	const [geo, setGeo] = useState<Record<string, Geo>>({})

@@ -7672,17 +7672,7 @@ function LayersPanel({
 		if (src && (src.groupId || '') !== (target.groupId || ''))
 			moveTo(dragId, target.groupId)
 	}
-	const moveStep = (el: StreamElement, dir: -1 | 1) => {
-		const ids = sorted.map(e => e.id)
-		const i = ids.indexOf(el.id)
-		const j = i + dir
-		if (i < 0 || j < 0 || j >= ids.length) return
-		;[ids[i], ids[j]] = [ids[j], ids[i]]
-		onReorder(ids)
-	}
-
-	const row = (el: StreamElement, index: number) => {
-		const name = elementLabel(el)
+	const row = (el: StreamElement, index: number) => {		const name = elementLabel(el)
 		const active = selectedIds.has(el.id) || selectedId === el.id
 		return (
 			<div

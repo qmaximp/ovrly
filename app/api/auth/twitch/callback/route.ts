@@ -1,6 +1,6 @@
 import { appendFile, mkdir } from "fs/promises";
 import path from "path";
-import { getOrigin, seeOther, signSession, tokenForLogin } from "@/lib/session";
+import { getOrigin, safeNextPath, seeOther, signSession, SESSION_MAX_AGE_S, tokenForLogin } from "@/lib/session";
 import { readLinks, writeLinks, readOwner, writeOwner } from "@/lib/links";
 import { LEGAL_VERSION } from "@/lib/legal";
 import { syncStreamer } from "@/lib/streamers";
@@ -109,18 +109,14 @@ export async function GET(req: Request) {
 
   // возврат на исходную страницу (по умолчанию кабинет)
   const nextRaw = req.headers.get("cookie")?.match(/(?:^|;\s*)sc_next=([^;]+)/)?.[1];
-  let next = "/cabinet";
-  if (nextRaw) {
-    const decoded = decodeURIComponent(nextRaw);
-    if (decoded.startsWith("/") && !decoded.startsWith("//")) next = decoded;
-  }
+  const next = safeNextPath(nextRaw, "/cabinet");
 
   const res = seeOther(next);
   // Secure только на https: иначе на локальном http браузер отбросил бы cookie
   const secure = getOrigin(req).startsWith("https:") ? "; Secure" : "";
   res.headers.append(
     "Set-Cookie",
-    `sc_session=${signSession(session)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}${secure}`,
+    `sc_session=${signSession(session)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_MAX_AGE_S}${secure}`,
   );
   res.headers.append("Set-Cookie", "sc_oauth_state=; Path=/; Max-Age=0");
   res.headers.append("Set-Cookie", "sc_next=; Path=/; Max-Age=0");

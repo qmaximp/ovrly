@@ -218,7 +218,7 @@ export function loadSurfacePalette(
 	}
 }
 
-function surfaceColors(theme: 'dark' | 'light', palette: SurfacePalette) {
+function surfaceColors(_theme: 'dark' | 'light', palette: SurfacePalette) {
 	const bg = normalizeHex(palette.bg) || '#070b12'
 	const panel = normalizeHex(palette.panel) || '#0c1522'
 	const isLight = luminance(bg) > 0.52

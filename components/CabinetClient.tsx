@@ -3,7 +3,7 @@
 import LogoMark from '@/components/LogoMark'
 import ThemeToggle from '@/components/ThemeToggle'
 import CookieBanner from '@/components/CookieBanner'
-import ChangelogDialog from '@/components/ChangelogDialog'
+import ChangelogList from '@/components/ChangelogList'
 import { GUIDE_STEPS } from '@/lib/guide'
 import { useCallback, useEffect, useState } from 'react'
 
@@ -133,10 +133,9 @@ export default function CabinetClient({
 	const [loaded, setLoaded] = useState(false)
 	const [copied, setCopied] = useState<string | null>(null)
 	const [busy, setBusy] = useState(false)
-	const [changelogOpen, setChangelogOpen] = useState(false)
 
-	// вкладки кабинета: ссылки / доступ к панели (инвайты) / инструкция
-	const [tab, setTab] = useState<'links' | 'access' | 'guide'>(defaultTab)
+	// вкладки кабинета: ссылки / доступ к панели (инвайты) / инструкция / обновления
+	const [tab, setTab] = useState<'links' | 'access' | 'guide' | 'updates'>(defaultTab)
 	const [inv, setInv] = useState<InvitesPayload | null>(null)
 	const [invError, setInvError] = useState('')
 	const [inviteNick, setInviteNick] = useState('')
@@ -302,7 +301,7 @@ export default function CabinetClient({
 		</article>
 	)
 
-	const tabBtn = (id: 'links' | 'access' | 'guide', label: string) => (
+	const tabBtn = (id: 'links' | 'access' | 'guide' | 'updates', label: string) => (
 		<button
 			onClick={() => setTab(id)}
 			className={`cabinet-tab ${tab === id ? 'is-active' : ''}`}
@@ -354,12 +353,6 @@ export default function CabinetClient({
 								)}
 								<span className='hidden sm:inline'>{displayName}</span>
 							</span>
-							<button
-								onClick={() => setChangelogOpen(v => !v)}
-								className='btn btn-ghost btn-sm cabinet-changelog-btn'
-							>
-								Список обновлений
-							</button>
 							<ThemeToggle />
 							<a href='/api/auth/logout' className='btn btn-sm cabinet-logout'>
 								Выйти
@@ -411,17 +404,25 @@ export default function CabinetClient({
 						{tabBtn('links', 'Мои ссылки')}
 						{tabBtn('access', 'Доступ к панели')}
 						{tabBtn('guide', 'Как настроить')}
-						{isAdmin && (
-							<a
-								href='/admin'
-								target='_blank'
-								rel='noopener noreferrer'
-								title='Админ-панель откроется отдельной вкладкой'
-								className='btn btn-primary btn-sm cabinet-admin-link'
+						<div className='cabinet-nav-right'>
+							<button
+								onClick={() => setTab('updates')}
+								className={`cabinet-tab ${tab === 'updates' ? 'is-active' : ''}`}
 							>
-								⚙ Админ-панель
-							</a>
-						)}
+								Список обновлений
+							</button>
+							{isAdmin && (
+								<a
+									href='/admin'
+									target='_blank'
+									rel='noopener noreferrer'
+									title='Админ-панель откроется отдельной вкладкой'
+									className='btn btn-primary btn-sm cabinet-admin-link'
+								>
+									⚙ Админ-панель
+								</a>
+							)}
+						</div>
 					</nav>
 
 					{tab === 'links' && (
@@ -803,12 +804,18 @@ export default function CabinetClient({
 							</div>
 						</section>
 					)}
+					{tab === 'updates' && (
+						<section className='cabinet-section'>
+							<div className='cabinet-section-head'>
+								<div>
+									<span className='kicker'>Что нового</span>
+									<h2 className='cabinet-section-title'>Список обновлений</h2>
+								</div>
+							</div>
+							<ChangelogList />
+						</section>
+					)}
 				</div>
-
-				<ChangelogDialog
-					open={changelogOpen}
-					onClose={() => setChangelogOpen(false)}
-				/>
 
 				<footer className='container site-footer cabinet-footer'>
 					<div className='flex items-center gap-2 flex-wrap'>

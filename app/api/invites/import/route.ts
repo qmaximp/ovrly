@@ -4,29 +4,11 @@ import {
 	listModerators,
 } from '@/lib/invites'
 import { readLinks, writeLinks } from '@/lib/links'
-import { verifySession } from '@/lib/session'
+import { json, sessionFrom } from '@/lib/api'
 import { twitchUserId } from '@/lib/twitch'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-
-const json = (data: unknown, status = 200) =>
-	new Response(JSON.stringify(data), {
-		status,
-		headers: { 'Content-Type': 'application/json' },
-	})
-
-function sessionFrom(req: Request) {
-	const raw = req.headers
-		.get('cookie')
-		?.match(/(?:^|;\s*)sc_session=([^;]+)/)?.[1]
-	if (!raw) return null
-	let value = raw
-	try {
-		value = decodeURIComponent(raw)
-	} catch {}
-	return verifySession(value)
-}
 
 async function refreshUserToken(login: string): Promise<string | null> {
 	const links = await readLinks()
