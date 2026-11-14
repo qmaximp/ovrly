@@ -11,6 +11,8 @@ export type BotStatus = {
 	offset: number
 	lastSyncAt: number
 	lastError: string
+	mode: 'webhook' | 'polling'
+	webhook: boolean
 }
 
 export type BotEntry = {
@@ -24,6 +26,8 @@ export type BotEntry = {
 export type BotSyncResult = {
 	entries: BotEntry[]
 	error?: string
+	// true — сообщения приходят вебхуком, опрос getUpdates не выполняется
+	webhook?: boolean
 }
 
 const SOURCE_ID = 'changelog_tg_source_id'
@@ -39,7 +43,20 @@ export const SOURCE_URL = `https://t.me/${SOURCE_CHAT}/1`
 // getUpdates дёргается при загрузке списка, поэтому не чаще раза в минуту.
 const SYNC_INTERVAL = 60 * 1000
 
-const API = 'https://api.telegram.org'
+// Хостинг в РФ часто не пускает наружу на api.telegram.org — тогда работает
+// режим вебхука: Telegram сам присылает апдейты, исходящие запросы не нужны.
+const API = (
+	process.env.TELEGRAM_API_BASE || 'https://api.telegram.org'
+).replace(/\/+$/, '')
+
+export function webhookSecret(): string {
+	return (process.env.TELEGRAM_WEBHOOK_SECRET || '').trim()
+}
+
+// Вебхук включён, если задан секрет: иначе остаётся опрос getUpdates.
+export function isWebhookMode(): boolean {
+	return webhookSecret().length > 10
+}
 
 type TgChat = { id: number; username?: string; type?: string }
 type TgMessage = {
@@ -49,8 +66,17 @@ type TgMessage = {
 	caption?: string
 	chat: TgChat
 	photo?: { file_id: string; width?: number; height?: number }[]
+	// форумы: General = тема 1; остальные темы не берём
+	is_topic_message?: boolean
+	message_thread_id?: number
+	media_group_id?: string
 }
-type TgUpdate = { update_id: number; message?: TgMessage; channel_post?: TgMessage }
+type TgUpdate = {
+	update_id: number
+	message?: TgMessage
+	edited_message?: TgMessage
+	channel_post?: TgMessage
+}
 
 export function botToken(): string {
 	return (process.env.TELEGRAM_BOT_TOKEN || '').trim()
@@ -100,6 +126,8 @@ export async function getBotStatus(): Promise<BotStatus> {
 		offset: Number(offset) || 0,
 		lastSyncAt: Number(lastSyncAt) || 0,
 		lastError: String(lastError || ''),
+		mode: isWebhookMode() ? 'webhook' : 'polling',
+		webhook: isWebhookMode(),
 	}
 }
 
@@ -115,6 +143,14 @@ function isSourceChat(chat: TgChat, knownId: number): boolean {
 }
 
 function toEntry(msg: TgMessage): BotEntry | null {
+	// В группе с темами берём только General (тема 1) — ровно то, что видно по
+	// ссылке t.me/ovrly_control/1; сообщения из боковых тем не импортируем.
+	if (
+		msg.is_topic_message &&
+		typeof msg.message_thread_id === 'number' &&
+		msg.message_thread_id !== 1
+	)
+		return null
 	const text = (msg.text || msg.caption || '').trim()
 	const photos = Array.isArray(msg.photo) ? msg.photo : []
 	const best = photos
@@ -144,6 +180,11 @@ export async function syncTelegramChangelog(
 	opts: { force?: boolean } = {},
 ): Promise<BotSyncResult> {
 	if (!isBotConfigured()) return { entries: [] }
+	// В режиме вебхука новые сообщения приходят сами: опрашивать Telegram
+	// нельзя (да и не нужно) — на этом хостинге наружу он недоступен.
+	if (isWebhookMode()) {
+		return { entries: [], webhook: true }
+	}
 	if (!opts.force) {
 		const last = Number(await storage.getSetting<number>(SYNC_AT)) || 0
 		if (Date.now() - last < SYNC_INTERVAL) return { entries: [] }
@@ -186,6 +227,24 @@ async function runSync(): Promise<BotSyncResult> {
 		await storage.setSetting(LAST_ERROR, message)
 		return { entries: [], error: message }
 	}
+}
+
+// Разбор одного апдейта Telegram для вебхука: фильтр источника, тема, текст.
+export async function entryFromUpdate(input: unknown): Promise<BotEntry | null> {
+	const update = input as TgUpdate | null
+	if (!update || typeof update !== 'object') return null
+	const msg = update.message || update.edited_message || update.channel_post
+	if (!msg || typeof msg.message_id !== 'number') return null
+	const knownId = Number(await storage.getSetting<number>(SOURCE_ID)) || 0
+	if (!isSourceChat(msg.chat, knownId)) return null
+	// запомним числовой id: если username сменят, импорт не сломается
+	if (msg.chat.id !== knownId) await storage.setSetting(SOURCE_ID, msg.chat.id)
+	const entry = toEntry(msg)
+	if (entry) {
+		await storage.setSetting(SYNC_AT, Date.now())
+		await storage.setSetting(LAST_ERROR, '')
+	}
+	return entry
 }
 
 // Прокси изображений: getFile отдаёт путь, файл тянем сервером.

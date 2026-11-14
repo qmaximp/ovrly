@@ -64,7 +64,13 @@ export async function POST(req: Request) {
 			)
 		const result = await syncTelegramChangelog({ force: true })
 		if (result.entries.length) await importBotEntries(result.entries)
-		return json(await payload())
+		return json({
+			...await payload(),
+			// в режиме вебхука опрос недоступен — клиент покажет подсказку
+			syncNote: result.webhook
+				? 'Обновления приходят вебхуком: новые сообщения появляются сами.'
+				: result.error || '',
+		})
 	}
 	// Источник обновлений зафиксирован — группа @ovrly_control. Других
 	// источников у «Списка обновлений» нет.

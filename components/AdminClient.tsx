@@ -75,7 +75,10 @@ type AdminChangelog = {
 		offset: number
 		lastSyncAt: number
 		lastError: string
+		mode?: 'webhook' | 'polling'
+		webhook?: boolean
 	}
+	syncNote?: string
 }
 
 const ROLE_LABELS: Record<StatsUser['role'], string> = {
@@ -277,9 +280,11 @@ export default function AdminClient({
 		}
 	}, [manualText, manualUrl])
 
+	const [changelogNote, setChangelogNote] = useState('')
 	const syncTgNow = useCallback(async () => {
 		setChangelogBusy(true)
 		setChangelogError('')
+		setChangelogNote('')
 		try {
 			const res = await fetch('/api/admin/changelog', {
 				method: 'POST',
@@ -290,6 +295,7 @@ export default function AdminClient({
 			if (!res.ok)
 				throw new Error(data?.error || 'Не удалось импортировать сообщения')
 			setChangelogData(data)
+			if (data?.syncNote) setChangelogNote(String(data.syncNote))
 		} catch (e: any) {
 			setChangelogError(e?.message || 'Не удалось импортировать сообщения')
 		} finally {
@@ -1128,17 +1134,29 @@ export default function AdminClient({
 												disabled={changelogBusy || !changelogData?.bot?.configured}
 												onClick={() => void syncTgNow()}
 											>
-												Импортировать сейчас
+												{changelogData?.bot?.webhook
+													? 'Проверить источник'
+													: 'Импортировать сейчас'}
 											</button>
 										</div>
 										<p className='admin-meta mt-2'>
 											{!changelogData?.bot?.configured
 												? 'Бот не настроен: добавьте TELEGRAM_BOT_TOKEN в .env.local и перезапустите сервер.'
 												: `Бот подключён · @${changelogData.bot.chat} · источник зафиксирован` +
+													(changelogData.bot.webhook
+														? ' · режим вебхука: новые сообщения приходят сами'
+														: '') +
 													(changelogData.bot.lastSyncAt
-														? ` · синхронизация ${formatAdminDateTime(changelogData.bot.lastSyncAt)}`
+														? ` · последнее сообщение ${formatAdminDateTime(changelogData.bot.lastSyncAt)}`
 														: '')}
 										</p>
+										{changelogData?.bot?.webhook && (
+											<p className='admin-meta mt-1'>
+												С сервера api.telegram.org недоступен (блокировка
+												провайдера), поэтому опрос не используется — Telegram
+												присылает сообщения на наш адрес сам.
+											</p>
+										)}
 										{changelogData?.bot?.lastError && (
 											<p className='alert mt-2'>
 												{changelogData.bot.lastError}
@@ -1179,12 +1197,15 @@ export default function AdminClient({
 									{changelogError && (
 										<p className='alert mt-3'>{changelogError}</p>
 									)}
+									{changelogNote && (
+										<p className='admin-meta mt-3'>{changelogNote}</p>
+									)}
 									{changelogData?.error && (
 										<p className='alert mt-3'>{changelogData.error}</p>
 									)}
 									{changelogData?.title && (
 										<p className='admin-meta mt-3'>
-											Канал: {changelogData.title}
+											Источник: {changelogData.title}
 											{changelogData.channel
 												? ` · @${changelogData.channel}`
 												: ''}
@@ -1228,7 +1249,7 @@ export default function AdminClient({
 										<p className='admin-empty mt-3'>
 											{changelogData?.error ||
 												(changelogData
-													? 'В канале пока нет постов.'
+													? 'Обновлений пока нет: напишите сообщение в группу — оно появится здесь автоматически.'
 													: 'Вставьте ссылку и нажмите «Сохранить».')}
 										</p>
 									)}
