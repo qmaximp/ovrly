@@ -728,22 +728,10 @@ export default function ObsPanel({
 			saved = JSON.parse(localStorage.getItem(LS_KEY) || '{}').password || ''
 		} catch {}
 		pwRef.current = saved
-		// Браузер может запретить сам ws://127.0.0.1 с https-страницы — тогда
-		// любые попытки бессмысленны: показываем инструкцию, а не молчим.
-		let iv: ReturnType<typeof setInterval> | undefined
-		if (localWsBlocked()) {
-			setPhase('blocked')
-		} else {
-			connectObs(saved)
-			iv = setInterval(() => {
-				if (obsRef.current || connecting.current) return
-				const ph = phaseRef.current
-				if (ph === 'needpass' || ph === 'blocked') return
-				connectObs(pwRef.current)
-			}, 8000)
-		}
+		// Автоподключения больше нет: раньше панель каждые 8 секунд стучалась
+		// в OBS и сыпала ошибками. Теперь подключаемся только по кнопке.
+		setPhase(p => (p === 'on' ? p : 'idle'))
 		return () => {
-			if (iv) clearInterval(iv)
 			mounted.current = false
 			if (pushTimer.current) clearTimeout(pushTimer.current)
 			obsRef.current?.disconnect?.()
@@ -754,7 +742,7 @@ export default function ObsPanel({
 			sockRef.current = null
 			setPresence(false)
 		}
-	}, [isStreamer, enabled, connectObs])
+	}, [isStreamer, enabled])
 
 	// ---- команды: стример выполняет локально, модератор — через сервер ----
 	const run = useCallback(
@@ -1266,7 +1254,9 @@ export default function ObsPanel({
 									? 'нужен пароль OBS'
 									: phase === 'off'
 										? 'OBS отключён'
-										: 'OBS не найден'
+										: phase === 'idle'
+											? 'OBS не подключён'
+											: 'OBS не найден'
 						: presence
 							? 'OBS стримера'
 							: 'стример офлайн'}
@@ -1287,6 +1277,20 @@ export default function ObsPanel({
 						<>
 							{enabled !== false && (
 								<>
+									{!connected && phase !== 'connecting' && (
+										<button
+											onClick={() => {
+												if (localWsBlocked()) {
+													setPhase('blocked')
+													return
+												}
+												void connectObs(password || pwRef.current || '', true)
+											}}
+											className='rounded px-1.5 py-0.5 text-accent2 hover:bg-border/50'
+										>
+											подключить
+										</button>
+									)}
 									<button
 										onClick={() => setShowPass(v => !v)}
 										className='rounded px-1.5 py-0.5 hover:bg-border/50'

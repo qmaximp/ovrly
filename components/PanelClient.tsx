@@ -93,6 +93,7 @@ import {
 	Pencil,
 	Play,
 	Plus,
+	Radio,
 	Send,
 	Settings,
 	SlidersHorizontal,
@@ -389,11 +390,28 @@ export default function PanelClient({
 	}, [listeningShortcut, changeShortcut])
 	const [obsAllowedLive, setObsAllowedLive] = useState(obsAllowed)
 	useEffect(() => setObsAllowedLive(obsAllowed), [obsAllowed])
-	// вкладка есть только при праве на OBS (владелец — всегда); отзыв права
-	// применяется сразу, без перезагрузки страницы
+	// «скрыть управление OBS» в настройках: вкладка исчезает из панели и
+	// к OBS никто не стучится. Флаг живёт в браузере.
+	const [obsHidden, setObsHidden] = useState(false)
 	useEffect(() => {
-		if (!obsAllowedLive) setTab(t => (t === 'obs' ? 'elements' : t))
-	}, [obsAllowedLive])
+		try {
+			setObsHidden(localStorage.getItem('panel.obsHidden.v1') === '1')
+		} catch {}
+	}, [])
+	const toggleObsHidden = () => {
+		setObsHidden(v => {
+			const next = !v
+			try {
+				localStorage.setItem('panel.obsHidden.v1', next ? '1' : '0')
+			} catch {}
+			return next
+		})
+	}
+	// вкладка есть только при праве на OBS (владелец — всегда); отзыв права
+	// или скрытие в настройках применяется сразу, без перезагрузки
+	useEffect(() => {
+		if (!obsAllowedLive || obsHidden) setTab(t => (t === 'obs' ? 'elements' : t))
+	}, [obsAllowedLive, obsHidden])
 	// студия виджетов: монтируем при первом открытии, чтобы не терять черновик
 	const [widgetStudioMounted, setWidgetStudioMounted] = useState(false)
 	// мини-окно выбора виджета из «Моих виджетов» для добавления на холст
@@ -4812,7 +4830,7 @@ export default function PanelClient({
 					<Blocks size={15} />
 					Виджеты
 				</button>
-				{obsAllowedLive && (
+				{obsAllowedLive && !obsHidden && (
 					<button
 						onClick={() => setTab('obs')}
 						className={`flex items-center gap-1.5 px-4 py-2 text-sm rounded-t-lg transition-colors ${tab === 'obs' ? 'bg-bg text-[color:rgb(var(--c-on-bg))] border-b-2 border-accent' : 'text-gray-500 hover:text-gray-300'}`}
@@ -6381,7 +6399,7 @@ export default function PanelClient({
 			<div
 				className={`flex-1 ${tab === 'obs' ? 'overflow-hidden' : 'overflow-auto'} ${tab === 'obs' ? '' : 'hidden'}`}
 			>
-				{(isStreamer || obsAllowedLive) && (
+				{(isStreamer || obsAllowedLive) && !obsHidden && (
 					<ObsPanel
 						room={room}
 						isStreamer={isStreamer}
@@ -6506,6 +6524,41 @@ export default function PanelClient({
 										: 'Выключено: используется панель с боковым меню.'}
 								</p>
 							</div>
+
+							{(isStreamer || obsAllowedLive) && (
+								<div className='mt-4 rounded-2xl border border-border bg-panel p-4 sm:p-5'>
+									<div className='flex items-start gap-3 sm:gap-4'>
+										<span className='w-10 h-10 shrink-0 rounded-xl bg-accent/15 text-accent2 flex items-center justify-center'>
+											<Radio size={19} />
+										</span>
+										<div className='min-w-0 flex-1'>
+											<h3 className='text-sm font-semibold text-[color:rgb(var(--c-on-bg))]'>
+												Управление OBS
+											</h3>
+											<p className='mt-1 text-sm leading-relaxed text-gray-500'>
+												{obsHidden
+													? 'Скрыто: вкладки нет, панель не подключается к OBS и ничего не спрашивает.'
+													: 'Показано: вкладка «Управление OBS» доступна. Подключение к OBS — только по кнопке.'}
+											</p>
+										</div>
+										<button
+											role='switch'
+											aria-checked={!obsHidden}
+											aria-label='Управление OBS'
+											onClick={toggleObsHidden}
+											className={`relative w-11 h-6 shrink-0 rounded-full transition-colors ${
+												!obsHidden ? 'bg-accent' : 'bg-gray-600'
+											}`}
+										>
+											<span
+												className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${
+													!obsHidden ? 'left-[22px]' : 'left-0.5'
+												}`}
+											/>
+										</button>
+									</div>
+								</div>
+							)}
 
 							<div className='mt-4 rounded-2xl border border-border bg-panel p-4 sm:p-5'>
 								<div className='flex items-start gap-3 sm:gap-4'>
@@ -6925,7 +6978,7 @@ export default function PanelClient({
 							<Blocks size={15} />
 							Виджеты
 						</button>
-						{obsAllowedLive && (
+						{obsAllowedLive && !obsHidden && (
 							<button
 								onClick={() => {
 									setTab('obs')
