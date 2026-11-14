@@ -245,11 +245,14 @@ function Eye({ on }: { on: boolean }) {
 }
 
 function Lock({ on }: { on: boolean }) {
-	if (!on) return null
 	return (
 		<svg width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.4'>
 			<rect x='4' y='11' width='16' height='10' rx='2' />
-			<path d='M8 11V7a4 4 0 0 1 8 0v4' />
+			{on ? (
+				<path d='M8 11V7a4 4 0 0 1 8 0v4' />
+			) : (
+				<path d='M8 11V7a4 4 0 0 1 7.4-2.1' />
+			)}
 		</svg>
 	)
 }
@@ -1442,7 +1445,7 @@ export default function ObsPanel({
 										onClick={() => toggleLock(it)}
 										disabled={disabled}
 										className={`flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-white/10 ${
-											it.locked ? 'opacity-80' : 'opacity-25'
+											it.locked ? 'opacity-80' : 'opacity-60'
 										} disabled:opacity-25`}
 										title={it.locked ? 'разблокировать' : 'заблокировать'}
 									>

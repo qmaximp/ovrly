@@ -64,6 +64,7 @@ import {
 	Link2,
 	ListVideo,
 	Lock,
+	LockOpen,
 	MessageCircle,
 	MousePointer2,
 	Pause,
@@ -6089,6 +6090,23 @@ export default function PanelClient({
 									{selected.visible ? <Eye size={14} /> : <EyeOff size={14} />}
 								</button>
 								<button
+									onClick={() =>
+										updateElement(selected.id, { locked: !selected.locked })
+									}
+									title={
+										selected.locked
+											? 'Разблокировать элемент'
+											: 'Заблокировать: защита от случайного перетаскивания'
+									}
+									className={`w-7 h-7 rounded-md border border-border flex items-center justify-center ${
+										selected.locked
+											? 'text-amber-300 bg-amber-950/20'
+											: 'text-gray-300 hover:text-white hover:bg-border'
+									}`}
+								>
+									{selected.locked ? <Lock size={14} /> : <LockOpen size={14} />}
+								</button>
+								<button
 								onClick={() => {
 									remember()
 									emit('element:delete', selected.id)
@@ -9149,23 +9167,6 @@ function PropertyEditor({
 			>
 				⧉ Дублировать элемент
 			</button>
-			<div className='flex items-center justify-between gap-2'>
-				<div>
-					<label className='text-xs text-gray-500 block'>Замок</label>
-					<p className='text-[10px] text-gray-600 leading-tight'>
-						Защита от случайного перетаскивания
-					</p>
-				</div>
-				<button
-					onClick={() => update({ locked: !el.locked })}
-					className={`w-9 h-5 rounded-full transition-colors shrink-0 relative ${el.locked ? 'bg-green-500' : 'bg-gray-600'}`}
-				>
-					<span
-						className='absolute top-[2px] w-4 h-4 bg-white rounded-full transition-all'
-						style={{ left: el.locked ? 18 : 2 }}
-					/>
-				</button>
-			</div>
 			<div>
 				<label className='text-xs text-gray-500 block mb-1'>
 					Прозрачность: {Math.round((el.opacity ?? 1) * 100)}%
@@ -9180,7 +9181,7 @@ function PropertyEditor({
 							type='range'
 							min={0}
 							max={100}
-							step={5}
+							step={1}
 							value={pct}
 							onChange={e => update({ opacity: Number(e.target.value) / 100 })}
 							className='w-full'
@@ -9243,7 +9244,7 @@ function PropertyEditor({
 							type='range'
 							min={0}
 							max={100}
-							step={5}
+							step={1}
 							value={Math.round((el.bgOpacity ?? 1) * 100)}
 							onChange={e =>
 								update({ bgOpacity: Number(e.target.value) / 100 })
