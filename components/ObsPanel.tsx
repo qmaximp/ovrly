@@ -65,6 +65,21 @@ const LS_PANE_GEO = 'obs.panes.geo.v1'
 // выключатель моста: '0' — не подключаться к OBS вообще (переживает перезагрузку)
 const LS_ENABLED = 'obs.enabled.v1'
 const OBS_URL = 'ws://127.0.0.1:4455'
+// зависший коннект не должен навсегда блокировать повторные попытки
+const CONNECT_TIMEOUT_MS = 6000
+
+// Человеческое объяснение вместо молчания: раньше ошибка кроме «пароль не
+// подошёл» нигде не показывалась.
+function obsErrorHint(msg: string): string {
+	if (/timeout/i.test(msg))
+		return 'OBS не ответил за 6 с. Проверьте, что в OBS включён WebSocket-сервер (Инструменты → WebSocket Server Settings) и порт 4455 свободен.'
+	if (/security|mixed|insecure|blocked/i.test(msg))
+		return 'Браузер блокирует ws://127.0.0.1:4455 со страницы https. Откройте панель по http или разрешите localhost в браузере.'
+	if (/refused|failed|network|closed|connect/i.test(msg))
+		return 'OBS недоступен на 127.0.0.1:4455 — он не запущен или WebSocket-сервер выключен.'
+	const short = msg.length > 140 ? `${msg.slice(0, 140)}…` : msg
+	return `Не удалось подключиться: ${short}`
+}
 
 function pct(db: number) {
 	if (!Number.isFinite(db)) return 0
@@ -407,6 +422,8 @@ export default function ObsPanel({
 	const phaseRef = useRef<Phase>('idle')
 	const pwRef = useRef('')
 	const connecting = useRef(false)
+	// номер попытки: результаты устаревших коннектов игнорируем
+	const attemptRef = useRef(0)
 	const mounted = useRef(true)
 	const enabledRef = useRef(true)
 	const cmdId = useRef(0)
@@ -545,20 +562,47 @@ export default function ObsPanel({
 
 	// ---- подключение к OBS: автоматически, с повтором ----
 	const connectObs = useCallback(
-		async (pw: string) => {
-			if (obsRef.current || connecting.current) return
+		async (pw: string, manual = false) => {
+			if (obsRef.current) return
+			// ручной ввод пароля должен перебивать зависшую авто-попытку:
+			// раньше при connecting=true клик по «Подключить» молча игнорировался
+			if (connecting.current && !manual) return
+			const attempt = ++attemptRef.current
 			connecting.current = true
 			setPhase('connecting')
 			setToast('')
+			setPassError('')
+			let obs: any = null
+			let timer: ReturnType<typeof setTimeout> | undefined
 			try {
 				const { default: OBSWebSocket } = await import('obs-websocket-js')
-				const obs = new OBSWebSocket()
-				await obs.connect(OBS_URL, pw || undefined, {
-					// All + «тяжёлые» подписки: метры звука приходят только с явным флагом
-					eventSubscriptions: 0xfffff,
+				if (attempt !== attemptRef.current) return
+				obs = new OBSWebSocket()
+				// Без таймаута зависший коннект держал connecting=true навсегда:
+				// ни ошибки, ни повтора, кнопки «молчат».
+				const timeout = new Promise<never>((_, reject) => {
+					timer = setTimeout(
+						() => reject(new Error('timeout')),
+						CONNECT_TIMEOUT_MS,
+					)
 				})
+				await Promise.race([
+					obs.connect(OBS_URL, pw || undefined, {
+						// All + «тяжёлые» подписки: метры звука приходят только с явным флагом
+						eventSubscriptions: 0xfffff,
+					}),
+					timeout,
+				])
+				if (attempt !== attemptRef.current) {
+					try {
+						obs.disconnect()
+					} catch {}
+					return
+				}
 				if (!mounted.current) {
-					obs.disconnect()
+					try {
+						obs.disconnect()
+					} catch {}
 					return
 				}
 				obsRef.current = obs
@@ -612,16 +656,24 @@ export default function ObsPanel({
 				openSocket()
 			} catch (e: any) {
 				const msg = String(e?.message || e)
-				// ошибку не логируем в консоль: Next в dev рисует поверх страницы
-				// красный оверлей, из-за него пульт кажется сломанным
+				try {
+					obs?.disconnect()
+				} catch {}
+				if (attempt !== attemptRef.current) return
+				// ошибку не пишем в консоль: Next в dev рисует красный оверлей
+				// поверх страницы и пульт кажется сломанным
 				if (/auth|password|identif/i.test(msg)) {
 					setPhase('needpass')
-					if (pw) setPassError('пароль не подошёл')
+					setPassError(pw ? 'пароль не подошёл' : '')
 				} else {
 					setPhase('error')
+					// причина всегда видна: раньше «ничего не происходило»
+					setPassError(obsErrorHint(msg))
 				}
 			} finally {
-				connecting.current = false
+				clearTimeout(timer)
+				// снимаем флаг только если это всё ещё наша попытка
+				if (attempt === attemptRef.current) connecting.current = false
 			}
 		},
 		[emitSnapshot, openSocket, pushNow],
@@ -1232,13 +1284,13 @@ export default function ObsPanel({
 						value={password}
 						onChange={e => setPassword(e.target.value)}
 						onKeyDown={e => {
-							if (e.key === 'Enter') connectObs(password)
+							if (e.key === 'Enter') void connectObs(password, true)
 						}}
 						placeholder='пароль из OBS → Инструменты'
 						className='min-w-[180px] flex-1 rounded border border-border bg-bg px-2 py-1 text-[13px]'
 					/>
 					<button
-						onClick={() => connectObs(password)}
+						onClick={() => void connectObs(password, true)}
 						className='rounded bg-accent px-3 py-1 text-white hover:bg-accent-hover'
 					>
 						Подключить
@@ -1249,8 +1301,8 @@ export default function ObsPanel({
 
 			{phase === 'error' && isStreamer && (
 				<p className='rounded-lg border border-border bg-card/30 px-3 py-1.5 text-[12px] opacity-55'>
-					Запусти OBS и включи Инструменты → WebSocket Server Settings. Повторяю попытку каждые
-					8 секунд.
+					{passError ||
+						'Запусти OBS и включи Инструменты → WebSocket Server Settings. Повторяю попытку каждые 8 секунд.'}
 				</p>
 			)}
 

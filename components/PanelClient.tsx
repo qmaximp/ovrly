@@ -257,6 +257,44 @@ function clearEmoteCache() {
 	} catch {}
 }
 
+// Общий bbox повёрнутых элементов в координатах канваса. Нужен и для рамки
+// мультивыделения, и для старта перетаскивания: считать его из замыкания
+// useCallback нельзя — рамка «улетала» к левому верхнему углу (0,0).
+function groupBounds(
+	elements: StreamElement[],
+	ids: Set<string>,
+): { cx: number; cy: number; w: number; h: number } | null {
+	const items = elements.filter(e => ids.has(e.id))
+	if (items.length < 2) return null
+	let x1 = Infinity
+	let y1 = Infinity
+	let x2 = -Infinity
+	let y2 = -Infinity
+	for (const e of items) {
+		const ecx = e.x + e.width / 2
+		const ecy = e.y + e.height / 2
+		const th = ((e.rotation ?? 0) * Math.PI) / 180
+		const cos = Math.cos(th)
+		const sin = Math.sin(th)
+		const hw = e.width / 2
+		const hh = e.height / 2
+		for (const [dx, dy] of [
+			[-hw, -hh],
+			[hw, -hh],
+			[hw, hh],
+			[-hw, hh],
+		]) {
+			const wx = ecx + dx * cos - dy * sin
+			const wy = ecy + dx * sin + dy * cos
+			if (wx < x1) x1 = wx
+			if (wx > x2) x2 = wx
+			if (wy < y1) y1 = wy
+			if (wy > y2) y2 = wy
+		}
+	}
+	return { cx: (x1 + x2) / 2, cy: (y1 + y2) / 2, w: x2 - x1, h: y2 - y1 }
+}
+
 export default function PanelClient({
 	channel,
 	room,
@@ -2979,13 +3017,14 @@ export default function PanelClient({
 				return
 			}
 			remember()
+			const gb = groupBounds(stateRef.current.elements, selectedIdsRef.current)
 			groupDragRef.current = {
 				sx: e.clientX,
 				sy: e.clientY,
 				dx: 0,
 				dy: 0,
-				bx: groupBox?.cx ?? 0,
-				by: groupBox?.cy ?? 0,
+				bx: gb?.cx ?? 0,
+				by: gb?.cy ?? 0,
 				items,
 				lastTick: 0,
 			}
@@ -3407,48 +3446,10 @@ export default function PanelClient({
 	}, [emit, mediaToggle])
 
 	// Общая рамка мультивыделения — всегда осевая (как в Figma): считаем
-	// визуальные углы повёрнутых элементов и берём их общий bbox. Раньше
-	// рамка наследовала поворот первого элемента и при разных углах уезжала.
+	// визуальные углы повёрнутых элементов и берём их общий bbox.
 	const groupBox = useMemo(() => {
-		if (selectedIds.size < 2) return null
-		const items = state.elements.filter(e => selectedIds.has(e.id))
-		if (items.length < 2) return null
-		let x1 = Infinity
-		let y1 = Infinity
-		let x2 = -Infinity
-		let y2 = -Infinity
-		for (const e of items) {
-			const ecx = e.x + e.width / 2
-			const ecy = e.y + e.height / 2
-			const th = ((e.rotation ?? 0) * Math.PI) / 180
-			const cos = Math.cos(th)
-			const sin = Math.sin(th)
-			const hw = e.width / 2
-			const hh = e.height / 2
-			for (const [dx, dy] of [
-				[-hw, -hh],
-				[hw, -hh],
-				[hw, hh],
-				[-hw, hh],
-			]) {
-				const wx = ecx + dx * cos - dy * sin
-				const wy = ecy + dx * sin + dy * cos
-				if (wx < x1) x1 = wx
-				if (wx > x2) x2 = wx
-				if (wy < y1) y1 = wy
-				if (wy > y2) y2 = wy
-			}
-		}
-		const cx = (x1 + x2) / 2
-		const cy = (y1 + y2) / 2
-		return {
-			cx,
-			cy,
-			w: x2 - x1,
-			h: y2 - y1,
-			rot: 0,
-			pivot: { x: cx, y: cy },
-		}
+		const gb = groupBounds(state.elements, selectedIds)
+		return gb ? { ...gb, rot: 0, pivot: { x: gb.cx, y: gb.cy } } : null
 	}, [state, selectedIds])
 
 	// тянем грань бокса — двигаем группу (тот же groupDrag, что и при драге элемента)
@@ -3468,13 +3469,17 @@ export default function PanelClient({
 			}
 			if (items.length < 2) return
 			remember()
+			// Центр бокса берём из актуальных элементов, а не из замыкания:
+			// useCallback не пересоздаётся при смене выделения, и старая
+			// ссылка на groupBox отправляла рамку в (0,0).
+			const gb = groupBounds(stateRef.current.elements, selectedIdsRef.current)
 			groupDragRef.current = {
 				sx: e.clientX,
 				sy: e.clientY,
 				dx: 0,
 				dy: 0,
-				bx: groupBox?.cx ?? 0,
-				by: groupBox?.cy ?? 0,
+				bx: gb?.cx ?? 0,
+				by: gb?.cy ?? 0,
 				items,
 				lastTick: 0,
 			}
