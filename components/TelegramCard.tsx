@@ -389,6 +389,9 @@ export default function TelegramCard({
 	}, [visible, data, until, ready])
 
 	if (!visible) return null
+	const debug =
+		typeof window !== 'undefined' &&
+		new URLSearchParams(window.location.search).get('debug') === '1'
 	const posts = data?.posts?.length ? data.posts : data?.last ? [data.last] : []
 	const subtitle = data?.subscribers
 		? `${data.subscribers} подписчиков`
@@ -407,6 +410,24 @@ export default function TelegramCard({
 						: 'hidden',
 			}}
 		>
+			{debug && (
+				<div
+					style={{
+						position: 'absolute',
+						left: 12,
+						bottom: 12,
+						zIndex: 50,
+						font: '12px/1.3 ui-monospace, monospace',
+						color: '#0ff',
+						background: 'rgba(0,0,0,.6)',
+						padding: '6px 8px',
+						borderRadius: 6,
+						whiteSpace: 'pre',
+					}}
+				>
+					{`tg v5\nlive=${live ? 1 : 0} show=${show ?? '-'}\ndur=${duration ?? '-'} until=${until ?? '-'}\nnow=${Date.now()}`}
+				</div>
+			)}
 			<div className={s.stage} style={{ transform: `scale(${scale})` }}>
 				<div ref={cardRef} className={`${s.fly} ${s.cardFly}`}>
 					<div className={s.rockA}>

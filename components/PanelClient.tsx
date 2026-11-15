@@ -5711,8 +5711,7 @@ export default function PanelClient({
 									el =>
 										el.type === 'telegram' &&
 										el.visible !== false &&
-										el.telegramUntil &&
-										el.telegramUntil > Date.now() - serverClockLag.ms,
+										!!el.telegramUntil,
 								)
 								.map(el => (
 									<div
@@ -5730,6 +5729,8 @@ export default function PanelClient({
 											light={!!el.telegramLight}
 											until={el.telegramUntil}
 											duration={el.telegramDuration || 15}
+											show={el.telegramShow}
+											instanceId={el.id}
 										/>
 									</div>
 								))}
@@ -9669,20 +9670,15 @@ function PropertyEditor({
 						<span className='text-xs text-gray-500'>секунд</span>
 						<div className='flex items-center gap-2'>
 							<button
-								onClick={() =>
+								onClick={() => {
+									// метка показа и «до какого времени» — в одной точке времени
+									const at = Date.now()
 									update({
-										// серверное время: часы модератора и стримера могут
-										// расходиться, из-за чего показ «съедался» на секунды
 										telegramUntil:
-											tgRemain > 0
-												? 0
-												: Date.now() -
-														serverClockLag.ms +
-														(el.telegramDuration || 15) * 1000,
-										// метка показа: по ней оверлей запускает таймер без часов
-										telegramShow: tgRemain > 0 ? 0 : Date.now(),
+											tgRemain > 0 ? 0 : at + (el.telegramDuration || 15) * 1000,
+										telegramShow: tgRemain > 0 ? 0 : at,
 									})
-								}
+								}}
 								className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-medium transition-colors ${
 									tgRemain > 0
 										? 'border border-border text-gray-300 hover:bg-bg'
