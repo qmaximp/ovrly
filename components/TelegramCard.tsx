@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import qrcode from 'qrcode-generator'
 import { normalizeTelegramChannel } from '@/lib/telegram'
+import { serverClockLag } from '@/lib/clock'
 import s from './TelegramCard.module.css'
 
 type TelegramMedia = {
@@ -251,7 +252,7 @@ export default function TelegramCard({
 			setVisible(false)
 			return
 		}
-		const left = until - Date.now()
+		const left = until - (Date.now() - serverClockLag.ms)
 		if (left <= 0) {
 			setVisible(false)
 			return
@@ -289,7 +290,7 @@ export default function TelegramCard({
 		const card = cardRef.current
 		const qrEl = qrRef.current
 		const wrap = wrapRef.current
-		const starting = !!until && until > Date.now()
+		const starting = !!until && until > Date.now() - serverClockLag.ms
 		if (wrap && (!preview || starting)) wrap.style.visibility = 'hidden'
 		card?.animate(
 			[{ transform: 'translateY(1250px) rotate(-8deg)' }, { transform: 'translateY(0) rotate(0deg)' }],
@@ -360,7 +361,9 @@ export default function TelegramCard({
 			className={s.wrap}
 			style={{
 				visibility:
-					preview && (!until || until <= Date.now()) ? 'visible' : 'hidden',
+					preview && (!until || until <= Date.now() - serverClockLag.ms)
+						? 'visible'
+						: 'hidden',
 			}}
 		>
 			<div className={s.stage} style={{ transform: `scale(${scale})` }}>

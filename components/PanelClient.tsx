@@ -5710,7 +5710,7 @@ export default function PanelClient({
 										el.type === 'telegram' &&
 										el.visible !== false &&
 										el.telegramUntil &&
-										el.telegramUntil > Date.now(),
+										el.telegramUntil > Date.now() - serverClockLag.ms,
 								)
 								.map(el => (
 									<div
@@ -9461,11 +9461,12 @@ function PropertyEditor({
 	const [audioPlaying, setAudioPlaying] = useState(false)
 	const [audioPos, setAudioPos] = useState(0)
 	const [audioDuration, setAudioDuration] = useState(0)
-	const [tgNow, setTgNow] = useState(Date.now())
+	// серверное время: telegramUntil считается по часам сервера
+	const [tgNow, setTgNow] = useState(Date.now() - serverClockLag.ms)
 	useEffect(() => {
 		if (el.type !== 'telegram' || !el.telegramUntil) return
-		setTgNow(Date.now())
-		const t = setInterval(() => setTgNow(Date.now()), 500)
+		setTgNow(Date.now() - serverClockLag.ms)
+		const t = setInterval(() => setTgNow(Date.now() - serverClockLag.ms), 500)
 		return () => clearInterval(t)
 	}, [el.id, el.type, el.telegramUntil])
 	useEffect(() => {
@@ -9665,10 +9666,14 @@ function PropertyEditor({
 							<button
 								onClick={() =>
 									update({
+										// серверное время: часы модератора и стримера могут
+										// расходиться, из-за чего показ «съедался» на секунды
 										telegramUntil:
 											tgRemain > 0
 												? 0
-												: Date.now() + (el.telegramDuration || 15) * 1000,
+												: Date.now() -
+														serverClockLag.ms +
+														(el.telegramDuration || 15) * 1000,
 									})
 								}
 								className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-medium transition-colors ${

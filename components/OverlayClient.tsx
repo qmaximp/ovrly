@@ -459,7 +459,7 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 							el.type === 'telegram' &&
 							el.visible &&
 							!!el.telegramUntil &&
-							el.telegramUntil > Date.now(),
+							el.telegramUntil > Date.now() - serverClockLag.ms,
 					)
 					// Карточка занимает весь канвас, поэтому показываем только одну —
 					// ту, которую включили последней. Иначе они накладываются друг на друга.
