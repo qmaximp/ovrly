@@ -38,7 +38,10 @@ type Props = {
 	showQr?: boolean
 	light?: boolean
 	until?: number
+	// сколько секунд показывать (по настройке элемента)
 	duration?: number
+	// true — показ только что включили (элемент пришёл обновлением, а не при загрузке)
+	live?: boolean
 	preview?: boolean
 }
 
@@ -148,6 +151,8 @@ export default function TelegramCard({
 	channel,
 	showQr = true,
 	until,
+	duration,
+	live,
 	preview = false,
 }: Props) {
 	const nick = normalizeTelegramChannel(channel)
@@ -165,6 +170,8 @@ export default function TelegramCard({
 	const qrAvaRef = useRef<HTMLDivElement | null>(null)
 	const qrUserRef = useRef<HTMLDivElement | null>(null)
 	const enteredRef = useRef<string>('')
+	// когда карточку показали по событию (локальные часы, не системные)
+	const startRef = useRef<{ key: number; at: number } | null>(null)
 
 	const qr = useMemo(() => (nick ? makeQr(nick) : null), [nick])
 
@@ -252,7 +259,18 @@ export default function TelegramCard({
 			setVisible(false)
 			return
 		}
-		const left = until - (Date.now() - serverClockLag.ms)
+		// Живём ровно duration от прихода события: часы устройств не участвуют.
+		// При загрузке страницы (live=false) считаем по абсолютному времени.
+		const durMs = Math.max(1000, (duration || 15) * 1000)
+		let left: number
+		if (live) {
+			if (!startRef.current || startRef.current.key !== until) {
+				startRef.current = { key: until, at: Date.now() }
+			}
+			left = durMs - (Date.now() - startRef.current.at)
+		} else {
+			left = until - (Date.now() - serverClockLag.ms)
+		}
 		if (left <= 0) {
 			setVisible(false)
 			return
@@ -275,7 +293,7 @@ export default function TelegramCard({
 			clearTimeout(outTimer)
 			if (hideTimer) clearTimeout(hideTimer)
 		}
-	}, [until, preview])
+	}, [until, preview, duration, live])
 
 	// Вход запускаем сразу, не дожидаясь данных канала: иначе при недоступном
 	// Telegram (сервер в РФ) карточка навсегда оставалась невидимой.

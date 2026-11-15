@@ -13,6 +13,10 @@ import { cropActive, cropInnerStyle } from '@/lib/crop'
 import { textBoxStyle, ensureFontLoaded } from '@/lib/textStyle'
 import { io as ioInit } from 'socket.io-client'
 
+// показы Telegram, запущенные событием (id → until): карточка живёт
+// ровно duration секунд от получения, без опоры на часы устройства
+const liveUntilMap = new Map<string, number>()
+
 // медиа-плееры оверлея: YouTube — iframe + postMessage, Twitch — SDK-плеер.
 // Панель управляет ими командами element:command (плей/пауза/перемотка/звук/субтитры)
 const ytFrames = new Map<string, HTMLIFrameElement>()
@@ -86,7 +90,11 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 		socketRef.current = socket
 		syncClock(socket)
 		setInterval(() => syncClock(socket), 5 * 60 * 1000)
-		socket.on('state:init', (s: SyncState) => setState(s))
+		socket.on('state:init', (s: SyncState) => {
+			// при загрузке карточки не переигрываем: показ считаем только по событию
+			liveUntilMap.clear()
+			setState(s)
+		})
 		socket.on('element:added', (el: StreamElement) =>
 			setState(p => {
 				// повторное добавление с тем же id (отмена удаления, перезагрузка)
@@ -116,6 +124,12 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 		socket.on('draw:cleared', () => setState(p => ({ ...p, strokes: [] })))
 		socket.on('element:updated', (el: StreamElement) => {
 			noteServerClock(el)
+			// новое время показа = команда «показать сейчас»: карточка отработает
+			// ровно duration секунд с момента получения, часы устройств не важны
+			if (el.type === 'telegram') {
+				if (el.telegramUntil) liveUntilMap.set(el.id, el.telegramUntil)
+				else liveUntilMap.delete(el.id)
+			}
 			setState(p => ({
 				...p,
 				elements: p.elements.map(e => (e.id === el.id ? { ...e, ...el } : e)),
@@ -495,6 +509,8 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 								showQr={el.telegramQr !== false}
 								light={!!el.telegramLight}
 								until={el.telegramUntil}
+								duration={el.telegramDuration || 15}
+								live={liveUntilMap.get(el.id) === el.telegramUntil}
 							/>
 						</div>
 					))}
@@ -626,6 +642,7 @@ function OverlayElement({ el, ytStarted }: { el: StreamElement; ytStarted: boole
 					light={!!el.telegramLight}
 					until={el.telegramUntil}
 					duration={el.telegramDuration || 15}
+					live={liveUntilMap.get(el.id) === el.telegramUntil}
 				/>
 			</div>
 		)

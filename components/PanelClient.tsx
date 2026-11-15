@@ -5729,6 +5729,7 @@ export default function PanelClient({
 											showQr={el.telegramQr !== false}
 											light={!!el.telegramLight}
 											until={el.telegramUntil}
+											duration={el.telegramDuration || 15}
 										/>
 									</div>
 								))}
