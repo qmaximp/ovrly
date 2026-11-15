@@ -132,6 +132,8 @@ export interface StreamElement {
   // длительность показа и момент окончания (ms), как таймер в overlay.hub
   telegramDuration?: number;
   telegramUntil?: number;
+  // метка «показать сейчас»: уникальный id показа, по нему оверлей считает время
+  telegramShow?: number;
   // группа в списке слоёв (как папки в Figma)
   groupId?: string;
   // кастомный виджет: снимок кода + текущие значения переменных

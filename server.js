@@ -1699,8 +1699,13 @@ app.prepare().then(() => {
 			if (partial.telegramDuration !== undefined) {
 				const d = Number(partial.telegramDuration)
 				partial.telegramDuration = Number.isFinite(d)
-					? Math.min(600, Math.max(3, Math.round(d)))
+					? Math.min(600, Math.max(5, Math.round(d)))
 					: 15
+			}
+			// метка показа: по ней клиенты запускают таймер, не сверяя часы
+			if (partial.telegramShow !== undefined) {
+				const sId = Number(partial.telegramShow)
+				partial.telegramShow = Number.isFinite(sId) && sId > 0 ? sId : 0
 			}
 			if (partial.telegramUntil !== undefined) {
 				const u = Number(partial.telegramUntil)

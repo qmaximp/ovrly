@@ -42,6 +42,9 @@ type Props = {
 	duration?: number
 	// true — показ только что включили (элемент пришёл обновлением, а не при загрузке)
 	live?: boolean
+	// уникальный id показа и id элемента: по ним оверлей не переигрывает старое
+	show?: number
+	instanceId?: string
 	preview?: boolean
 }
 
@@ -153,6 +156,8 @@ export default function TelegramCard({
 	until,
 	duration,
 	live,
+	show,
+	instanceId,
 	preview = false,
 }: Props) {
 	const nick = normalizeTelegramChannel(channel)
@@ -262,10 +267,28 @@ export default function TelegramCard({
 		// Живём ровно duration от прихода события: часы устройств не участвуют.
 		// При загрузке страницы (live=false) считаем по абсолютному времени.
 		const durMs = Math.max(1000, (duration || 15) * 1000)
+		// Показ запускаем по метке telegramShow: она уникальна для каждого нажатия.
+		// Храним последнюю увиденную метку в localStorage, чтобы после перезагрузки
+		// OBS старый показ не проигрывался заново.
+		const lsKey = instanceId ? `ovrly.tgshow.${instanceId}` : ''
+		if (show && lsKey) {
+			let seen = 0
+			try {
+				seen = Number(localStorage.getItem(lsKey) || 0)
+			} catch {}
+			if (show > seen) {
+				try {
+					localStorage.setItem(lsKey, String(show))
+				} catch {}
+				startRef.current = { key: show, at: Date.now() }
+			}
+		}
 		let left: number
-		if (live) {
+		if (startRef.current && show && startRef.current.key === show) {
+			left = durMs - (Date.now() - startRef.current.at)
+		} else if (live) {
 			if (!startRef.current || startRef.current.key !== until) {
-				startRef.current = { key: until, at: Date.now() }
+				startRef.current = { key: until ?? 0, at: Date.now() }
 			}
 			left = durMs - (Date.now() - startRef.current.at)
 		} else {
@@ -293,7 +316,7 @@ export default function TelegramCard({
 			clearTimeout(outTimer)
 			if (hideTimer) clearTimeout(hideTimer)
 		}
-	}, [until, preview, duration, live])
+	}, [until, preview, duration, live, show, instanceId])
 
 	// Вход запускаем сразу, не дожидаясь данных канала: иначе при недоступном
 	// Telegram (сервер в РФ) карточка навсегда оставалась невидимой.

@@ -9655,14 +9655,14 @@ function PropertyEditor({
 						</div>
 						<input
 							type='number'
-							min={3}
+							min={5}
 							max={600}
 							step={1}
 							value={el.telegramDuration || 15}
 							onChange={e => {
 								const n = Number(e.target.value)
 								if (Number.isFinite(n))
-									update({ telegramDuration: Math.min(600, Math.max(3, n)) })
+									update({ telegramDuration: Math.min(600, Math.max(5, n)) })
 							}}
 							className='w-20 rounded-lg border border-border bg-bg px-2 py-1.5 text-xs text-gray-200 tabular-nums focus:outline-none focus:border-accent'
 						/>
@@ -9679,6 +9679,8 @@ function PropertyEditor({
 												: Date.now() -
 														serverClockLag.ms +
 														(el.telegramDuration || 15) * 1000,
+										// метка показа: по ней оверлей запускает таймер без часов
+										telegramShow: tgRemain > 0 ? 0 : Date.now(),
 									})
 								}
 								className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-medium transition-colors ${

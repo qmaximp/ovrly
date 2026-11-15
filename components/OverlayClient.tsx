@@ -511,6 +511,8 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 								until={el.telegramUntil}
 								duration={el.telegramDuration || 15}
 								live={liveUntilMap.get(el.id) === el.telegramUntil}
+								show={el.telegramShow}
+								instanceId={el.id}
 							/>
 						</div>
 					))}
@@ -643,6 +645,8 @@ function OverlayElement({ el, ytStarted }: { el: StreamElement; ytStarted: boole
 					until={el.telegramUntil}
 					duration={el.telegramDuration || 15}
 					live={liveUntilMap.get(el.id) === el.telegramUntil}
+					show={el.telegramShow}
+					instanceId={el.id}
 				/>
 			</div>
 		)
