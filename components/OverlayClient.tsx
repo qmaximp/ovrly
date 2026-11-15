@@ -258,8 +258,9 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 					else if (cmd === 'pause') v.pause()
 					else if (cmd === 'seek') v.currentTime = value ?? 0
 					else if (cmd === 'volume') {
+						// громкость меняем, но mute не трогаем: иначе после паузы
+						// звук «возвращался» сам
 						v.volume = Math.max(0, Math.min(1, (value ?? 100) / 100))
-						if (v.volume > 0) v.muted = false
 					} else if (cmd === 'mute') v.muted = true
 					else if (cmd === 'unmute') {
 						v.muted = false

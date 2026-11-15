@@ -1651,7 +1651,6 @@ export default function PanelClient({
 					else if (cmd === 'seek') v.currentTime = value ?? 0
 					else if (cmd === 'volume') {
 						v.volume = Math.max(0, Math.min(1, (value ?? 100) / 100))
-						if (v.volume > 0) v.muted = false
 					} else if (cmd === 'mute') v.muted = true
 					else if (cmd === 'unmute') {
 						v.muted = false
@@ -1695,6 +1694,19 @@ export default function PanelClient({
 			lastYtCmdRef.current.set(id, next)
 			localMediaCommand(id, next)
 			emit('element:command', { id, cmd: next })
+			// Звук после паузы не должен "возвращаться": при возобновлении заново
+			// применяем mute/громкость из состояния плеера. YouTube и обычные
+			// <video> в оверлее иногда сбрасывают mute на новом play.
+			if (next === 'play') {
+				const st = mediaStatesRef.current.get(id)
+				if (st) {
+					const muteCmd = st.muted ? 'mute' : 'unmute'
+					localMediaCommand(id, muteCmd)
+					emit('element:command', { id, cmd: muteCmd })
+					localMediaCommand(id, 'volume', st.vol)
+					emit('element:command', { id, cmd: 'volume', value: st.vol })
+				}
+			}
 			chromeCtlRefs.current.get(id)?.note()
 		},
 		[emit, localMediaCommand],
