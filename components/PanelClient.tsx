@@ -1699,10 +1699,14 @@ export default function PanelClient({
 			// <video> в оверлее иногда сбрасывают mute на новом play.
 			if (next === 'play') {
 				const st = mediaStatesRef.current.get(id)
+				// Только гасим звук, если он был выключен. Намеренно НЕ отправляем
+				// unmute: иначе после паузы «возвращался» звук, выключенный в
+				// самом плеере (или до перезагрузки панели).
+				if (st?.muted) {
+					localMediaCommand(id, 'mute')
+					emit('element:command', { id, cmd: 'mute' })
+				}
 				if (st) {
-					const muteCmd = st.muted ? 'mute' : 'unmute'
-					localMediaCommand(id, muteCmd)
-					emit('element:command', { id, cmd: muteCmd })
 					localMediaCommand(id, 'volume', st.vol)
 					emit('element:command', { id, cmd: 'volume', value: st.vol })
 				}
