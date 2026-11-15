@@ -9688,12 +9688,6 @@ function PropertyEditor({
 								{tgRemain > 0 ? 'Отменить' : 'Показать'}
 							</button>
 						</div>
-						{tgRemain <= 0 && (
-							<p className='text-[10px] text-gray-500'>
-								Карточка скрыта на оверлее. Нажмите «Показать» — она появится с
-								анимацией.
-							</p>
-						)}
 					</div>
 				</div>
 			)}
