@@ -34,7 +34,7 @@ import {
 	surfacePaletteFromCss,
 } from '@/lib/theme'
 import { NumberField } from '@/components/fields'
-import { noteServerClock, serverClockLag } from '@/lib/clock'
+import { noteServerClock, serverClockLag, syncClock } from '@/lib/clock'
 import { colorWithOpacity } from '@/lib/color'
 import { CROP_MAX, cropActive, cropInnerStyle, type Crop } from '@/lib/crop'
 import { toEmbedUrl, youtubePlaylistId } from '@/lib/embed'
@@ -1003,6 +1003,8 @@ export default function PanelClient({
 		})
 		// роль от сервера: без валидной сессии панель работает только на чтение —
 		// показываем предупреждение, иначе правки пропадали бы молча
+		syncClock(socket)
+		setInterval(() => syncClock(socket), 5 * 60 * 1000)
 		socket.on('access:role', (r: { readOnly?: boolean }) =>
 			setReadOnly(!!r?.readOnly),
 		)

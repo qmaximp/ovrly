@@ -7,7 +7,7 @@ import WidgetFrame from '@/components/WidgetFrame'
 import { toEmbedUrl } from '@/lib/embed'
 import { parseMediaUrl, youtubeEmbedUrl } from '@/lib/media'
 import { playTimerSound } from '@/lib/sound'
-import { noteServerClock, serverClockLag } from '@/lib/clock'
+import { noteServerClock, serverClockLag, syncClock } from '@/lib/clock'
 import { colorWithOpacity } from '@/lib/color'
 import { cropActive, cropInnerStyle } from '@/lib/crop'
 import { textBoxStyle, ensureFontLoaded } from '@/lib/textStyle'
@@ -84,6 +84,8 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 			timeout: 8000,
 		})
 		socketRef.current = socket
+		syncClock(socket)
+		setInterval(() => syncClock(socket), 5 * 60 * 1000)
 		socket.on('state:init', (s: SyncState) => setState(s))
 		socket.on('element:added', (el: StreamElement) =>
 			setState(p => {
