@@ -1421,8 +1421,10 @@ export default function PanelClient({
 
 	const updateElement = useCallback(
 		(id: string, partial: Partial<StreamElement>) => {
-			// элемент держит другой участник: свойства недоступны, как и на сервере
-			if (isLockedByOther(id)) return
+			// элемент держит другой участник: свойства недоступны, как и на сервере.
+			// Исключение — telegramUntil: это команда «показать сейчас», она не меняет
+			// сам элемент и должна работать даже при чужом локе.
+			if (isLockedByOther(id) && partial.telegramUntil === undefined) return
 			remember()
 			// новый источник — старая обрезка к нему не относится
 			let patch =

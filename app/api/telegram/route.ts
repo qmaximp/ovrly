@@ -11,7 +11,7 @@ const cacheKey = (channel: string) => `tgcache:${channel}`
 type Cached = { at: number; data: unknown }
 
 export async function GET(req: Request) {
-	if (!rateLimit(`tg:${clientIp(req)}`, 30, 60_000))
+	if (!rateLimit(`tg:${clientIp(req)}`, 120, 60_000))
 		return NextResponse.json({ error: 'Слишком много запросов' }, { status: 429 })
 	const raw = new URL(req.url).searchParams.get('channel') || ''
 	const channel = normalizeTelegramChannel(raw)

@@ -465,12 +465,14 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 							key={el.id}
 							style={{
 								position: 'absolute',
-								left: 0,
-								top: 0,
-								width: state.canvasW,
-								height: state.canvasH,
+								left: el.x,
+								top: el.y,
+								width: el.width,
+								height: el.height,
+								overflow: 'hidden',
 								zIndex: 9998,
 								pointerEvents: 'none',
+								transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined,
 							}}
 						>
 							<TelegramCard
@@ -718,6 +720,8 @@ function OverlayElement({ el, ytStarted }: { el: StreamElement; ytStarted: boole
 		const embedSrc = toEmbedUrl(el.src || '')
 		// готовый YouTube-плейлист запускаем сразу и со звуком: в OBS автозапуск
 		// разрешён, а без autoplay плейлист остался бы на постере
+		// YouTube-плейлист: автозапуск только без звука, иначе браузер режет
+		// воспроизведение и звук «залипает» на нашем плеере
 		const autoplayPlaylist =
 			!!el.autoplay && /\/embed\/videoseries/.test(embedSrc)
 		return (
@@ -725,7 +729,7 @@ function OverlayElement({ el, ytStarted }: { el: StreamElement; ytStarted: boole
 				<iframe
 					src={
 						autoplayPlaylist
-							? `${embedSrc}${embedSrc.includes('?') ? '&' : '?'}autoplay=1`
+							? `${embedSrc}${embedSrc.includes('?') ? '&' : '?'}autoplay=1&mute=1`
 							: embedSrc
 					}
 					title='embed'

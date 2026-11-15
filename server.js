@@ -1648,7 +1648,9 @@ app.prepare().then(() => {
 				updLock.socketId !== socket.id &&
 				updLock.until > Date.now() &&
 				!isStreamer &&
-				!isGhost
+				!isGhost &&
+				// «показать сейчас» — команда, а не правка свойств
+				partial.telegramUntil === undefined
 			) {
 				socket.emit('element:update-blocked', {
 					id: partial.id,
