@@ -9990,6 +9990,20 @@ function PropertyEditor({
 			)}
 			{el.type === 'audio' && (
 				<div className='space-y-3'>
+					<div>
+						<label className='block text-[10px] uppercase tracking-wide text-gray-600 mb-1'>
+							Название звука
+						</label>
+						<input
+							value={el.name ?? ''}
+							placeholder={elementLabel(el)}
+							onChange={e => update({ name: e.target.value.slice(0, 80) })}
+							className='w-full px-2 py-1.5 bg-bg border border-border rounded-lg text-sm'
+						/>
+						<p className='mt-1 text-[10px] text-gray-600'>
+							Так звук называется в списке слоёв и на панели.
+						</p>
+					</div>
 					<button
 						onClick={toggleStreamAudio}
 						className={`w-full flex items-center justify-center gap-1.5 px-3 py-2 text-white text-sm rounded-lg ${
