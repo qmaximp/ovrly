@@ -9688,11 +9688,12 @@ function PropertyEditor({
 								{tgRemain > 0 ? 'Отменить' : 'Показать'}
 							</button>
 						</div>
-						<p className='text-[10px] text-gray-500'>
-							{tgRemain > 0
-								? `Показывается ${el.telegramChannel ? '@' + normalizeTelegramChannel(el.telegramChannel) : ''} · осталось ${Math.ceil(tgRemain / 1000)} с`
-								: 'Карточка скрыта на оверлее. Нажмите «Показать» — она появится с анимацией.'}
-						</p>
+						{tgRemain <= 0 && (
+							<p className='text-[10px] text-gray-500'>
+								Карточка скрыта на оверлее. Нажмите «Показать» — она появится с
+								анимацией.
+							</p>
+						)}
 					</div>
 				</div>
 			)}
