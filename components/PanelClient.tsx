@@ -9620,9 +9620,11 @@ function PropertyEditor({
 							Telegram-канал
 						</span>
 						<input
-							defaultValue={el.telegramChannel ?? ''}
+							value={el.telegramChannel ?? ''}
 							placeholder='@channel или https://t.me/channel'
-							onBlur={e => update({ telegramChannel: e.target.value.slice(0, 120) })}
+							onChange={e =>
+								update({ telegramChannel: e.target.value.slice(0, 120) })
+							}
 							onKeyDown={e => {
 								if (e.key === 'Enter') e.currentTarget.blur()
 							}}
