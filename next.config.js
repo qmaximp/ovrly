@@ -68,6 +68,14 @@ const nextConfig = {
 		]
 		return [
 			{ source: '/:path*', headers: securityHeaders },
+			// OBS-источник кэширует страницу: без этих заголовков новые версии
+			// оверлея подхватываются только после пересоздания источника.
+			{
+				source: '/overlay',
+				headers: [
+					{ key: 'Cache-Control', value: 'no-store, must-revalidate' },
+				],
+			},
 			// Публичные картинки/иконки/инструкции не меняются от запроса к запросу:
 			// отдаём их с кэшем, иначе Next по умолчанию ставит max-age=0.
 			{
