@@ -460,19 +460,31 @@ export default function OverlayClient({ room }: { room?: string | null }) {
 							!!el.telegramUntil &&
 							el.telegramUntil > Date.now(),
 					)
+					// Карточка занимает весь канвас, поэтому показываем только одну —
+					// ту, которую включили последней. Иначе они накладываются друг на друга.
+					.filter(
+						el =>
+							el.telegramUntil ===
+							Math.max(
+								...sorted.map(
+									x =>
+										x.type === 'telegram' && x.visible && x.telegramUntil
+											? x.telegramUntil
+											: 0,
+								),
+							),
+					)
 					.map(el => (
 						<div
 							key={el.id}
 							style={{
 								position: 'absolute',
-								left: el.x,
-								top: el.y,
-								width: el.width,
-								height: el.height,
-								overflow: 'hidden',
+								left: 0,
+								top: 0,
+								width: state.canvasW,
+								height: state.canvasH,
 								zIndex: 9998,
 								pointerEvents: 'none',
-								transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined,
 							}}
 						>
 							<TelegramCard
