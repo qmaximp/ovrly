@@ -2817,6 +2817,7 @@ export default function PanelClient({
 					addElement({
 						type: 'image',
 						src,
+						name: f.name,
 						...p,
 						width: w,
 						height: h,
@@ -2832,6 +2833,7 @@ export default function PanelClient({
 					addElement({
 						type: 'video',
 						src,
+						name: f.name,
 						...p,
 						width: 480,
 						height: 270,
@@ -2853,6 +2855,7 @@ export default function PanelClient({
 					addElement({
 						type: 'audio',
 						src,
+						name: f.name,
 						...p,
 						width: 360,
 						height: 110,
@@ -8264,8 +8267,30 @@ function DockButton({
 }
 
 // Подпись элемента в списке: вместо «data:image/png;base64,iVBOR…» — понятное слово
+// Имя файла из src: понимает и абсолютные ссылки, и относительные /media/…
+// (новые загрузки хранятся как /media/<hash>.mp3 — хеш показывать бессмысленно).
+function fileNameFromSrc(src: string): string {
+	if (!src || src.startsWith('data:')) return ''
+	try {
+		const base =
+			typeof window !== 'undefined' ? window.location.origin : 'http://localhost'
+		const u = new URL(src, base)
+		const tail = u.pathname.split('/').filter(Boolean).pop()
+		if (!tail) return ''
+		const name = decodeURIComponent(tail)
+		// хеши медиахранилища: 32 hex-символа (иногда с расширением)
+		if (/^[a-f0-9]{24,}(\.[a-z0-9]+)?$/i.test(name)) return ''
+		if (/^\d+$/.test(name)) return ''
+		return name
+	} catch {
+		return ''
+	}
+}
+
 function elementLabel(el: StreamElement): string {
-	if (el.name?.trim()) return el.name.trim()
+	// автоимя «Звук» у старых элементов не считаем именем: пробуем достать файл
+	const autoSound = el.type === 'audio' && el.name?.trim() === 'Звук'
+	if (el.name?.trim() && !autoSound) return el.name.trim()
 	if (el.type === 'widget') return el.widget?.name || 'Виджеты'
 	if (el.type === 'draw') return 'Рисунок'
 	if (el.type === 'telegram')
@@ -8278,13 +8303,8 @@ function elementLabel(el: StreamElement): string {
 	if (el.type === 'audio') {
 		const src = el.src || ''
 		if (src.startsWith('data:')) return 'Звук с ПК'
-		try {
-			const u = new URL(src)
-			const tail = u.pathname.split('/').filter(Boolean).pop()
-			return tail && !/^\d+$/.test(tail) ? decodeURIComponent(tail) : 'Звук'
-		} catch {
-			return 'Звук'
-		}
+		const tail = fileNameFromSrc(src)
+		return tail || 'Звук'
 	}
 	const src = el.src || ''
 	if (src.startsWith('data:')) {
