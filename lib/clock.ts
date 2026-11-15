@@ -11,6 +11,8 @@ export function noteServerClock(el: { isRunning?: boolean; startTime?: number | 
 }
 
 // Замер сдвига: 5 проб, берём минимум RTT — он даёт самую честную оценку.
+// serverClockLag считается как «локальные часы минус серверные» (так же, как в
+// noteServerClock), поэтому серверное «сейчас» = Date.now() - serverClockLag.ms.
 export function syncClock(socket: {
 	emit: (event: string, cb: (now: number) => void) => void
 }) {
@@ -20,13 +22,17 @@ export function syncClock(socket: {
 	const probe = () => {
 		const t0 = Date.now()
 		socket.emit('time:sync', (serverNow: number) => {
+			if (typeof serverNow !== 'number') return
 			const rtt = Date.now() - t0
+			// локальное время в момент ответа сервера (половина RTT назад от сейчас)
+			const localAtAnswer = t0 + rtt / 2
 			if (rtt < best) {
 				best = rtt
-				lag = serverNow - t0 - rtt / 2
+				lag = localAtAnswer - serverNow
 			}
 			if (++done >= 5) {
-				serverClockLag.ms = Math.round(lag)
+				// защита от мусора: сдвиг больше 5 минут не применяем
+				if (Math.abs(lag) < 5 * 60 * 1000) serverClockLag.ms = Math.round(lag)
 			} else {
 				setTimeout(probe, 250)
 			}
