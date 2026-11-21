@@ -10,7 +10,7 @@ import {
   setModeratorObs,
 } from "@/lib/invites";
 import { getTwitchAvatars, safe, twitchUserId } from "@/lib/twitch";
-import { json, sessionFrom } from "@/lib/api";
+import { json, noTwitch, sessionFrom } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +18,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const session = sessionFrom(req);
   if (!session) return json({ error: "unauthorized" }, 401);
+  if (!session.login) return noTwitch();
   const links = await readLinks();
 
   const invites = (await listInvitesFor(session.login)).map(({ owner, entry }) => ({
@@ -49,6 +50,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const session = sessionFrom(req);
   if (!session) return json({ error: "unauthorized" }, 401);
+  if (!session.login) return noTwitch();
   let body: { action?: string; login?: string; owner?: string; obs?: string };
   try {
     body = await req.json();

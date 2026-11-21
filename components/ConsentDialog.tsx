@@ -16,7 +16,9 @@ export default function ConsentDialog({
 	const [terms, setTerms] = useState(false)
 	const [pd, setPd] = useState(false)
 	const [hint, setHint] = useState(false)
-	const firstRef = useRef<HTMLInputElement>(null)
+	// фокус ставим на сам диалог, а не на первую галочку: иначе при открытии
+	// чекбокс выглядит «уже отмеченным» из-за кольца фокуса
+	const dialogRef = useRef<HTMLFormElement>(null)
 
 	useEffect(() => {
 		setVisible(open)
@@ -38,7 +40,7 @@ export default function ConsentDialog({
 	useEffect(() => {
 		if (!visible) return
 		document.body.style.overflow = 'hidden'
-		firstRef.current?.focus()
+		dialogRef.current?.focus()
 		const onKey = (e: KeyboardEvent) => {
 			if (e.key === 'Escape') close()
 		}
@@ -68,6 +70,8 @@ export default function ConsentDialog({
 			}}
 		>
 			<form
+				ref={dialogRef}
+				tabIndex={-1}
 				className='consent-dialog'
 				role='dialog'
 				aria-modal='true'
@@ -88,7 +92,6 @@ export default function ConsentDialog({
 				    галочку случайно */}
 				<div className='consent-row'>
 					<input
-						ref={firstRef}
 						id='consent-terms'
 						type='checkbox'
 						name='terms'

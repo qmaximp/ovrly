@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 export default async function Cabinet({
   searchParams,
 }: {
-  searchParams?: Promise<{ invite?: string }>;
+  searchParams?: Promise<{ invite?: string; twitch?: string }>;
 }) {
   // Next 16: cookies(), headers() и searchParams асинхронные — их нужно дожидаться
   const c = (await cookies()).get("sc_session");
@@ -26,6 +26,7 @@ export default async function Cabinet({
   // ?invite=<токен> приходит после входа по ссылке стримера — кабинет открывается
   // сразу на вкладке «Доступ к панели», где видно приглашение (выдаётся только по нику)
   const inviteToken = (await searchParams)?.invite;
+  const twitchStatus = (await searchParams)?.twitch;
   const cameFromRoomLink = !!inviteToken && (await isValidRoomToken(inviteToken));
 
   const h = await headers();
@@ -38,9 +39,12 @@ export default async function Cabinet({
       login={session.login}
       displayName={session.display_name}
       avatar={session.avatar}
-      token={tokenForLogin(session.login)}
+      email={session.email}
+      hasTwitch={!!session.login}
+      token={session.login ? tokenForLogin(session.login) : null}
       origin={`${proto}://${host}`}
       defaultTab={cameFromRoomLink ? "access" : "links"}
+      twitchStatus={twitchStatus}
       isAdmin={isAdminLogin(session.login)}
     />
   );

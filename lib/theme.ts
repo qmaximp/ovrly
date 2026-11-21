@@ -175,6 +175,42 @@ function clampByte(n: number) {
 	return Math.max(0, Math.min(255, Math.round(n)))
 }
 
+// Осветление/затемнение в HSL: оттенок и насыщенность сохраняются, поэтому
+// сетка точек остаётся «в цвет темы», а не уходит в серый.
+function shiftLightness(hex: string, delta: number, minSat = 0.22): string {
+	const rgb = hexToRgb(hex)
+	if (!rgb) return hex
+	const [r, g, b] = rgb.map(v => v / 255)
+	const max = Math.max(r, g, b)
+	const min = Math.min(r, g, b)
+	const l = (max + min) / 2
+	const d = max - min
+	const sat = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1))
+	let h = 0
+	if (d !== 0) {
+		if (max === r) h = ((g - b) / d) % 6
+		else if (max === g) h = (b - r) / d + 2
+		else h = (r - g) / d + 4
+		h *= 60
+		if (h < 0) h += 360
+	}
+	const nl = Math.min(0.9, Math.max(0.03, l + delta))
+	const ns = Math.max(sat, minSat)
+	const c = (1 - Math.abs(2 * nl - 1)) * ns
+	const x = c * (1 - Math.abs(((h / 60) % 2) - 1))
+	const m = nl - c / 2
+	const seg = [
+		[c, x, 0],
+		[x, c, 0],
+		[0, c, x],
+		[0, x, c],
+		[x, 0, c],
+		[c, 0, x],
+	][Math.floor(h / 60) % 6]
+	const out = seg.map(v => clampByte((v + m) * 255))
+	return '#' + out.map(n => n.toString(16).padStart(2, '0')).join('')
+}
+
 function mixHex(a: string, b: string, t: number): string {
 	const ca = hexToRgb(a)
 	const cb = hexToRgb(b)
@@ -227,7 +263,9 @@ function surfaceColors(_theme: 'dark' | 'light', palette: SurfacePalette) {
 	const border = isLight
 		? mixHex(panel, text, 0.16)
 		: mixHex(panel, '#ffffff', 0.11)
-	const dot = isLight ? mixHex(border, text, 0.28) : mixHex(border, text, 0.22)
+	// Точки — тот же оттенок, что фон, только светлее/темнее (HSL, не белый):
+	// так сетка остаётся «в цвет темы», а не уходит в серый.
+	const dot = isLight ? shiftLightness(bg, -0.1) : shiftLightness(bg, 0.1)
 	const sbTrack = isLight ? mixHex(bg, panel, 0.7) : mixHex(bg, '#000000', 0.12)
 	const sbThumb = isLight
 		? mixHex(border, text, 0.25)

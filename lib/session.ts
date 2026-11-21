@@ -8,11 +8,16 @@ if (!explicitSecret && process.env.NODE_ENV === "production") {
   throw new Error("SESSION_SECRET (или TWITCH_CLIENT_SECRET) обязателен в production");
 }
 const g = globalThis as typeof globalThis & { __ovrlySessionSecret?: string };
-const SECRET =
+export const SECRET =
   explicitSecret || (g.__ovrlySessionSecret ??= crypto.randomBytes(32).toString("hex"));
 
 export interface TwitchSession {
+  // логин Twitch; пустая строка у аккаунтов, зарегистрированных по почте
+  // и ещё не привязавших Twitch
   login: string;
+  // id учётной записи Ovrly (data/users или таблица users)
+  uid?: string;
+  email?: string;
   display_name: string;
   avatar?: string;
   // user-токен Helix — нужен для канальных смайликов (chat/emotes/channel)
@@ -21,6 +26,12 @@ export interface TwitchSession {
   // когда выдана cookie (ms epoch). Старые cookie без iat не ломаем,
   // но новые живут не дольше SESSION_MAX_AGE_MS.
   iat?: number;
+}
+
+// Twitch привязан к аккаунту: только тогда доступны ссылки комнаты, панель
+// и всё, что исторически завязано на логин Twitch.
+export function hasTwitch(session: TwitchSession | null | undefined): session is TwitchSession {
+  return !!session && typeof session.login === "string" && session.login.length > 0;
 }
 
 // подписанная cookie-сессия (payload.sig), без серверного хранилища
@@ -45,7 +56,7 @@ export function verifySession(cookie: string | undefined): TwitchSession | null 
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
   try {
     const data = JSON.parse(Buffer.from(payload, "base64url").toString());
-    if (typeof data.login !== "string") return null;
+    if (typeof data.login !== "string" && typeof data.uid !== "string") return null;
     // Cookie с истёкшим iat не принимаем: иначе украденная cookie живёт вечно,
     // ведь Max-Age действует только в браузере.
     if (typeof data.iat === "number" && Date.now() - data.iat > SESSION_MAX_AGE_MS) {

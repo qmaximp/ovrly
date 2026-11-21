@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import postgres from "postgres";
 import { readLinks, writeLinks } from "@/lib/links";
-import { json, sessionFrom } from "@/lib/api";
+import { json, noTwitch, sessionFrom } from "@/lib/api";
 
 export const runtime = "nodejs";
 
@@ -16,6 +16,7 @@ function db() {
 export async function GET(req: Request) {
   const session = sessionFrom(req);
   if (!session) return json({ error: "unauthorized" }, 401);
+  if (!session.login) return noTwitch();
   const saved = (await readLinks())[session.login];
   return json({ token: saved?.token ?? null });
 }
@@ -48,6 +49,7 @@ async function copyRoom(from: string, to: string) {
 export async function POST(req: Request) {
   const session = sessionFrom(req);
   if (!session) return json({ error: "unauthorized" }, 401);
+  if (!session.login) return noTwitch();
   const data = await readLinks();
   const prev = data[session.login]?.token;
   const token = crypto.randomBytes(8).toString("hex");

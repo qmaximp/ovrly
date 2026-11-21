@@ -112,8 +112,11 @@ interface CabinetClientProps {
 	login: string
 	displayName: string
 	avatar?: string
+	email?: string
+	hasTwitch: boolean
 	token: string | null
 	origin: string
+	twitchStatus?: string
 	// после входа по ссылке стримера кабинет открывается сразу на вкладке доступа
 	defaultTab?: 'links' | 'access'
 	// администратору показываем вход в админ-панель (кнопка только здесь)
@@ -124,15 +127,20 @@ export default function CabinetClient({
 	login,
 	displayName,
 	avatar,
+	email,
+	hasTwitch,
 	token: initialToken,
 	origin,
 	defaultTab = 'links',
+	twitchStatus,
 	isAdmin,
 }: CabinetClientProps) {
 	const [token, setToken] = useState<string | null>(initialToken)
 	const [loaded, setLoaded] = useState(false)
 	const [copied, setCopied] = useState<string | null>(null)
 	const [busy, setBusy] = useState(false)
+	// подсказка «нужен Twitch» вместо молчаливой блокировки кнопок
+	const [twitchHint, setTwitchHint] = useState(false)
 
 	// вкладки кабинета: ссылки / доступ к панели (инвайты) / инструкция / обновления
 	const [tab, setTab] = useState<'links' | 'access' | 'guide' | 'updates'>(defaultTab)
@@ -143,6 +151,10 @@ export default function CabinetClient({
 
 	// подтягиваем сохранённые ссылки при загрузке страницы
 	useEffect(() => {
+		if (!hasTwitch) {
+			setLoaded(true)
+			return
+		}
 		fetch('/api/links')
 			.then(r => r.json())
 			.then(d => {
@@ -150,10 +162,11 @@ export default function CabinetClient({
 			})
 			.catch(() => {})
 			.finally(() => setLoaded(true))
-	}, [])
+	}, [hasTwitch])
 
 	const loadInvites = useCallback(() => {
 		setInvError('')
+		if (!hasTwitch) return Promise.resolve()
 		return fetch('/api/invites')
 			.then(async r => {
 				const d = await r.json()
@@ -161,7 +174,7 @@ export default function CabinetClient({
 				setInv(d)
 			})
 			.catch(e => setInvError(e?.message || 'Не удалось загрузить доступы'))
-	}, [])
+	}, [hasTwitch])
 
 	useEffect(() => {
 		loadInvites()
@@ -242,6 +255,10 @@ export default function CabinetClient({
 	}
 
 	const generate = async () => {
+		if (!hasTwitch) {
+			setTwitchHint(true)
+			return
+		}
 		setBusy(true)
 		try {
 			const r = await fetch('/api/links', { method: 'POST' })
@@ -270,7 +287,7 @@ export default function CabinetClient({
 	const linkBlock = (
 		title: string,
 		description: string,
-		url: string,
+		url: string | null,
 		key: string,
 		kind: 'panel' | 'overlay',
 	) => (
@@ -284,17 +301,37 @@ export default function CabinetClient({
 					<p className='cabinet-card-text'>{description}</p>
 				</div>
 			</div>
-			<div className='cabinet-url'>{url}</div>
+			<div className='cabinet-url'>
+				{url ?? 'Ссылка появится после привязки Twitch'}
+			</div>
 			<div className='flex flex-wrap gap-2'>
-				<a
-					href={url}
-					target='_blank'
-					rel='noopener noreferrer'
-					className='btn btn-primary btn-sm'
+				{hasTwitch && url ? (
+					<a
+						href={url}
+						target='_blank'
+						rel='noopener noreferrer'
+						className='btn btn-primary btn-sm'
+					>
+						Перейти ↗
+					</a>
+				) : (
+					<button
+						type='button'
+						onClick={() => setTwitchHint(true)}
+						aria-disabled='true'
+						className='btn btn-primary btn-sm cabinet-btn-locked'
+					>
+						Перейти ↗
+					</button>
+				)}
+				<button
+					onClick={() => {
+						if (url) void copy(url, key)
+						else setTwitchHint(true)
+					}}
+					disabled={!url}
+					className='btn btn-ghost btn-sm'
 				>
-					Перейти ↗
-				</a>
-				<button onClick={() => copy(url, key)} className='btn btn-ghost btn-sm'>
 					{copied === key ? 'Скопировано ✓' : 'Копировать'}
 				</button>
 			</div>
@@ -348,7 +385,11 @@ export default function CabinetClient({
 									<img src={avatar} alt='' className='cabinet-avatar-sm' />
 								) : (
 									<span className='cabinet-avatar-sm cabinet-avatar-fallback'>
-										<TwitchIcon size={15} />
+										{hasTwitch ? (
+											<TwitchIcon size={15} />
+										) : (
+											(displayName || email || '?').slice(0, 1).toUpperCase()
+										)}
 									</span>
 								)}
 								<span className='hidden sm:inline'>{displayName}</span>
@@ -375,28 +416,66 @@ export default function CabinetClient({
 							</p>
 						</div>
 						<aside className='cabinet-account'>
-							<span className='cabinet-account-label'>Аккаунт Twitch</span>
-							<div className='cabinet-account-row'>
-								<span className='cabinet-avatar'>
-									{avatar ? (
-										<img src={avatar} alt='' />
-									) : (
-										<TwitchIcon size={22} />
-									)}
-								</span>
-								<div className='min-w-0'>
-									<p className='cabinet-account-name'>{displayName}</p>
-									<p className='cabinet-account-login'>@{login}</p>
-								</div>
-							</div>
-							<a
-								href={`https://www.twitch.tv/${login}`}
-								target='_blank'
-								rel='noopener noreferrer'
-								className='btn btn-ghost btn-sm w-full'
-							>
-								Открыть Twitch ↗
-							</a>
+							{hasTwitch ? (
+								<>
+									<span className='cabinet-account-label'>Аккаунт Twitch</span>
+									<div className='cabinet-account-row'>
+										<span className='cabinet-avatar'>
+											{avatar ? (
+												<img src={avatar} alt='' />
+											) : (
+												<TwitchIcon size={22} />
+											)}
+										</span>
+										<div className='min-w-0'>
+											<p className='cabinet-account-name'>{displayName}</p>
+											<p className='cabinet-account-login'>@{login}</p>
+										</div>
+									</div>
+									<a
+										href={`https://www.twitch.tv/${login}`}
+										target='_blank'
+										rel='noopener noreferrer'
+										className='btn btn-ghost btn-sm w-full'
+									>
+										Открыть Twitch ↗
+									</a>
+								</>
+							) : (
+								<>
+									<span className='cabinet-account-label'>Аккаунт Ovrly</span>
+									<div className='cabinet-account-row'>
+										<span className='cabinet-avatar cabinet-avatar-initial'>
+											{(displayName || email || '?').slice(0, 1).toUpperCase()}
+										</span>
+										<div className='min-w-0'>
+											<p className='cabinet-account-name'>{displayName}</p>
+											<p className='cabinet-account-login'>{email}</p>
+										</div>
+									</div>
+									<p className='cabinet-account-hint'>
+										Twitch не привязан. Привяжите аккаунт, чтобы получить
+										ссылки на панель и оверлей.
+									</p>
+									<a
+										href='/api/auth/twitch?link=1&next=%2Fcabinet'
+										className='btn btn-primary btn-sm w-full cabinet-twitch-link'
+									>
+										<TwitchIcon size={16} />
+										Привязать Twitch
+									</a>
+								</>
+							)}
+
+							{twitchStatus && (
+								<p className='alert cabinet-alert' role='alert'>
+									{twitchStatus === 'already'
+										? 'К этому профилю уже привязан другой Twitch-аккаунт. Отвязать его самостоятельно нельзя — напишите в поддержку.'
+										: twitchStatus === 'exists'
+											? 'Этот Twitch-аккаунт уже привязан к другому профилю Ovrly. Войдите под ним или используйте другой аккаунт.'
+											: 'Не удалось привязать Twitch. Попробуйте ещё раз.'}
+								</p>
+							)}
 						</aside>
 					</section>
 
@@ -427,7 +506,48 @@ export default function CabinetClient({
 
 					{tab === 'links' && (
 						<section className='cabinet-section'>
-							{!loaded ? (
+							{twitchHint && !hasTwitch && (
+								<div className='cabinet-twitch-notice'>
+									<div>
+										<strong>Сначала привяжите Twitch</strong>
+										<p>
+											Без привязанного аккаунта Twitch ссылки на панель и
+											оверлей недоступны — мы должны знать, к какому каналу
+											их привязать.
+										</p>
+									</div>
+									<a
+										href='/api/auth/twitch?link=1&next=%2Fcabinet'
+										className='btn btn-primary btn-sm shrink-0'
+									>
+										Привязать Twitch
+									</a>
+								</div>
+							)}
+							{!hasTwitch ? (
+								<>
+									<p className='cabinet-callout'>
+										Аккаунт создан по почте. Чтобы открыть панель и оверлей,
+										привяжите Twitch — ссылки привязаны к каналу.
+									</p>
+									<div className='cabinet-links-grid'>
+										{linkBlock(
+											'Панель для модераторов',
+											'Управление оверлеем и элементами',
+											null,
+											'panel',
+											'panel',
+										)}
+										{linkBlock(
+											'Оверлей для OBS',
+											'Слой для сцены в OBS',
+											null,
+											'overlay',
+											'overlay',
+										)}
+									</div>
+								</>
+							) : !loaded ? (
 								<p className='cabinet-muted'>Загружаю ссылки…</p>
 							) : !links ? (
 								<div className='glass-card cabinet-empty'>
@@ -487,6 +607,24 @@ export default function CabinetClient({
 
 					{tab === 'access' && (
 						<section className='cabinet-section'>
+							{!hasTwitch && (
+								<div className='cabinet-twitch-notice'>
+									<div>
+										<strong>Доступы работают через Twitch</strong>
+										<p>
+											Приглашения, модераторы и кнопки «Открыть панель»
+											привязаны к Twitch-нику. Привяжите аккаунт, чтобы
+											управлять командой.
+										</p>
+									</div>
+									<a
+										href='/api/auth/twitch?link=1&next=%2Fcabinet'
+										className='btn btn-primary btn-sm shrink-0'
+									>
+										Привязать Twitch
+									</a>
+								</div>
+							)}
 							<div className='cabinet-section-head'>
 								<div>
 									<span className='kicker'>Команда</span>
@@ -608,7 +746,7 @@ export default function CabinetClient({
 												/>
 												<button
 													onClick={doInvite}
-													disabled={busy || !inviteNick.trim()}
+													disabled={busy || !inviteNick.trim() || !hasTwitch}
 													className='btn btn-primary'
 												>
 													Пригласить
@@ -814,7 +952,7 @@ export default function CabinetClient({
 						>
 							GitHub
 						</a>
-						<span>© 2026 jettle_, nezory_1 · Версия 2.3</span>
+						<span>© 2026 jettle_, nezory_1 · Версия 2.4</span>
 					</div>
 				</footer>
 

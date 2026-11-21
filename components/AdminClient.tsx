@@ -58,6 +58,18 @@ type AdminWidget = {
 	updatedAt: string
 }
 
+// Аккаунт из /api/admin/users (без хэшей паролей)
+type AdminAccount = {
+	id: string
+	email: string | null
+	twitchLogin: string | null
+	displayName: string
+	avatar: string | null
+	createdAt: string
+	lastLoginAt: string | null
+	hasPassword: boolean
+}
+
 type AdminChangelog = {
 	channel?: string
 	title?: string
@@ -158,7 +170,7 @@ export default function AdminClient({
 	const [widgetQuery, setWidgetQuery] = useState('')
 	const [openWidget, setOpenWidget] = useState<string | null>(null)
 	const [adminTab, setAdminTab] = useState<
-		'overview' | 'streamers' | 'widgets' | 'changelog' | 'tools'
+		'overview' | 'streamers' | 'accounts' | 'widgets' | 'changelog' | 'tools'
 	>('overview')
 	const [changelogData, setChangelogData] = useState<AdminChangelog | null>(null)
 	const [changelogBusy, setChangelogBusy] = useState(false)
@@ -172,6 +184,13 @@ export default function AdminClient({
 	const [streamerQuery, setStreamerQuery] = useState('')
 	const [streamerBusy, setStreamerBusy] = useState(false)
 	const [streamerError, setStreamerError] = useState('')
+	const [streamerFilter, setStreamerFilter] = useState<
+		'all' | 'visible' | 'hidden' | 'featured'
+	>('all')
+	const [accounts, setAccounts] = useState<AdminAccount[]>([])
+	const [accountsLoading, setAccountsLoading] = useState(false)
+	const [accountsError, setAccountsError] = useState('')
+	const [accountQuery, setAccountQuery] = useState('')
 	const socketRef = useRef<ReturnType<typeof ioInit> | null>(null)
 
 	useEffect(() => {
@@ -241,6 +260,21 @@ export default function AdminClient({
 			}
 		} catch (e: any) {
 			setStreamerError(e?.message || 'Не удалось загрузить стримеров')
+		}
+	}, [])
+
+	const loadAccounts = useCallback(async () => {
+		setAccountsLoading(true)
+		setAccountsError('')
+		try {
+			const res = await fetch('/api/admin/users')
+			const data = await res.json()
+			if (!res.ok) throw new Error(data?.error || 'Не удалось загрузить аккаунты')
+			setAccounts(Array.isArray(data?.users) ? (data.users as AdminAccount[]) : [])
+		} catch (e: any) {
+			setAccountsError(e?.message || 'Не удалось загрузить аккаунты')
+		} finally {
+			setAccountsLoading(false)
 		}
 	}, [])
 
@@ -324,7 +358,8 @@ export default function AdminClient({
 
 	useEffect(() => {
 		if (adminTab === 'changelog') void loadChangelog()
-	}, [adminTab, loadChangelog])
+		if (adminTab === 'accounts') void loadAccounts()
+	}, [adminTab, loadChangelog, loadAccounts])
 
 	const saveStreamer = useCallback(
 		async (body: Record<string, unknown>) => {
@@ -460,12 +495,21 @@ export default function AdminClient({
 		: []
 	const filteredStreamers = streamers.filter(s => {
 		const q = streamerQuery.trim().toLowerCase()
-		return (
+		const byQuery =
 			!q ||
 			s.login.toLowerCase().includes(q) ||
 			s.displayName.toLowerCase().includes(q)
-		)
+		if (!byQuery) return false
+		if (streamerFilter === 'visible') return s.visible
+		if (streamerFilter === 'hidden') return !s.visible
+		if (streamerFilter === 'featured') return s.featured
+		return true
 	})
+	const streamerStats = {
+		visible: streamers.filter(s => s.visible).length,
+		hidden: streamers.filter(s => !s.visible).length,
+		featured: streamers.filter(s => s.featured).length,
+	}
 
 	return (
 		<main className='landing admin-page'>
@@ -573,6 +617,7 @@ export default function AdminClient({
 								{[
 									{ id: 'overview', label: 'Обзор' },
 									{ id: 'streamers', label: `Стримеры · ${streamers.length}` },
+									{ id: 'accounts', label: `Аккаунты · ${accounts.length}` },
 									{ id: 'widgets', label: `Виджеты · ${adminWidgets.length}` },
 									{ id: 'changelog', label: 'Обновления' },
 									{ id: 'tools', label: 'Инструменты' },
@@ -727,7 +772,7 @@ export default function AdminClient({
 								>
 									<div className='admin-card-head'>
 										<div>
-											<span className='kicker'>Главная</span>
+											<span className='kicker'>Карусель</span>
 											<h2 className='admin-card-title'>
 												Стримеры в карусели ({streamers.length})
 											</h2>
@@ -735,97 +780,170 @@ export default function AdminClient({
 										<div className='admin-card-actions'>
 											<button
 												onClick={() => void loadStreamers()}
+												disabled={streamerBusy}
 												className='btn btn-ghost btn-sm'
 											>
 												↻ Обновить
-											</button>
-											<button
-												onClick={() => void removeAllStreamers()}
-												disabled={streamerBusy || streamers.length === 0}
-												className='btn btn-ghost btn-sm text-red-400'
-											>
-												Удалить всех
 											</button>
 										</div>
 									</div>
 									<p className='cabinet-muted'>
 										В карусель попадают зарегистрированные стримеры с числом
-										подписчиков не меньше порога. Скрыть или выделить можно
-										вручную.
+										подписчиков не меньше порога. Видимость и «избранное»
+										меняются вручную в списке ниже.
 									</p>
-									<div className='admin-notice-row'>
-										<label className='flex items-center gap-2 text-sm'>
-											<span className='text-gray-400'>Порог</span>
-											<input
-												type='number'
-												min={0}
-												value={streamerThreshold}
-												onChange={e =>
-													setStreamerThreshold(Number(e.target.value) || 0)
-												}
-												className='admin-input w-24'
-											/>
-										</label>
-										<button
-											className='btn btn-ghost btn-sm'
-											disabled={streamerBusy}
-											onClick={() =>
-												void saveStreamer({
-													action: 'threshold',
-													threshold: streamerThreshold,
-												})
-											}
-										>
-											Сохранить порог
-										</button>
-										<button
-											className='btn btn-ghost btn-sm'
-											disabled={streamerBusy}
-											onClick={() => void saveStreamer({ action: 'sync' })}
-										>
-											Загрузить всех из БД
-										</button>
-										{streamerBlocked.length > 0 && (
-											<button
-												className='btn btn-ghost btn-sm'
-												disabled={streamerBusy}
-												title='Снять блок-лист и подтянуть всех из БД'
-												onClick={() =>
-													void saveStreamer({ action: 'unblock' })
-												}
+									<div className='mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4'>
+										{(
+											[
+												['Всего', streamers.length],
+												['Видны', streamerStats.visible],
+												['Скрыты', streamerStats.hidden],
+												['Избранные', streamerStats.featured],
+											] as const
+										).map(([label, value]) => (
+											<div
+												key={label}
+												className='rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2'
 											>
-												Разблокировать всех ({streamerBlocked.length})
-											</button>
-										)}
-										<div className='flex items-center gap-2'>
-											<input
-												value={streamerLogin}
-												onChange={e => setStreamerLogin(e.target.value)}
-												placeholder='Добавить логин Twitch'
-												className='admin-input'
-											/>
-											<button
-												className='btn btn-ghost btn-sm'
-												disabled={streamerBusy || !streamerLogin.trim()}
-												onClick={() => {
-													void saveStreamer({
-														action: 'add',
-														login: streamerLogin.trim(),
-													})
-													setStreamerLogin('')
-												}}
-											>
-												Добавить
-											</button>
+												<p className='text-[11px] uppercase tracking-wide text-gray-500'>
+													{label}
+												</p>
+												<p className='text-lg font-semibold text-white'>
+													{value}
+												</p>
+											</div>
+										))}
+									</div>
+									<div className='mt-5 grid gap-4 border-t border-white/10 pt-4 lg:grid-cols-3'>
+										<div>
+											<h3 className='text-sm font-semibold text-white'>
+												Порог подписчиков
+											</h3>
+											<p className='cabinet-muted mt-1 text-xs'>
+												Кто не дотягивает до порога, в карусель не попадает.
+											</p>
+											<div className='mt-2 flex items-center gap-2'>
+												<input
+													type='number'
+													min={0}
+													value={streamerThreshold}
+													onChange={e =>
+														setStreamerThreshold(Number(e.target.value) || 0)
+													}
+													className='admin-input w-24'
+													aria-label='Порог подписчиков'
+												/>
+												<button
+													className='btn btn-ghost btn-sm'
+													disabled={streamerBusy}
+													onClick={() =>
+														void saveStreamer({
+															action: 'threshold',
+															threshold: streamerThreshold,
+														})
+													}
+												>
+													Сохранить
+												</button>
+											</div>
 										</div>
-										<div className='flex items-center gap-2'>
-											<input
-												value={streamerQuery}
-												onChange={e => setStreamerQuery(e.target.value)}
-												placeholder='Поиск по нику…'
-												className='admin-input'
-												aria-label='Поиск стримера'
-											/>
+										<div>
+											<h3 className='text-sm font-semibold text-white'>
+												Синхронизация
+											</h3>
+											<p className='cabinet-muted mt-1 text-xs'>
+												Подтянуть всех из БД или вернуть заблокированных.
+											</p>
+											<div className='mt-2 flex flex-wrap gap-2'>
+												<button
+													className='btn btn-ghost btn-sm'
+													disabled={streamerBusy}
+													onClick={() => void saveStreamer({ action: 'sync' })}
+												>
+													Загрузить всех из БД
+												</button>
+												{streamerBlocked.length > 0 && (
+													<button
+														className='btn btn-ghost btn-sm'
+														disabled={streamerBusy}
+														title='Снять блок-лист и подтянуть всех из БД'
+														onClick={() =>
+															void saveStreamer({ action: 'unblock' })
+														}
+													>
+														Разблокировать ({streamerBlocked.length})
+													</button>
+												)}
+											</div>
+										</div>
+										<div>
+											<h3 className='text-sm font-semibold text-white'>
+												Добавить вручную
+											</h3>
+											<p className='cabinet-muted mt-1 text-xs'>
+												Логин Twitch, даже если человек ещё не входил в панель.
+											</p>
+											<div className='mt-2 flex items-center gap-2'>
+												<input
+													value={streamerLogin}
+													onChange={e => setStreamerLogin(e.target.value)}
+													onKeyDown={e => {
+														if (e.key !== 'Enter' || !streamerLogin.trim()) return
+														void saveStreamer({
+															action: 'add',
+															login: streamerLogin.trim(),
+														})
+														setStreamerLogin('')
+													}}
+													placeholder='Логин Twitch'
+													className='admin-input'
+												/>
+												<button
+													className='btn btn-ghost btn-sm'
+													disabled={streamerBusy || !streamerLogin.trim()}
+													onClick={() => {
+														void saveStreamer({
+															action: 'add',
+															login: streamerLogin.trim(),
+														})
+														setStreamerLogin('')
+													}}
+												>
+													Добавить
+												</button>
+											</div>
+										</div>
+									</div>
+
+									<div className='mt-4 border-t border-white/10 pt-4'>
+										<input
+											value={streamerQuery}
+											onChange={e => setStreamerQuery(e.target.value)}
+											placeholder='Поиск по логину или имени…'
+											className='admin-input w-full'
+											aria-label='Поиск стримера'
+										/>
+										<div className='mt-3 flex flex-wrap gap-2'>
+											{(
+												[
+													['all', `Все (${streamers.length})`],
+													['visible', `Видны (${streamerStats.visible})`],
+													['hidden', `Скрыты (${streamerStats.hidden})`],
+													['featured', `Избранные (${streamerStats.featured})`],
+												] as const
+											).map(([value, label]) => (
+												<button
+													key={value}
+													onClick={() => setStreamerFilter(value)}
+													className={
+														streamerFilter === value
+															? 'btn btn-primary btn-sm'
+															: 'btn btn-ghost btn-sm'
+													}
+												>
+													{label}
+												</button>
+											))}
 										</div>
 									</div>
 									{streamerError && (
@@ -844,13 +962,17 @@ export default function AdminClient({
 											Пока никто не вошёл в панель — карусель пустая.
 										</p>
 									) : filteredStreamers.length === 0 ? (
-										<p className='admin-empty'>Никого не нашли по запросу.</p>
+										<p className='admin-empty'>
+											{streamerQuery.trim() || streamerFilter !== 'all'
+												? 'По выбранному фильтру никого нет.'
+												: 'Никого нет.'}
+										</p>
 									) : (
 										<div className='mt-3 flex flex-col gap-2'>
 											{filteredStreamers.map(s => (
 												<div
 													key={s.login}
-													className='flex flex-wrap items-center gap-3 rounded-xl border border-white/10 px-3 py-2'
+													className='flex flex-wrap items-center gap-3 rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5'
 												>
 													{s.avatar ? (
 														// eslint-disable-next-line @next/next/no-img-element
@@ -863,22 +985,25 @@ export default function AdminClient({
 														<div className='h-9 w-9 rounded-full bg-white/10' />
 													)}
 													<div className='min-w-0 flex-1'>
-														<p className='truncate text-sm font-medium'>
+									<div className='flex flex-wrap items-center gap-1.5'>
 															<a
 																href={`https://www.twitch.tv/${s.login}`}
 																target='_blank'
 																rel='noopener noreferrer'
-																className='hover:text-accent2 hover:underline'
+																className='truncate text-sm font-medium hover:text-accent2 hover:underline'
 																title={`Открыть twitch.tv/${s.login}`}
 															>
 																{s.displayName}
 															</a>
 															{s.featured && (
-																<span className='ml-2 text-[10px] text-accent2'>
+																<span className='admin-badge accent'>
 																	избранный
 																</span>
 															)}
-														</p>
+															{!s.visible && (
+																<span className='admin-badge muted'>скрыт</span>
+															)}
+														</div>
 														<p className='text-xs text-gray-500'>
 															<a
 																href={`https://www.twitch.tv/${s.login}`}
@@ -938,6 +1063,156 @@ export default function AdminClient({
 											))}
 										</div>
 									)}
+
+									<details className='mt-6 rounded-xl border border-red-500/20 bg-red-500/[0.03] px-4 py-3'>
+										<summary className='cursor-pointer text-sm font-semibold text-red-300'>
+											Опасная зона
+										</summary>
+										<p className='cabinet-muted mt-2 text-xs'>
+											Полностью очистить карусель. Аккаунты и комнаты не
+											удаляются — стримеры вернутся при следующем входе в
+											панель.
+										</p>
+										<button
+											onClick={() => void removeAllStreamers()}
+											disabled={streamerBusy || streamers.length === 0}
+											className='btn btn-ghost btn-sm mt-3 text-red-400'
+										>
+											Удалить всех ({streamers.length})
+										</button>
+									</details>
+								</section>
+								)}
+
+								{adminTab === 'accounts' && (
+								<section className='glass-card admin-card' style={{ gridColumn: '1 / -1' }}>
+									<div className='admin-card-head'>
+										<div>
+											<span className='kicker'>Пользователи</span>
+											<h2 className='admin-card-title'>
+												Аккаунты ({accounts.length})
+											</h2>
+										</div>
+										<div className='admin-card-actions'>
+											<button
+												onClick={() => void loadAccounts()}
+												disabled={accountsLoading}
+												className='btn btn-ghost btn-sm'
+											>
+												{accountsLoading ? 'Загружаю…' : '↻ Обновить'}
+											</button>
+										</div>
+									</div>
+									<p className='cabinet-muted'>
+										Все зарегистрированные аккаунты: и по почте, и через Twitch.
+										Список «Стримеры» строится по Twitch-логинам, поэтому люди
+										без привязки Twitch видны только здесь.
+									</p>
+
+									<div className='mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4'>
+										{(
+											[
+												['Всего', accounts.length],
+												[
+													'Только почта',
+													accounts.filter(a => !a.twitchLogin).length,
+												],
+												[
+													'С Twitch',
+													accounts.filter(a => !!a.twitchLogin).length,
+												],
+												[
+													'За 7 дней',
+													accounts.filter(
+														a =>
+															Date.now() - new Date(a.createdAt).getTime() <
+															7 * 24 * 60 * 60 * 1000,
+													).length,
+												],
+											] as const
+										).map(([label, value]) => (
+											<div
+												key={label}
+												className='rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2'
+											>
+												<p className='text-[11px] uppercase tracking-wide text-gray-500'>
+													{label}
+												</p>
+												<p className='text-lg font-semibold text-white'>{value}</p>
+											</div>
+										))}
+									</div>
+
+									<input
+										value={accountQuery}
+										onChange={e => setAccountQuery(e.target.value)}
+										placeholder='Почта, ник или Twitch-логин…'
+										className='admin-input mt-4 w-full'
+										aria-label='Поиск аккаунта'
+									/>
+
+									{accountsError && (
+										<p className='admin-error mt-3' role='alert'>
+											{accountsError}
+										</p>
+									)}
+
+									<div className='mt-4 grid gap-2'>
+										{accounts
+											.filter(a => {
+												const q = accountQuery.trim().toLowerCase()
+												if (!q) return true
+												return (
+													(a.email || '').toLowerCase().includes(q) ||
+													a.displayName.toLowerCase().includes(q) ||
+													(a.twitchLogin || '').toLowerCase().includes(q)
+												)
+											})
+											.map(a => (
+												<div
+													key={a.id}
+													className='flex flex-wrap items-center gap-3 rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5'
+												>
+													<span className='cabinet-avatar-sm cabinet-avatar-fallback'>
+														{(a.displayName || a.email || '?')
+															.slice(0, 1)
+															.toUpperCase()}
+													</span>
+													<div className='min-w-0 flex-1'>
+														<p className='truncate text-sm font-medium text-white'>
+															{a.email || a.displayName}
+														</p>
+														<p className='truncate text-xs text-gray-400'>
+															{a.email ? a.displayName : 'без почты'}
+															{a.hasPassword ? ' · пароль' : ' · без пароля'}
+														</p>
+													</div>
+													{a.twitchLogin ? (
+														<a
+															href={`https://www.twitch.tv/${a.twitchLogin}`}
+															target='_blank'
+															rel='noopener noreferrer'
+															className='admin-badge is-ok'
+														>
+															Twitch: {a.twitchLogin}
+														</a>
+													) : (
+														<span className='admin-badge'>Только почта</span>
+													)}
+													<span className='text-xs text-gray-500'>
+														рег. {new Date(a.createdAt).toLocaleDateString('ru-RU')}
+													</span>
+													<span className='text-xs text-gray-500'>
+														{a.lastLoginAt
+															? `вход ${new Date(a.lastLoginAt).toLocaleDateString('ru-RU')}`
+															: 'ещё не входил'}
+													</span>
+												</div>
+											))}
+										{!accountsLoading && accounts.length === 0 && (
+											<p className='admin-empty'>Аккаунтов пока нет.</p>
+										)}
+									</div>
 								</section>
 								)}
 

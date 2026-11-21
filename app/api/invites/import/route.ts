@@ -4,7 +4,7 @@ import {
 	listModerators,
 } from '@/lib/invites'
 import { readLinks, writeLinks } from '@/lib/links'
-import { json, sessionFrom } from '@/lib/api'
+import { json, noTwitch, sessionFrom } from '@/lib/api'
 import { twitchUserId } from '@/lib/twitch'
 
 export const runtime = 'nodejs'
@@ -38,6 +38,7 @@ async function refreshUserToken(login: string): Promise<string | null> {
 export async function POST(req: Request) {
 	const session = sessionFrom(req)
 	if (!session) return json({ error: 'unauthorized' }, 401)
+	if (!session.login) return noTwitch()
 
 	const links = await readLinks()
 	let token: string | null = links[session.login]?.userToken ?? null

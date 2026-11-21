@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getOrigin, randomState, safeNextPath, seeOther } from "@/lib/session";
+import { getOrigin, randomState, safeNextPath, seeOther, verifySession } from "@/lib/session";
 import { LEGAL_VERSION } from "@/lib/legal";
 
 export async function GET(req: Request) {
@@ -8,16 +8,26 @@ export async function GET(req: Request) {
     return seeOther("/?error=config");
   }
 
-  // куда вернуть пользователя после входа (только относительные пути внутри сайта)
-  const next = new URL(req.url).searchParams.get("next");
-  const nextSafe = safeNextPath(next, "/cabinet");
+  const params = new URL(req.url).searchParams;
+  // link=1 — привязка Twitch к уже существующему аккаунту из кабинета.
+  const link = params.get("link") === "1";
+  const nextSafe = safeNextPath(params.get("next"), "/cabinet");
+  const cookie = req.headers.get("cookie") || "";
 
-  // Без явного согласия не начинаем OAuth: до этого момента никакие данные
-  // пользователя (включая Twitch-профиль) не собираются. Согласие ставится
-  // чекбоксом на лендинге и живёт в cookie sc_consent.
-  const consent = req.headers.get("cookie")?.match(/(?:^|;\s*)sc_consent=([^;]+)/)?.[1];
-  if (consent !== LEGAL_VERSION) {
-    return seeOther(`/?consent=1&next=${encodeURIComponent(nextSafe)}`);
+  if (link) {
+    // Привязка доступна только вошедшему пользователю: иначе это обычный вход.
+    const session = verifySession(cookie.match(/(?:^|;\s*)sc_session=([^;]+)/)?.[1]);
+    if (!session?.uid) {
+      return seeOther("/?auth=1&next=%2Fcabinet");
+    }
+  } else {
+    // Без явного согласия не начинаем OAuth: до этого момента никакие данные
+    // пользователя (включая Twitch-профиль) не собираются. Согласие ставится
+    // чекбоксом на лендинге и живёт в cookie sc_consent.
+    const consent = cookie.match(/(?:^|;\s*)sc_consent=([^;]+)/)?.[1];
+    if (consent !== LEGAL_VERSION) {
+      return seeOther(`/?consent=1&next=${encodeURIComponent(nextSafe)}`);
+    }
   }
 
   const redirectUri = process.env.TWITCH_REDIRECT_URI || `${getOrigin(req)}/api/auth/twitch/callback`;
@@ -33,7 +43,11 @@ export async function GET(req: Request) {
   const res = NextResponse.redirect(authUrl.toString());
   // Secure только на https (на http://localhost браузер cookie с Secure отбросил бы)
   const secure = getOrigin(req).startsWith("https:");
-  res.cookies.set("sc_oauth_state", state, { httpOnly: true, sameSite: "lax", path: "/", maxAge: 600, secure });
+  // Режим поездки храним в самом state: отдельная cookie sc_link жила 10 минут
+  // и после неудачной привязки превращала следующий обычный вход в привязку.
+  res.cookies.set("sc_oauth_state", `${state}.${link ? "link" : "login"}`, { httpOnly: true, sameSite: "lax", path: "/", maxAge: 600, secure });
   res.cookies.set("sc_next", nextSafe, { httpOnly: true, sameSite: "lax", path: "/", maxAge: 600, secure });
+  // подчищаем флаг от старой версии, если он ещё висит в браузере
+  res.cookies.set("sc_link", "", { path: "/", maxAge: 0 });
   return res;
 }

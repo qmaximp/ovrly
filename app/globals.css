@@ -1,4 +1,4 @@
-﻿@import 'tailwindcss';
+@import 'tailwindcss';
 
 /* Р¦РІРµС‚Р° С‚РµРјС‹: СѓС‚РёР»РёС‚С‹ Tailwind (bg-panel, text-accent2, border-borderвЂ¦) Р±РµСЂСѓС‚ РёС…
    РѕС‚СЃСЋРґР°, Р° СЃР°РјРё РїРµСЂРµРјРµРЅРЅС‹Рµ РїРµСЂРµРєР»СЋС‡Р°СЋС‚СЃСЏ РєР»Р°СЃСЃРѕРј html.light. РџСЂРѕР·СЂР°С‡РЅРѕСЃС‚СЊ
@@ -1066,7 +1066,10 @@ html.light .step-num { color: #fff; }
 .d5 { animation-delay: 0.3s; }
 @keyframes rise-in {
   from { opacity: 0; transform: translateY(18px); }
-  to { opacity: 1; transform: translateY(0); }
+  /* именно none, а не translateY(0): иначе элемент навсегда остаётся
+     containing block для position: fixed внутри него (модалки «прилипали»
+     к строке кнопок в хиро) */
+  to { opacity: 1; transform: none; }
 }
 
 /* РђРґР°РїС‚РёРІ */
@@ -1247,6 +1250,49 @@ html.light .cabinet-avatar { color: #fff; }
   white-space: nowrap;
 }
 .cabinet-account-login { margin: 0; font-size: 0.75rem; color: rgb(var(--c-text) / 0.5); }
+.cabinet-account-hint {
+  margin: 0.15rem 0 0.35rem;
+  font-size: 0.74rem;
+  line-height: 1.5;
+  color: rgb(var(--c-text) / 0.6);
+}
+.cabinet-twitch-link { display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; }
+.admin-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.08rem 0.45rem;
+  font-size: 0.625rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.admin-badge.accent { background: rgb(var(--c-accent2) / 0.14); color: rgb(var(--c-accent2)); }
+.admin-badge.muted { background: rgb(251 146 60 / 0.14); color: rgb(251 146 60); }
+.admin-badge.is-ok { background: rgb(var(--c-accent2) / 0.12); color: rgb(var(--c-accent2)); text-decoration: none; }
+.admin-badge.is-ok:hover { background: rgb(var(--c-accent2) / 0.2); }
+.admin-error { margin: 0; font-size: 0.8rem; color: rgb(248 113 113); }
+.cabinet-twitch-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.1rem;
+  padding: 0.9rem 1.1rem;
+  border: 1px solid rgb(251 191 36 / 0.35);
+  border-radius: 0.9rem;
+  background: rgb(251 191 36 / 0.08);
+  color: rgb(var(--c-text));
+}
+.cabinet-twitch-notice strong { display: block; font-size: 0.86rem; }
+.cabinet-twitch-notice p {
+  margin: 0.2rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: rgb(var(--c-text) / 0.7);
+}
+.cabinet-btn-locked { opacity: 0.55; cursor: not-allowed; }
 .cabinet-avatar-initial {
   font-size: 0.75rem;
   font-weight: 750;
@@ -2004,6 +2050,21 @@ html.light .admin-room-badge.dirty { color: #b45309; }
   background: rgb(var(--c-accent2) / 0.2);
   border-color: rgb(var(--c-accent2) / 0.7);
 }
+.cookie-banner-actions {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.cookie-banner-btn.is-ghost {
+  background: transparent;
+  border-color: rgb(var(--c-border) / 0.9);
+  color: rgb(var(--c-text) / 0.75);
+}
+.cookie-banner-btn.is-ghost:hover {
+  background: rgb(var(--c-text) / 0.06);
+  border-color: rgb(var(--c-text) / 0.35);
+}
 
 .consent-overlay {
   position: fixed;
@@ -2018,7 +2079,12 @@ html.light .admin-room-badge.dirty { color: #b45309; }
 }
 .consent-dialog {
   width: min(540px, 100%);
-  margin: auto;
+  /* Диалог не должен расти выше окна: на низких экранах он обрезался сверху
+     и выглядел как узкая полоска. Пусть лучше скроллится внутри себя. */
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 1.5rem 1.5rem 1.35rem;
   border: 1px solid rgb(var(--c-border));
   border-radius: 1.2rem;
@@ -2070,11 +2136,41 @@ html.light .admin-room-badge.dirty { color: #b45309; }
 .consent-row:hover { border-color: rgb(var(--c-accent2) / 0.45); }
 .consent-row input {
   flex: 0 0 auto;
-  width: 1rem;
-  height: 1rem;
-  margin: 0.15rem 0 0;
+  width: 1.15rem;
+  height: 1.15rem;
+  margin: 0.12rem 0 0;
   accent-color: rgb(var(--c-accent2));
   cursor: pointer;
+}
+/* своя отрисовка чекбокса: пустой квадрат видно однозначно, а состояние
+   «нажат» не путается с кольцом фокуса */
+.consent-row input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1.5px solid rgb(var(--c-text) / 0.3);
+  border-radius: 0.32rem;
+  background: rgb(var(--c-bg) / 0.6);
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.consent-row input[type='checkbox']:hover { border-color: rgb(var(--c-accent2) / 0.65); }
+.consent-row input[type='checkbox']:checked {
+  border-color: rgb(var(--c-accent2));
+  background: rgb(var(--c-accent2));
+}
+.consent-row input[type='checkbox']:checked::after {
+  content: '';
+  width: 0.46rem;
+  height: 0.25rem;
+  border-left: 2px solid rgb(var(--c-cta-text));
+  border-bottom: 2px solid rgb(var(--c-cta-text));
+  transform: rotate(-45deg) translate(0, -1px);
+}
+.consent-row input[type='checkbox']:focus-visible {
+  outline: 2px solid rgb(var(--c-accent2) / 0.75);
+  outline-offset: 2px;
 }
 .consent-row a,
 .consent-fine a {
@@ -2411,3 +2507,200 @@ body.obs-pane-moving { user-select: none; cursor: grabbing; }
 		padding: 1rem 1.1rem;
 	}
 }
+
+/* --- Вход и регистрация по почте (AuthDialog) --- */
+.auth-dialog {
+  width: min(460px, 100%);
+}
+.auth-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.auth-close {
+  flex: 0 0 auto;
+  width: 2rem;
+  height: 2rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgb(var(--c-border) / 0.9);
+  border-radius: 0.55rem;
+  background: transparent;
+  color: rgb(var(--c-text) / 0.65);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.auth-close:hover { color: rgb(var(--c-on-bg)); border-color: rgb(var(--c-text) / 0.35); background: rgb(var(--c-text) / 0.06); }
+.auth-tabs {
+  display: flex;
+  gap: 0.35rem;
+  margin: 0.9rem 0 1rem;
+  padding: 0.25rem;
+  border: 1px solid rgb(var(--c-border) / 0.8);
+  border-radius: 0.7rem;
+  background: rgb(var(--c-bg) / 0.45);
+}
+.auth-tab {
+  flex: 1;
+  border: 0;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: transparent;
+  color: rgb(var(--c-text) / 0.65);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 650;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.auth-tab.is-active { background: linear-gradient(135deg, rgb(var(--c-accent2)), rgb(var(--c-accent))); color: rgb(var(--c-cta-text)); }
+.auth-form { display: flex; flex-direction: column; gap: 0.7rem; }
+.auth-field { display: flex; flex-direction: column; gap: 0.3rem; }
+.auth-field span { font-size: 0.76rem; font-weight: 650; color: rgb(var(--c-text) / 0.7); }
+.auth-field input {
+  width: 100%;
+  border: 1px solid rgb(var(--c-border) / 0.9);
+  border-radius: 0.6rem;
+  background: rgb(var(--c-bg) / 0.55);
+  color: rgb(var(--c-on-bg));
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 0.62rem 0.75rem;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.auth-field input:focus { border-color: rgb(var(--c-accent2) / 0.7); box-shadow: 0 0 0 3px rgb(var(--c-accent2) / 0.16); }
+.auth-note { margin: 0; font-size: 0.78rem; line-height: 1.55; color: rgb(var(--c-text) / 0.62); }
+.auth-error { margin: 0; font-size: 0.78rem; line-height: 1.5; color: rgb(248 113 113); }
+.auth-devcode { margin: 0; padding: 0.55rem 0.7rem; border-radius: 0.6rem; border: 1px dashed rgb(var(--c-accent2) / 0.5); background: rgb(var(--c-accent2) / 0.08); font-size: 0.78rem; color: rgb(var(--c-text) / 0.8); }
+.auth-submit { width: 100%; }
+.auth-or { display: flex; align-items: center; gap: 0.6rem; color: rgb(var(--c-text) / 0.4); font-size: 0.74rem; }
+.auth-or::before, .auth-or::after { content: ''; flex: 1; height: 1px; background: rgb(var(--c-border) / 0.8); }
+/* Twitch-вход в модалке. Специфичность выше, чем у .consent-btn.ghost,
+   иначе кнопка рисуется призрачной и фиолетовый фон не применяется. */
+.consent-btn.auth-twitch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  width: 100%;
+  text-decoration: none;
+  border: 1px solid #9146ff;
+  background: linear-gradient(135deg, #9146ff, #772ce8);
+  color: #fff;
+  box-shadow: 0 12px 26px -16px rgba(145, 70, 255, 0.95);
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.consent-btn.auth-twitch:hover {
+  border-color: #a467ff;
+  background: linear-gradient(135deg, #9d55ff, #8330f0);
+  color: #fff;
+  box-shadow: 0 14px 30px -14px rgba(145, 70, 255, 1);
+}
+.consent-btn.auth-twitch:active { transform: translateY(1px); }
+.consent-btn.auth-twitch:focus-visible {
+  outline: 2px solid #b98cff;
+  outline-offset: 2px;
+}
+.auth-link { border: 0; background: transparent; padding: 0; color: rgb(var(--c-accent2)); font: inherit; font-size: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.auth-captcha { display: flex; flex-direction: column; gap: 0.45rem; }
+.auth-captcha-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; font-size: 0.76rem; font-weight: 650; color: rgb(var(--c-text) / 0.7); }
+.auth-captcha-img { width: 180px; height: 64px; border-radius: 0.5rem; border: 1px solid rgb(var(--c-border) / 0.9); background: rgb(var(--c-bg) / 0.6); }
+.auth-captcha-img.is-loading { display: block; opacity: 0.55; }
+.auth-captcha-input {
+  border: 1px solid rgb(var(--c-border) / 0.9);
+  border-radius: 0.6rem;
+  background: rgb(var(--c-bg) / 0.55);
+  color: rgb(var(--c-on-bg));
+  font: inherit;
+  font-size: 0.88rem;
+  letter-spacing: 0.12em;
+  padding: 0.55rem 0.7rem;
+  outline: none;
+}
+.auth-captcha-input:focus { border-color: rgb(var(--c-accent2) / 0.7); box-shadow: 0 0 0 3px rgb(var(--c-accent2) / 0.16); }
+.auth-strength { display: flex; flex-direction: column; gap: 0.3rem; }
+.auth-strength-bar { display: flex; gap: 0.25rem; }
+.auth-strength-bar span { flex: 1; height: 4px; border-radius: 999px; background: rgb(var(--c-text) / 0.14); transition: background 0.2s ease; }
+.auth-strength-bar.is-0 span.is-on, .auth-strength-bar.is-1 span.is-on { background: #ef4444; }
+.auth-strength-bar.is-2 span.is-on { background: #f59e0b; }
+.auth-strength-bar.is-3 span.is-on { background: #84cc16; }
+.auth-strength-bar.is-4 span.is-on { background: #22c55e; }
+.auth-strength-label { margin: 0; font-size: 0.73rem; color: rgb(var(--c-text) / 0.55); }
+
+/* предупреждение в кабинете, пока Twitch не привязан */
+.cabinet-twitch-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid rgb(245 158 11 / 0.4);
+  border-radius: 0.8rem;
+  background: rgb(245 158 11 / 0.08);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+.cabinet-twitch-notice strong { display: block; color: rgb(var(--c-on-bg)); font-size: 0.86rem; }
+.cabinet-twitch-notice p { margin: 0.15rem 0 0; color: rgb(var(--c-text) / 0.7); }
+
+/* Низкое окно (панель предпросмотра, телефон в альбомной ориентации):
+   сжимаем отступы, чтобы форма не занимала всю высоту и не «съезжала». */
+@media (max-height: 620px) {
+  .consent-dialog { padding: 1rem 1.05rem 0.9rem; border-radius: 1rem; }
+  .consent-dialog h2 { font-size: 1.2rem; }
+  .auth-head { gap: 0.6rem; }
+  .auth-tabs { margin: 0.55rem 0 0.2rem; }
+  .auth-form { gap: 0.5rem; }
+  .auth-note, .auth-fine { font-size: 0.72rem; }
+}/* «Забыли пароль?» под полем пароля */
+.auth-forgot {
+  display: inline-block;
+  align-self: flex-start;
+  margin: -0.35rem 0 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  font-size: 0.78rem;
+  color: rgb(var(--c-accent2));
+  cursor: pointer;
+}
+.auth-forgot:hover { text-decoration: underline; }
+
+
+/* Заметка-плашка в кабинете: рамка как у карточек, приглушённый текст.
+   Нужна, чтобы важные пояснения не терялись на фоне. */
+.cabinet-callout {
+  margin: 0 0 1rem;
+  padding: 0.8rem 1rem;
+  border: 1px solid rgb(var(--c-border));
+  border-radius: 0.8rem;
+  background: rgb(var(--c-panel) / 0.55);
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: rgb(var(--c-text) / 0.72);
+}
+html.light .cabinet-callout { background: rgb(var(--c-panel) / 0.7); }
+
+
+/* Ошибка привязки Twitch внутри карточки аккаунта: компактнее, чем общий .alert */
+.cabinet-alert {
+  max-width: none;
+  margin: 0.85rem 0 0;
+  padding: 0.65rem 0.8rem;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  border-radius: 0.7rem;
+}
+
+
+/* Блок «почта уже занята» убран — сценарий теперь ведёт в сам аккаунт */
+
+
+/* Рабочая зона панели: точки считаются от текущего фона и цвета текста, поэтому
+   подстраиваются под тему и под пользовательскую палитру. */
+.canvas-grid {
+  background-color: rgb(var(--c-canvas));
+  background-image: radial-gradient(rgb(var(--c-dot)) 1px, transparent 1px);
+}
+

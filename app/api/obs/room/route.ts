@@ -27,6 +27,12 @@ export async function POST(req: Request) {
 		if (!session) {
 			return NextResponse.json({ error: 'нужен вход' }, { status: 401 })
 		}
+		if (!session.login) {
+			return NextResponse.json(
+				{ error: 'привяжите Twitch, чтобы получить ссылку для OBS' },
+				{ status: 403 },
+			)
+		}
 		if (rateLimited(session.login)) {
 			return NextResponse.json({ error: 'слишком часто' }, { status: 429 })
 		}

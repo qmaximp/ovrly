@@ -467,11 +467,12 @@ export default function PanelClient({
 	// Выбор хранится в браузере, чтобы не сбрасывался после перезагрузки.
 	// Ключ localStorage оставлен прежним, чтобы не потерять выбор у тех, кто уже
 	// включал режим, когда он назывался «бета-интерфейс».
-	const [betaUI, setBetaUI] = useState(false)
+	const [betaUI, setBetaUI] = useState(true)
 	const [betaElementsOpen, setBetaElementsOpen] = useState(false)
 	useEffect(() => {
 		try {
-			if (localStorage.getItem('panel:beta-ui') === '1') setBetaUI(true)
+			// По умолчанию режим включён: выключаем только по явному выбору.
+			if (localStorage.getItem('panel:beta-ui') === '0') setBetaUI(false)
 		} catch {}
 	}, [])
 	const toggleBetaUI = useCallback(() => {
@@ -1350,6 +1351,19 @@ export default function PanelClient({
 
 	const applySurface = useCallback(
 		(bg: string, panel: string) => {
+			// Пресет, совпадающий с темой по умолчанию («Ночной»), не сохраняем:
+			// сбрасываем кастомную палитру, чтобы вернулся исходный вид.
+			const def =
+				theme === 'light'
+					? { bg: '#f3f0e8', panel: '#fffdf7' }
+					: { bg: '#070b12', panel: '#0c1522' }
+			if (normalizeHex(bg) === def.bg && normalizeHex(panel) === def.panel) {
+				clearSurfacePalette(theme)
+				const surface = surfacePaletteFromCss()
+				setSurfaceBg(surface.bg)
+				setSurfacePanel(surface.panel)
+				return
+			}
 			const next = applySurfacePalette(theme, { bg, panel })
 			setSurfaceBg(next.bg)
 			setSurfacePanel(next.panel)
@@ -5115,12 +5129,9 @@ export default function PanelClient({
 				<div className='flex-1 flex flex-col bg-bg overflow-hidden'>
 					<div
 						ref={setViewportEl}
-						className={`flex-1 relative overflow-clip ${panning ? 'cursor-grabbing' : ''}`}
+						className={`canvas-grid flex-1 relative overflow-clip ${panning ? 'cursor-grabbing' : ''}`}
 						style={{
 							touchAction: 'none',
-							background: 'rgb(var(--c-canvas))',
-							backgroundImage:
-								'radial-gradient(rgb(var(--c-dot)) 1px, transparent 1px)',
 							backgroundSize: `${Math.max(4, 22 * view.s)}px ${Math.max(4, 22 * view.s)}px`,
 							backgroundPosition: `${view.x}px ${view.y}px`,
 						}}

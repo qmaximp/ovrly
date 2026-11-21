@@ -88,16 +88,24 @@ export function notRegisteredScreen(next?: string): React.ReactNode {
   return (
     <Notice
       icon={<span className="err-brand"><TwitchMark /></span>}
-      title="Вы не зарегистрированы"
+      title="Вы не вошли"
       actions={
-        <a href={loginHref} className="btn" style={{ background: "#9146FF" }}>
-          <TwitchMark size={20} />
-          Войти через Twitch
-        </a>
+        <div className="flex flex-wrap gap-2">
+          <a
+            href={`/?auth=1&next=${encodeURIComponent(safeNext)}`}
+            className="btn btn-primary"
+          >
+            Войти в личный кабинет
+          </a>
+          <a href={loginHref} className="btn btn-ghost">
+            <TwitchMark size={18} />
+            Через Twitch
+          </a>
+        </div>
       }
     >
-      Вход через Twitch не выполнен — пока нет доступа к этой странице. Войдите,
-      чтобы получить кабинет и ссылки для панели.
+      Чтобы открыть эту страницу, войдите по почте или через Twitch — после входа
+      появятся кабинет и ссылки для панели.
     </Notice>
   );
 }

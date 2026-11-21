@@ -2,6 +2,7 @@ import LogoMark from '@/components/LogoMark'
 import ThemeToggle from '@/components/ThemeToggle'
 import CookieBanner from '@/components/CookieBanner'
 import ConsentDialog from '@/components/ConsentDialog'
+import AuthEntry from '@/components/AuthEntry'
 import StreamersCarousel from '@/components/StreamersCarousel'
 import LandingMotion from '@/components/LandingMotion'
 import { verifySession } from '@/lib/session'
@@ -168,7 +169,7 @@ function MenuIcon() {
 export default async function Home({
 	searchParams,
 }: {
-	searchParams?: Promise<{ error?: string; consent?: string; next?: string }>
+	searchParams?: Promise<{ error?: string; consent?: string; next?: string; auth?: string }>
 }) {
 	const params = await searchParams
 	const consent = params?.consent === '1'
@@ -272,13 +273,13 @@ export default async function Home({
 
 						<div className='header-actions'>
 							<ThemeToggle />
-							<a
-								href='/api/auth/twitch'
+							<AuthEntry
 								className='btn btn-primary btn-sm header-cta'
+								next={nextSafe}
+								initialOpen={params?.auth === '1'}
 							>
-								<TwitchIcon size={16} />
 								Войти
-							</a>
+							</AuthEntry>
 							<details className='mobile-nav'>
 								<summary aria-label='Открыть меню'>
 									<MenuIcon />
@@ -287,10 +288,9 @@ export default async function Home({
 									<a href='#features'>Возможности</a>
 									<a href='#how'>Как работает</a>
 									<a href='#faq'>FAQ</a>
-									<a href='/api/auth/twitch' className='btn btn-primary'>
-										<TwitchIcon size={16} />
-										Войти через Twitch
-									</a>
+									<AuthEntry className='btn btn-primary' next='/cabinet'>
+										Войти
+									</AuthEntry>
 									<a
 										href='https://dalink.to/jettle_'
 										target='_blank'
@@ -326,9 +326,12 @@ export default async function Home({
 								<TwitchIcon size={19} />
 								Войти через Twitch
 							</a>
-							<a href='#features' className='btn btn-ghost btn-lg'>
-								Посмотреть возможности
-							</a>
+							<AuthEntry
+								className='btn btn-ghost btn-lg'
+								next={nextSafe}
+							>
+								Войти в личный кабинет
+							</AuthEntry>
 						</div>
 						<div className='hero-meta reveal d4'>
 							<span>
@@ -490,7 +493,7 @@ export default async function Home({
 				</section>
 
 				<footer className='container site-footer'>
-					<span>© 2026 jettle_, nezory_1 · Версия 2.3.0</span>
+					<span>© 2026 jettle_, nezory_1 · Версия 2.4.0</span>
 					<div className='footer-links'>
 						<a href='/legal'>Документы</a>
 						<a

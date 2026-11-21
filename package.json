@@ -1,6 +1,6 @@
 {
   "name": "ovrly",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "private": true,
   "license": "AGPL-3.0-only",
   "author": {
@@ -28,6 +28,7 @@
     "gsap": "^3.15.1",
     "lucide-react": "^1.72.0",
     "next": "^16.4.6",
+    "nodemailer": "^10.6.1",
     "obs-websocket-js": "^5.0.6",
     "postgres": "^3.4.9",
     "qrcode-generator": "^2.0.4",
@@ -40,6 +41,7 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.5",
     "@types/node": "^26.6.6",
+    "@types/nodemailer": "^8.0.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "postcss": "^8.5.33",

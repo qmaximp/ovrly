@@ -76,3 +76,34 @@ export function rateLimit(key: string, limit: number, windowMs: number): boolean
 
 export const tooMany = () =>
 	json({ error: 'too many requests' }, 429, { 'Retry-After': '60' })
+
+// Почта подтверждена, но Twitch ещё не привязан: кабинет открывается, а вот
+// ссылки, панель и доступы модератора без Twitch бессмысленны — они привязаны
+// к конкретному каналу.
+export const noTwitch = () =>
+	json(
+		{
+			error:
+				'Привяжите Twitch-аккаунт в личном кабинете — без него недоступны ссылки, панель и доступы.',
+			needsTwitch: true,
+		},
+		403,
+	)
+
+// Тело запроса с ограничением размера: JSON-роуты не должны принимать
+// мегабайты от анонимного клиента (иначе это бесплатная нагрузка на память).
+export async function readJson(
+	req: Request,
+	maxBytes = 16 * 1024,
+): Promise<Record<string, unknown> | null> {
+	const declared = Number(req.headers.get('content-length') || 0)
+	if (declared > maxBytes) return null
+	const text = await req.text()
+	if (text.length > maxBytes) return null
+	try {
+		const parsed = JSON.parse(text)
+		return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null
+	} catch {
+		return null
+	}
+}

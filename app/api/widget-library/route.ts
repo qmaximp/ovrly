@@ -1,5 +1,5 @@
 import postgres from 'postgres'
-import { json, rateLimit, sessionFrom } from '@/lib/api'
+import { json, noTwitch, rateLimit, sessionFrom } from '@/lib/api'
 import { fromPortableWidget } from '@/lib/widgets'
 
 export const runtime = 'nodejs'
@@ -64,6 +64,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
 	const session = sessionFrom(req)
 	if (!session) return json({ error: 'unauthorized' }, 401)
+	if (!session.login) return noTwitch()
 	// Публикация в общую библиотеку — не чаще 20 раз в час на аккаунт.
 	if (!rateLimit(`wl:${session.login}`, 20, 60 * 60 * 1000))
 		return json({ error: 'too many requests' }, 429)
