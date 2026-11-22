@@ -70,6 +70,18 @@ type AdminAccount = {
 	hasPassword: boolean
 }
 
+// Читаем JSON осторожно: 500-й может прийти с пустым телом, и обычный
+// res.json() в этом случае бросает «Unexpected end of JSON input».
+async function readAdminJson(res: Response): Promise<any> {
+	const text = await res.text()
+	if (!text) return null
+	try {
+		return JSON.parse(text)
+	} catch {
+		return null
+	}
+}
+
 type AdminChangelog = {
 	channel?: string
 	title?: string
@@ -250,7 +262,7 @@ export default function AdminClient({
 		setStreamerError('')
 		try {
 			const res = await fetch('/api/admin/streamers')
-			const data = await res.json()
+			const data = await readAdminJson(res)
 			if (!res.ok) throw new Error(data?.error || 'Не удалось загрузить стримеров')
 			const list = data?.users ? Object.values(data.users) : []
 			setStreamers(list as StreamerEntry[])
@@ -268,9 +280,12 @@ export default function AdminClient({
 		setAccountsError('')
 		try {
 			const res = await fetch('/api/admin/users')
-			const data = await res.json()
+			const data = await readAdminJson(res)
 			if (!res.ok) throw new Error(data?.error || 'Не удалось загрузить аккаунты')
-			setAccounts(Array.isArray(data?.users) ? (data.users as AdminAccount[]) : [])
+			if (!data || !Array.isArray(data.users)) {
+				throw new Error('Сервер вернул некорректный список аккаунтов')
+			}
+			setAccounts(data.users as AdminAccount[])
 		} catch (e: any) {
 			setAccountsError(e?.message || 'Не удалось загрузить аккаунты')
 		} finally {

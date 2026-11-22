@@ -9,5 +9,11 @@ export async function GET(req: Request) {
 	if (!adminFrom(req)) return json({ error: 'forbidden' }, 403)
 	const url = new URL(req.url)
 	const limit = Number(url.searchParams.get('limit') || 1000)
-	return json({ users: await listUsers(limit) })
+	try {
+		return json({ users: await listUsers(limit) })
+	} catch (e) {
+		// Не отдаём пустой 500: клиент ждёт JSON и иначе падает на res.json().
+		console.error('[admin/users]', e)
+		return json({ error: 'Не удалось загрузить аккаунты' }, 500)
+	}
 }

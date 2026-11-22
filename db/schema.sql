@@ -38,6 +38,23 @@ CREATE TABLE IF NOT EXISTS rooms (
 
 CREATE INDEX IF NOT EXISTS rooms_updated_at_idx ON rooms (updated_at);
 
+-- Аккаунты Ovrly — отдельная таблица, не связанная с links (links — это
+-- привязка Twitch-логина к комнате и токенам). Здесь хранится вход по почте
+-- и/или Twitch, хэш пароля (scrypt), профиль и даты входов.
+CREATE TABLE IF NOT EXISTS users (
+	id uuid PRIMARY KEY,
+	email text UNIQUE,
+	password_hash text,
+	twitch_login text UNIQUE,
+	display_name text NOT NULL,
+	avatar text,
+	created_at timestamptz NOT NULL DEFAULT now(),
+	last_login_at timestamptz
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS users_twitch_lower_idx
+	ON users (lower(twitch_login));
+
 CREATE TABLE IF NOT EXISTS settings (
 	key text PRIMARY KEY,
 	value jsonb NOT NULL,

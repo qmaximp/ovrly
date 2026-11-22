@@ -79,7 +79,7 @@ function isUser(value: unknown): value is User {
 // --- PostgreSQL ---
 
 let sql: import('postgres').Sql | null = null
-let schemaReady: Promise<void> | null = null
+let schemaReady: Promise<unknown> | null = null
 
 async function db() {
 	if (!sql) {
@@ -108,6 +108,11 @@ async function db() {
 				CREATE UNIQUE INDEX IF NOT EXISTS users_twitch_lower_idx
 				ON users (lower(twitch_login))
 			`
+			// Важно вернуть сам sql, а не undefined: минификатор Turbopack
+			// иногда превращает `await schemaReady; return sql` в возврат
+			// промиса schemaReady. Если промис резолвится в sql, оба варианта
+			// работают одинаково.
+			return sql!
 		})()
 	}
 	await schemaReady
