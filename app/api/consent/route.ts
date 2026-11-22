@@ -7,8 +7,8 @@ import { getOrigin, seeOther } from '@/lib/session'
 
 // Согласие фиксируется на сервере до продолжения входа: cookie ставится
 // HttpOnly, а факт согласия пишется в журнал (дата, IP, user-agent, версия).
-// Для email-входа сессия уже создана, поэтому возвращаем в next; для Twitch
-// сессии ещё нет — уходим в OAuth.
+// Если сессия уже есть (email-вход), возвращаем в next; если нет — открываем
+// окно входа, где можно выбрать email или Twitch.
 
 // простой лимит, чтобы публичная форма не забила диск журналом
 const hits = new Map<string, number[]>()
@@ -68,7 +68,7 @@ export async function POST(req: Request) {
 
 	const target = session
 		? next
-		: `/api/auth/twitch?next=${encodeURIComponent(next)}`
+		: `/?auth=1&next=${encodeURIComponent(next)}`
 	const res = new NextResponse(null, {
 		status: 303,
 		headers: { Location: target },
