@@ -54,6 +54,8 @@ export async function POST(req: Request) {
 				version: LEGAL_VERSION,
 				terms: true,
 				pd: true,
+				crossBorder: true,
+				countries: ['US', 'AE'],
 				...(session?.uid ? { uid: session.uid } : {}),
 				login: session?.login || undefined,
 				email: session?.email || undefined,

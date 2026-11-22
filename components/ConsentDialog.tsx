@@ -85,7 +85,8 @@ export default function ConsentDialog({
 				<h2 id='consent-title'>Согласие и документы</h2>
 				<p className='consent-lead'>
 					Ovrly — бесплатный сервис. Чтобы войти по email или через Twitch, нужно
-					принять условия и отдельно согласиться на обработку персональных данных.
+					принять условия и отдельно согласиться на обработку персональных данных,
+					включая трансграничную передачу в США и ОАЭ.
 				</p>
 
 				{/* ссылки специально вне <label>, чтобы клик по документу не ставил
@@ -116,14 +117,15 @@ export default function ConsentDialog({
 						id='consent-pd'
 						type='checkbox'
 						name='pd'
-						aria-label='Я даю согласие на обработку персональных данных'
+						aria-label='Я даю согласие на обработку персональных данных, включая трансграничную передачу'
 						checked={pd}
 						onChange={e => setPd(e.target.checked)}
 					/>
 					<span>
 						<label htmlFor='consent-pd'>Я даю </label>
 						<Link href='/legal/consent' target='_blank' rel='noopener'>
-							согласие на обработку персональных данных
+							согласие на обработку персональных данных, включая трансграничную
+							передачу
 						</Link>
 						<label htmlFor='consent-pd'>
 							{' '}

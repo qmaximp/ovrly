@@ -31,6 +31,8 @@ async function writeConsent(
 				method: 'email',
 				version: LEGAL_VERSION,
 				docs: ['terms', 'privacy', 'consent'],
+				crossBorder: true,
+				countries: ['US', 'AE'],
 				ip,
 				ua: (req.headers.get('user-agent') || '').slice(0, 300),
 			}) + '\n',
