@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server'
 import { clientIp, cookieValue, json, rateLimit, readJson, tooMany } from '@/lib/api'
 import { isEmail, normalizeEmail, sameOrigin, sessionForUser, setSessionCookie } from '@/lib/auth'
 import { verifyCaptcha } from '@/lib/captcha'
-import { hasConsent } from '@/lib/legal'
+import { LEGAL_VERSION, consentCookieValue, hasConsent } from '@/lib/legal'
+import { getOrigin } from '@/lib/session'
 import { burnPasswordCheck, verifyPassword } from '@/lib/passwords'
 import { findUserByEmail, findUserByTwitch, touchUserLogin } from '@/lib/users'
 
@@ -110,10 +111,11 @@ export async function POST(req: Request) {
 	failures.delete(ip)
 	await touchUserLogin(user.id)
 
-	const consentOk = hasConsent(
-		cookieValue(req.headers.get('cookie'), 'sc_consent'),
-		user.id,
-	)
+	const rawConsent = cookieValue(req.headers.get('cookie'), 'sc_consent')
+	// Согласие могли дать до входа (общая отметка версии). После входа
+	// привязываем его к аккаунту, чтобы не показывать окно повторно.
+	const genericConsent = rawConsent === LEGAL_VERSION
+	const consentOk = genericConsent || hasConsent(rawConsent, user.id)
 	const target = consentOk
 		? next
 		: `/?consent=1&next=${encodeURIComponent(next)}`
@@ -124,5 +126,14 @@ export async function POST(req: Request) {
 		needsConsent: !consentOk,
 	})
 	setSessionCookie(res, req, sessionForUser(user))
+	if (genericConsent) {
+		res.cookies.set('sc_consent', consentCookieValue(user.id), {
+			httpOnly: true,
+			sameSite: 'lax',
+			path: '/',
+			maxAge: 60 * 60 * 24 * 365,
+			secure: getOrigin(req).startsWith('https:'),
+		})
+	}
 	return res
 }
