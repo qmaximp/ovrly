@@ -79,8 +79,11 @@ function isUser(value: unknown): value is User {
 // --- PostgreSQL ---
 
 let sql: import('postgres').Sql | null = null
-let schemaReady: Promise<unknown> | null = null
+let schemaDone = false
 
+// Простая ленивая инициализация без промиса в модульной переменной:
+// минификатор Turbopack ломал `await schemaReady; return sql` и возвращал
+// промис вместо самого sql, из-за чего `db()` переставал быть функцией.
 async function db() {
 	if (!sql) {
 		const { default: postgres } = await import('postgres')
@@ -90,33 +93,24 @@ async function db() {
 			connect_timeout: 10,
 		})
 	}
-	if (!schemaReady) {
-		schemaReady = (async () => {
-			await sql!`
-				CREATE TABLE IF NOT EXISTS users (
-					id uuid PRIMARY KEY,
-					email text UNIQUE,
-					password_hash text,
-					twitch_login text UNIQUE,
-					display_name text NOT NULL,
-					avatar text,
-					created_at timestamptz NOT NULL DEFAULT now(),
-					last_login_at timestamptz
-				)
-			`
-			await sql!`
-				CREATE UNIQUE INDEX IF NOT EXISTS users_twitch_lower_idx
-				ON users (lower(twitch_login))
-			`
-			// Важно вернуть сам sql, а не undefined: минификатор Turbopack
-			// иногда превращает `await schemaReady; return sql` в возврат
-			// промиса schemaReady. Если промис резолвится в sql, оба варианта
-			// работают одинаково.
-			return sql!
-		})()
+	if (!schemaDone) {
+		// Повторный CREATE ... IF NOT EXISTS безопасен, поэтому гонка двух
+		// первых запросов не страшна.
+		await sql`CREATE TABLE IF NOT EXISTS users (
+			id uuid PRIMARY KEY,
+			email text UNIQUE,
+			password_hash text,
+			twitch_login text UNIQUE,
+			display_name text NOT NULL,
+			avatar text,
+			created_at timestamptz NOT NULL DEFAULT now(),
+			last_login_at timestamptz
+		)`
+		await sql`CREATE UNIQUE INDEX IF NOT EXISTS users_twitch_lower_idx
+			ON users (lower(twitch_login))`
+		schemaDone = true
 	}
-	await schemaReady
-	return sql!
+	return sql
 }
 
 function fromRow(row: Record<string, unknown>): User {
@@ -142,7 +136,8 @@ export async function findUserByEmail(email: string): Promise<User | null> {
 	const value = normalizeEmail(email)
 	if (!value) return null
 	if (hasDb()) {
-		const rows = await (await db())`
+		const connection = await db()
+		const rows = await connection`
 			SELECT * FROM users WHERE lower(email) = ${value} LIMIT 1
 		`
 		return rows[0] ? fromRow(rows[0]) : null
@@ -157,7 +152,8 @@ export async function findUserByTwitch(login: string): Promise<User | null> {
 	const value = normalizeLogin(login)
 	if (!value) return null
 	if (hasDb()) {
-		const rows = await (await db())`
+		const connection = await db()
+		const rows = await connection`
 			SELECT * FROM users WHERE lower(twitch_login) = ${value} LIMIT 1
 		`
 		return rows[0] ? fromRow(rows[0]) : null
@@ -171,7 +167,8 @@ export async function findUserByTwitch(login: string): Promise<User | null> {
 export async function findUserById(id: string): Promise<User | null> {
 	if (!id) return null
 	if (hasDb()) {
-		const rows = await (await db())`SELECT * FROM users WHERE id = ${id} LIMIT 1`
+		const connection = await db()
+		const rows = await connection`SELECT * FROM users WHERE id = ${id} LIMIT 1`
 		return rows[0] ? fromRow(rows[0]) : null
 	}
 	return withJson(rows => rows.find(u => u.id === id) ?? null)
@@ -200,7 +197,8 @@ export async function createUser(input: CreateUserInput): Promise<User> {
 
 	if (hasDb()) {
 		try {
-			const rows = await (await db())`
+			const connection = await db()
+			const rows = await connection`
 				INSERT INTO users (id, email, password_hash, twitch_login, display_name, avatar)
 				VALUES (${user.id}, ${user.email}, ${user.passwordHash}, ${user.twitchLogin},
 					${user.displayName}, ${user.avatar})
@@ -304,7 +302,8 @@ function toPublic(user: User): PublicUser {
 export async function listUsers(limit = 1000): Promise<PublicUser[]> {
 	const cap = Math.min(Math.max(Math.floor(limit) || 1000, 1), 5000)
 	if (hasDb()) {
-		const rows = await (await db())`
+		const connection = await db()
+		const rows = await connection`
 			SELECT * FROM users ORDER BY created_at DESC LIMIT ${cap}
 		`
 		return rows.map(r => toPublic(fromRow(r)))

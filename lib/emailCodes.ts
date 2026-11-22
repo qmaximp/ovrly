@@ -79,7 +79,7 @@ function withJson<T>(fn: (rows: Record<string, CodeRow>) => T | Promise<T>): Pro
 
 type Sql = import('postgres').Sql
 let sql: Sql | null = null
-let schemaReady: Promise<void> | null = null
+let schemaDone = false
 
 async function db(): Promise<Sql> {
 	if (!sql) {
@@ -90,20 +90,16 @@ async function db(): Promise<Sql> {
 			connect_timeout: 10,
 		})
 	}
-	if (!schemaReady) {
-		schemaReady = (async () => {
-			await sql!`
-				CREATE TABLE IF NOT EXISTS email_codes (
-					email text PRIMARY KEY,
-					code_hash text NOT NULL,
-					expires_at timestamptz NOT NULL,
-					attempts integer NOT NULL DEFAULT 0,
-					sent_at timestamptz NOT NULL DEFAULT now()
-				)
-			`
-		})()
+	if (!schemaDone) {
+		await sql`CREATE TABLE IF NOT EXISTS email_codes (
+			email text PRIMARY KEY,
+			code_hash text NOT NULL,
+			expires_at timestamptz NOT NULL,
+			attempts integer NOT NULL DEFAULT 0,
+			sent_at timestamptz NOT NULL DEFAULT now()
+		)`
+		schemaDone = true
 	}
-	await schemaReady
 	return sql
 }
 
