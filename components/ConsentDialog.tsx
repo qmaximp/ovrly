@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import Link from 'next/link'
 
-// Согласие до сбора данных: пока пользователь не принял соглашение и не дал
-// согласие на обработку ПДн, /api/auth/twitch не начинает OAuth-обмен.
+// Согласие до сбора данных: при регистрации по email и при первом входе через
+// Twitch пользователь принимает соглашение и даёт согласие на обработку ПДн.
 export default function ConsentDialog({
 	open,
 	next,
@@ -84,8 +84,8 @@ export default function ConsentDialog({
 				<div className='consent-badge'>Перед входом</div>
 				<h2 id='consent-title'>Согласие и документы</h2>
 				<p className='consent-lead'>
-					Ovrly — бесплатный сервис. Чтобы войти через Twitch, нужно принять
-					условия и отдельно согласиться на обработку персональных данных.
+					Ovrly — бесплатный сервис. Чтобы войти по email или через Twitch, нужно
+					принять условия и отдельно согласиться на обработку персональных данных.
 				</p>
 
 				{/* ссылки специально вне <label>, чтобы клик по документу не ставил
@@ -147,14 +147,14 @@ export default function ConsentDialog({
 						Отмена
 					</button>
 					<button type='submit' className='consent-btn primary'>
-						Продолжить вход
+						Продолжить
 					</button>
 				</div>
 
 				<p className='consent-fine'>
-					Вход выполняется через Twitch. Мы не получаем ваш пароль и не
-					запрашиваем адрес электронной почты. Отозвать согласие можно в любой
-					момент — инструкция в{' '}
+					Пароль от Twitch мы не получаем. Если вы входите по email, пароль Ovrly
+					хранится только в виде необратимого хеша и не передаётся третьим лицам.
+					Отозвать согласие можно в любой момент — инструкция в{' '}
 					<Link href='/legal/privacy' target='_blank' rel='noopener'>
 						Политике
 					</Link>

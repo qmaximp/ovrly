@@ -12,6 +12,7 @@ import {
   notRegisteredScreen,
 } from "@/lib/links";
 import { findOwnerByToken, getInviteStatus } from "@/lib/invites";
+import { hasConsent } from "@/lib/legal";
 import { verifySession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -45,9 +46,17 @@ export default async function Panel({
 		return invalidLinkScreen();
 	}
 
-	const session = verifySession((await cookies()).get("sc_session")?.value);
+	const jar = await cookies();
+	const session = verifySession(jar.get("sc_session")?.value);
 	// не авторизован — после входа попадёт в кабинет (приглашение выдаёт стример по нику)
 	if (!session) return notRegisteredScreen(`/cabinet?invite=${encodeURIComponent(room)}`);
+
+	// Смена версии документов: без актуального согласия панель не открываем.
+	if (!hasConsent(jar.get("sc_consent")?.value, session.uid)) {
+		redirect(
+			`/?consent=1&next=${encodeURIComponent(`/panel?room=${room}`)}`,
+		);
+	}
 
 	const owner = await findOwnerByToken(room);
 	if (!owner) return invalidLinkScreen();

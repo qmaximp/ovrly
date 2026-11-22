@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
-import { clientIp, json, rateLimit, readJson, tooMany } from '@/lib/api'
+import { clientIp, cookieValue, json, rateLimit, readJson, tooMany } from '@/lib/api'
 import { isEmail, normalizeEmail, sameOrigin, sessionForUser, setSessionCookie } from '@/lib/auth'
 import { verifyCaptcha } from '@/lib/captcha'
+import { hasConsent } from '@/lib/legal'
 import { burnPasswordCheck, verifyPassword } from '@/lib/passwords'
 import { findUserByEmail, findUserByTwitch, touchUserLogin } from '@/lib/users'
 
@@ -109,7 +110,19 @@ export async function POST(req: Request) {
 	failures.delete(ip)
 	await touchUserLogin(user.id)
 
-	const res = NextResponse.json({ ok: true, next })
+	const consentOk = hasConsent(
+		cookieValue(req.headers.get('cookie'), 'sc_consent'),
+		user.id,
+	)
+	const target = consentOk
+		? next
+		: `/?consent=1&next=${encodeURIComponent(next)}`
+
+	const res = NextResponse.json({
+		ok: true,
+		next: target,
+		needsConsent: !consentOk,
+	})
 	setSessionCookie(res, req, sessionForUser(user))
 	return res
 }

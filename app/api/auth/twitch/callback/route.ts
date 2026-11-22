@@ -3,7 +3,7 @@ import path from "path";
 import { getOrigin, safeNextPath, seeOther, signSession, SESSION_MAX_AGE_S, tokenForLogin, verifySession } from "@/lib/session";
 import { sessionForUser } from "@/lib/auth";
 import { readLinks, writeLinks, readOwner, writeOwner } from "@/lib/links";
-import { LEGAL_VERSION } from "@/lib/legal";
+import { LEGAL_VERSION, consentCookieValue, isConsentVersion } from "@/lib/legal";
 import { syncStreamer } from "@/lib/streamers";
 import { createUser, findUserById, findUserByTwitch, touchUserLogin, updateUser } from "@/lib/users";
 
@@ -161,7 +161,8 @@ export async function GET(req: Request) {
   // логин, время, версия документов, IP и user-agent. Не мешает входу.
   try {
     const consent = cookie.match(/(?:^|;\s*)sc_consent=([^;]+)/)?.[1];
-    if (linked || consent === LEGAL_VERSION) {
+    const consentGiven = linked || isConsentVersion(consent);
+    if (consentGiven) {
       const dir = path.join(process.cwd(), "data");
       await mkdir(dir, { recursive: true });
       const ip =
@@ -209,5 +210,14 @@ export async function GET(req: Request) {
   res.headers.append("Set-Cookie", "sc_oauth_state=; Path=/; Max-Age=0");
   res.headers.append("Set-Cookie", "sc_next=; Path=/; Max-Age=0");
   res.headers.append("Set-Cookie", "sc_link=; Path=/; Max-Age=0");
+  // Привязываем маркер согласия к uid: после OAuth он уже известен. Так согласие
+  // одного пользователя не открывает кабинет другому на общем браузере.
+  const consentRaw = cookie.match(/(?:^|;\s*)sc_consent=([^;]+)/)?.[1];
+  if (session.uid && (linked || isConsentVersion(consentRaw))) {
+    res.headers.append(
+      "Set-Cookie",
+      `sc_consent=${consentCookieValue(session.uid)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 365}${secure}`,
+    );
+  }
   return res;
 }

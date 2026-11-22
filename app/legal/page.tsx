@@ -26,8 +26,8 @@ export default function LegalIndexPage() {
 			<p className='legal-lead'>
 				Здесь собраны документы, которые регулируют использование сайта{' '}
 				<a href={site}>{site.replace(/^https?:\/\//, '')}</a> и сервиса Ovrly. Они
-				написаны простым языком, но имеют юридическую силу: вход через Twitch и
-				использование панели означают, что вы с ними ознакомились и принимаете.
+				написаны простым языком, но имеют юридическую силу: регистрация по email
+				и вход через Twitch означают, что вы с ними ознакомились и принимаете.
 			</p>
 
 			<div className='legal-grid'>
@@ -63,7 +63,7 @@ export default function LegalIndexPage() {
 				)}
 				{OPERATOR.address && (
 					<>
-						<dt>Адрес для корреспонденции</dt>
+						<dt>Адрес</dt>
 						<dd>{OPERATOR.address}</dd>
 					</>
 				)}
@@ -101,8 +101,9 @@ export default function LegalIndexPage() {
 			<h2>Коротко о главном</h2>
 			<ul>
 				<li>
-					<strong>Вход — только через Twitch.</strong> Ovrly не хранит пароли и не
-					получает доступ к вашему аккаунту Twitch сверх разрешённых прав.
+					<strong>Вход по email или через Twitch.</strong> Пароль Ovrly хранится
+					только в виде необратимого хеша; пароль Twitch мы не получаем, а доступ к
+					аккаунту Twitch ограничен разрешёнными правами.
 				</li>
 				<li>
 					<strong>Сервис бесплатный.</strong> Донаты добровольны и не являются
@@ -118,7 +119,8 @@ export default function LegalIndexPage() {
 					<Link href='/legal/cookies'>Политике cookie</Link>.
 				</li>
 				<li>
-					<strong>Вы можете удалить данные.</strong> Напишите с логином Twitch на{' '}
+					<strong>Вы можете удалить данные.</strong> Напишите с логином Twitch или
+					адресом почты на{' '}
 					<a href={`mailto:${OPERATOR.email}`}>{OPERATOR.email}</a> — аккаунт и
 					контент будут удалены.
 				</li>

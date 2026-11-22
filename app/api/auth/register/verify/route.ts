@@ -4,13 +4,54 @@ import { NextResponse } from 'next/server'
 import { clientIp, json, rateLimit, readJson, tooMany } from '@/lib/api'
 import { isEmail, normalizeEmail, sameOrigin, sessionForUser, setSessionCookie } from '@/lib/auth'
 import { checkCode, clearCode } from '@/lib/emailCodes'
-import { LEGAL_VERSION } from '@/lib/legal'
+import { LEGAL_VERSION, consentCookieValue } from '@/lib/legal'
 import { checkPassword, hashPassword, verifyPassword } from '@/lib/passwords'
 import { createUser, findUserByEmail, touchUserLogin, updateUser, UserConflictError } from '@/lib/users'
-import { safeNextPath } from '@/lib/session'
+import { getOrigin, safeNextPath } from '@/lib/session'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+
+// Журнал согласий: фиксируем, что согласие дано до создания аккаунта или входа.
+// Почта нужна, чтобы связать запись с аккаунтом; IP и UA — минимум для
+// доказывания. Сбой записи не должен ломать регистрацию.
+async function writeConsent(
+	req: Request,
+	ip: string,
+	entry: { event: string; uid: string; email: string },
+) {
+	try {
+		const dir = path.join(process.cwd(), 'data')
+		await mkdir(dir, { recursive: true })
+		await appendFile(
+			path.join(dir, 'consents.jsonl'),
+			JSON.stringify({
+				...entry,
+				at: new Date().toISOString(),
+				method: 'email',
+				version: LEGAL_VERSION,
+				docs: ['terms', 'privacy', 'consent'],
+				ip,
+				ua: (req.headers.get('user-agent') || '').slice(0, 300),
+			}) + '\n',
+			'utf8',
+		)
+	} catch {
+		// журнал не должен ломать вход
+	}
+}
+
+// После регистрации по email согласие уже дано — ставим тот же маркер, что и
+// окно согласия, чтобы при следующем входе не спрашивать заново.
+function setConsentCookie(res: NextResponse, req: Request, uid: string) {
+	res.cookies.set('sc_consent', consentCookieValue(uid), {
+		httpOnly: true,
+		sameSite: 'lax',
+		path: '/',
+		maxAge: 60 * 60 * 24 * 365,
+		secure: getOrigin(req).startsWith('https:'),
+	})
+}
 
 export async function POST(req: Request) {
 	if (!sameOrigin(req)) return json({ error: 'Запрос отклонён' }, 403)
@@ -68,6 +109,11 @@ export async function POST(req: Request) {
 			await updateUser(existing.id, { passwordHash: await hashPassword(password) })
 		}
 		await touchUserLogin(existing.id)
+		await writeConsent(req, ip, {
+			event: 'login',
+			uid: existing.id,
+			email,
+		})
 		const res = NextResponse.json({
 			ok: true,
 			loggedIn: true,
@@ -75,6 +121,7 @@ export async function POST(req: Request) {
 			next: safeNextPath(typeof body.next === 'string' ? body.next : null),
 		})
 		setSessionCookie(res, req, sessionForUser(existing))
+		setConsentCookie(res, req, existing.id)
 		return res
 	}
 
@@ -100,34 +147,17 @@ export async function POST(req: Request) {
 	await touchUserLogin(user.id)
 
 	// Журнал согласий: фиксируем, что согласие дано до создания аккаунта.
-	// Почта нужна, чтобы связать запись с аккаунтом; IP и UA — минимум для
-	// доказывания. Сбой записи не должен ломать регистрацию.
-	try {
-		const dir = path.join(process.cwd(), 'data')
-		await mkdir(dir, { recursive: true })
-		await appendFile(
-			path.join(dir, 'consents.jsonl'),
-			JSON.stringify({
-				event: 'register',
-				at: new Date().toISOString(),
-				uid: user.id,
-				email,
-				method: 'email',
-				version: LEGAL_VERSION,
-				docs: ['terms', 'privacy', 'consent'],
-				ip,
-				ua: (req.headers.get('user-agent') || '').slice(0, 300),
-			}) + '\n',
-			'utf8',
-		)
-	} catch {
-		// журнал не должен ломать вход
-	}
+	await writeConsent(req, ip, {
+		event: 'register',
+		uid: user.id,
+		email,
+	})
 
 	const res = NextResponse.json({
 		ok: true,
 		next: safeNextPath(typeof body.next === 'string' ? body.next : null),
 	})
 	setSessionCookie(res, req, sessionForUser(user))
+	setConsentCookie(res, req, user.id)
 	return res
 }

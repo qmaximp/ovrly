@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { LEGAL_DATE, OPERATOR, legalMeta, operatorTitle } from '@/lib/legal'
+import { LEGAL_DATE, LEGAL_VERSION, OPERATOR, legalMeta, operatorTitle } from '@/lib/legal'
 
 export const metadata: Metadata = legalMeta(
 	'Политика использования cookie',
@@ -13,7 +13,9 @@ export default function CookiesPage() {
 		<article className='legal-doc'>
 			<p className='legal-kicker'>Документ 3 из 4</p>
 			<h1>Политика использования cookie</h1>
-			<p className='legal-meta'>Редакция от {LEGAL_DATE}</p>
+			<p className='legal-meta'>
+				Редакция от {LEGAL_DATE} · версия {LEGAL_VERSION}
+			</p>
 
 			<h2>1. Что такое cookie и localStorage</h2>
 			<p>
@@ -50,9 +52,9 @@ export default function CookiesPage() {
 								<code>sc_session</code>
 							</td>
 							<td>
-								Подписанная сессия после входа через Twitch: логин, отображаемое
-								имя, аватар, токен доступа. Нужна, чтобы панель и кабинет
-								понимали, кто вы.
+								Подписанная сессия после входа по email или через Twitch:
+								идентификатор, логин, отображаемое имя, аватар; для Twitch —
+								токен доступа. Нужна, чтобы панель и кабинет понимали, кто вы.
 							</td>
 							<td>30 дней</td>
 							<td>HttpOnly, SameSite=Lax, Secure на HTTPS</td>
@@ -85,7 +87,8 @@ export default function CookiesPage() {
 							</td>
 							<td>
 								Отметка о принятии Пользовательского соглашения и согласии на
-								обработку ПДн. Хранит только версию документов, без иных данных.
+								обработку ПДн. Хранит версию документов и внутренний
+								идентификатор учётной записи, без иных данных.
 							</td>
 							<td>1 год</td>
 							<td>HttpOnly, SameSite=Lax, Secure на HTTPS</td>
@@ -133,7 +136,7 @@ export default function CookiesPage() {
 				4.3. Вы можете удалить или заблокировать cookie в настройках браузера
 				(разделы «Конфиденциальность», «Файлы cookie и данные сайтов»). Учтите:
 				при блокировке <code>sc_session</code> и <code>sc_oauth_state</code> вход
-				через Twitch работать не будет.
+				по email и через Twitch работать не будет.
 			</p>
 			<p>
 				4.4. Отзыв согласия на обработку ПДн не удаляет автоматически cookie
@@ -178,6 +181,11 @@ export default function CookiesPage() {
 					{OPERATOR.telegramLabel}
 				</a>
 				.
+			</p>
+			<p>
+				Оператор: {operatorTitle()}, {OPERATOR.status}
+				{OPERATOR.inn ? `, ИНН ${OPERATOR.inn}` : ''}
+				{OPERATOR.address ? `, ${OPERATOR.address}` : ''}.
 			</p>
 		</article>
 	)

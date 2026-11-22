@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getOrigin, randomState, safeNextPath, seeOther, verifySession } from "@/lib/session";
-import { LEGAL_VERSION } from "@/lib/legal";
+import { isConsentVersion } from "@/lib/legal";
 
 export async function GET(req: Request) {
   const clientId = process.env.TWITCH_CLIENT_ID;
@@ -25,7 +25,7 @@ export async function GET(req: Request) {
     // пользователя (включая Twitch-профиль) не собираются. Согласие ставится
     // чекбоксом на лендинге и живёт в cookie sc_consent.
     const consent = cookie.match(/(?:^|;\s*)sc_consent=([^;]+)/)?.[1];
-    if (consent !== LEGAL_VERSION) {
+    if (!isConsentVersion(consent)) {
       return seeOther(`/?consent=1&next=${encodeURIComponent(nextSafe)}`);
     }
   }
